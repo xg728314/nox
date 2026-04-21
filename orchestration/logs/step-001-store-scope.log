@@ -1,0 +1,10 @@
+[2026-04-10 07:13:22] NOX RUN ROUND START
+TaskContract: PASS
+WorkspaceRoot: C:\work\nox
+TaskFile: C:\work\nox\orchestration\tasks\step-001-store-scope.md
+ResultFile: C:\work\nox\orchestration\results\step-001-store-scope.md
+StatePhase: STEP 0 - orchestration setup
+StateStep: orchestrator one-shot executed
+PrimaryExecutor: claude_code
+NextPriority: create round-002 actual task
+[2026-04-10 07:13:22] BridgeResult: FAIL ([FAIL] Staged result file not found.)

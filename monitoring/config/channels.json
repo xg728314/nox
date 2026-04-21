@@ -1,0 +1,38 @@
+{
+  "$comment": [
+    "Severity → Telegram chat routing. Each bot can override the",
+    "default map by passing its own table to sendAlert().",
+    "",
+    "Chat IDs are resolved from env vars at send time:",
+    "  - 'public'   → TELEGRAM_CHAT_PUBLIC",
+    "  - 'ops'      → TELEGRAM_CHAT_OPS",
+    "  - 'dev'      → TELEGRAM_CHAT_DEV",
+    "",
+    "Multiple chats per severity is allowed and expected for RED."
+  ],
+
+  "default": {
+    "GREEN":  [],
+    "BLUE":   ["ops"],
+    "YELLOW": ["ops"],
+    "ORANGE": ["ops"],
+    "RED":    ["ops", "public"]
+  },
+
+  "overrides": {
+    "nox-cleanup-auditor": {
+      "GREEN":  [],
+      "BLUE":   ["dev"],
+      "YELLOW": ["dev"],
+      "ORANGE": ["dev"],
+      "RED":    ["dev"]
+    },
+    "nox-cutover-sentry": {
+      "GREEN":  [],
+      "BLUE":   ["ops"],
+      "YELLOW": ["ops"],
+      "ORANGE": ["ops"],
+      "RED":    ["ops", "public"]
+    }
+  }
+}

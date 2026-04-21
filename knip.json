@@ -1,0 +1,33 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "middleware.ts",
+    "next.config.ts",
+    "scripts/**/*.{ts,mjs,js,cjs}"
+  ],
+  "project": [
+    "app/**/*.{ts,tsx}",
+    "lib/**/*.{ts,tsx}",
+    "components/**/*.{ts,tsx}",
+    "middleware.ts",
+    "next.config.ts",
+    "scripts/**/*.{ts,mjs,js,cjs}"
+  ],
+  "ignore": [
+    "_ble_wip/**",
+    ".next_old_*/**",
+    ".next/**",
+    "printer-server/**",
+    "orchestration/**",
+    "database/**",
+    "public/**",
+    "docs/**",
+    "reference/**",
+    "contracts/**",
+    "qa/**",
+    "C:worknox*/**",
+    "**/*.d.ts"
+  ],
+  "ignoreBinaries": ["tsx", "python", "python3"],
+  "ignoreDependencies": []
+}

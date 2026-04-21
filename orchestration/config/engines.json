@@ -1,0 +1,82 @@
+﻿{
+  "primary_executor": {
+    "name": "claude_code",
+    "role": "primary_executor",
+    "enabled": true,
+    "responsibilities": [
+      "single-file controlled change",
+      "core feature implementation",
+      "small scoped code edits"
+    ],
+    "forbidden": [
+      "self-directed next task selection",
+      "multi-domain uncontrolled edits",
+      "docs baseline modification without explicit task"
+    ]
+  },
+  "secondary_executors": [
+    {
+      "name": "cursor",
+      "role": "secondary_support",
+      "enabled": true,
+      "responsibilities": [
+        "documentation support",
+        "structure exploration",
+        "independent low-risk support tasks"
+      ],
+      "forbidden": [
+        "auth core changes without explicit task",
+        "settlement core edits without explicit task",
+        "db core edits without explicit task"
+      ]
+    },
+    {
+      "name": "codex",
+      "role": "support_executor",
+      "enabled": true,
+      "responsibilities": [
+        "test scaffolding",
+        "utility support",
+        "repeatable low-risk helper generation"
+      ],
+      "forbidden": [
+        "core business logic edits",
+        "auth edits",
+        "schema edits"
+      ]
+    }
+  ],
+  "orchestrator": {
+    "name": "chatgpt",
+    "role": "planner_validator",
+    "enabled": true,
+    "responsibilities": [
+      "task decomposition",
+      "prompt generation",
+      "result review",
+      "next task decision",
+      "direction correction"
+    ],
+    "forbidden": [
+      "direct uncontrolled repository modification"
+    ]
+  },
+  "execution_policy": {
+    "default_task_type": "single-file controlled change",
+    "default_mode": "controlled_auto_stop_on_fail",
+    "parallel_policy": "disabled_by_default",
+    "parallel_allowed_only_for": [
+      "documentation tasks",
+      "checklists",
+      "independent analysis"
+    ],
+    "parallel_forbidden_for": [
+      "auth core",
+      "database core",
+      "session core",
+      "settlement core",
+      "ble core",
+      "shared state"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(npm run:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/api/auth/me)",
+      "Bash(python scripts/test-step1.py)",
+      "Bash(python scripts/test-step2.py)",
+      "Bash(python scripts/test-step3.py)",
+      "Bash(npx tsx:*)",
+      "Bash(curl:*)",
+      "Bash(python scripts/test-cross-store.py)",
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(python scripts/test-security-audit.py)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE eq *next*\")",
+      "Bash(taskkill //F //FI \"IMAGENAME eq node.exe\" //FI \"WINDOWTITLE eq *nox*\")",
+      "Bash(PORT=3001 npx next dev --port 3001)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 35020)",
+      "Bash(echo \"TSC=$?\")",
+      "Skill(update-config)",
+      "mcp__supabase__*"
+    ]
+  },
+  "enableAllProjectMcpServers": true
+}

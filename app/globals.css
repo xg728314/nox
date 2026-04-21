@@ -1,0 +1,44 @@
+/* Pretendard variable (Korean-first operator-grade font).
+ *
+ * Dynamic subset is loaded at runtime so glyph-set weight is minimized.
+ * If the CDN is unreachable, the explicit system fallback chain below
+ * (Apple SD Gothic Neo on macOS/iOS, Malgun Gothic on Windows, Noto
+ * Sans KR on Linux) keeps Korean rendering legible. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import "tailwindcss";
+
+/* Tailwind v4 — override the built-in `font-sans` token so every
+ * `font-sans` utility (and the default body font) resolves to the
+ * Korean-friendly stack above. */
+@theme {
+  --font-sans:
+    "Pretendard Variable", Pretendard,
+    -apple-system, BlinkMacSystemFont,
+    system-ui, "Segoe UI",
+    "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", "맑은 고딕",
+    Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  html, body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "tnum" 1;
+  }
+  /* Korean text should not break mid-syllable. `word-break: keep-all`
+   * keeps words whole when there is room, while `line-break: strict`
+   * respects standard Korean line-break rules. Tailwind's `truncate`
+   * utility (white-space: nowrap) is unaffected. */
+  body {
+    word-break: keep-all;
+    line-break: strict;
+  }
+  /* Force tabular numerals in contexts that rely on it even if the
+   * browser ignores font-feature-settings for the whole document. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

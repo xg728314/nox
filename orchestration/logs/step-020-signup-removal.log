@@ -1,0 +1,6 @@
+[2026-04-16 05:38:00] NOX RUN ROUND BLOCKED
+Reason: Task contract incomplete
+TaskFile: C:\work\nox\orchestration\tasks\step-020-signup-removal.md
+MissingSections: [ROUND], [TASK TYPE], [OBJECTIVE], [CONSTRAINTS], [FAIL IF], [OUTPUT FORMAT], [TARGET FILE(S)], [ALLOWED_FILES], [FORBIDDEN_FILES]
+StatePhase: STEP 0 - orchestration setup
+StateStep: round-096 PASS

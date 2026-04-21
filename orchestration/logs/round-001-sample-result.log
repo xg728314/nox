@@ -1,0 +1,10 @@
+[2026-04-16 02:44:06] NOX RUN ROUND START
+TaskContract: PASS
+WorkspaceRoot: C:\work\nox
+TaskFile: C:\work\nox\orchestration\tasks\round-001-sample-task.md
+ResultFile: C:\work\nox\orchestration\results\round-001-sample-result.md
+StatePhase: STEP 0 - orchestration setup
+StateStep: round-096 PASS
+PrimaryExecutor: claude_code
+NextPriority: round-097
+[2026-04-16 02:44:06] BridgeResult: MANUAL (awaiting result)

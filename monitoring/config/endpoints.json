@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Probe URLs and expected contracts for cutover-sentry and runtime-monitor.",
+    "Paths are relative to NOX_BASE_URL. Do NOT hard-code the base here —",
+    "env-driven so the same config works across staging and prod."
+  ],
+
+  "auth": {
+    "login":  { "method": "POST", "path": "/api/auth/login",   "expectStatus": 200, "requiresCredentials": true },
+    "me":     { "method": "GET",  "path": "/api/auth/me",      "expectStatus": 200, "requiresCookie": true },
+    "logout": { "method": "POST", "path": "/api/auth/logout",  "expectStatus": 200, "requiresCookie": true }
+  },
+
+  "protected_probes": [
+    { "role": "owner",   "method": "GET", "path": "/owner",   "expectStatus": [200, 307] },
+    { "role": "manager", "method": "GET", "path": "/manager", "expectStatus": [200, 307] },
+    { "role": "hostess", "method": "GET", "path": "/me",      "expectStatus": 200 }
+  ],
+
+  "smoke": [
+    { "name": "rooms_list",       "method": "GET", "path": "/api/rooms",            "expectStatus": 200, "role": "owner" },
+    { "name": "store_service_t",  "method": "GET", "path": "/api/store/service-types", "expectStatus": 200, "role": "owner" }
+  ]
+}

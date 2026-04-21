@@ -1,0 +1,1 @@
+ALTER TABLE session_participants DROP CONSTRAINT IF EXISTS fk_participant_membership_store;

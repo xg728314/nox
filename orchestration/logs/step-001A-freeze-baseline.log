@@ -1,0 +1,6 @@
+[2026-04-10 07:40:03] NOX RUN ROUND BLOCKED
+Reason: Task contract incomplete
+TaskFile: C:\work\nox\orchestration\tasks\step-001A-freeze-baseline.md
+MissingSections: [ALLOWED_FILES], [FORBIDDEN_FILES]
+StatePhase: STEP 0 - orchestration setup
+StateStep: orchestrator one-shot executed

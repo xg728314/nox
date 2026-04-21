@@ -1,0 +1,18 @@
+{
+  "_comment": "SECURITY (SECURITY_FIX_PLAN.md TASK 0-1): NEVER commit the real service_role key. Copy this file to `.mcp.json` locally and fill in values from your password manager / Supabase Dashboard. `.mcp.json` is gitignored.",
+  "mcpServers": {
+    "supabase": {
+      "type": "stdio",
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--url",
+        "https://YOUR_PROJECT_REF.supabase.co",
+        "--service-role-key",
+        "REPLACE_WITH_SERVICE_ROLE_KEY_FROM_SUPABASE_DASHBOARD"
+      ],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,78 @@
+﻿{
+  "stop_policy": "fail_closed",
+  "auto_stop_on_fail": true,
+  "rules": [
+    {
+      "name": "validation_fail",
+      "enabled": true,
+      "description": "검증 실패 시 즉시 중단"
+    },
+    {
+      "name": "task_contract_violation",
+      "enabled": true,
+      "description": "allowed files 외 수정 시 즉시 중단"
+    },
+    {
+      "name": "forbidden_file_modified",
+      "enabled": true,
+      "description": "forbidden files 또는 NO_TOUCH 영역 수정 시 즉시 중단"
+    },
+    {
+      "name": "unknown_file_change",
+      "enabled": true,
+      "description": "예상하지 않은 파일 변경 발생 시 즉시 중단"
+    },
+    {
+      "name": "ambiguous_result",
+      "enabled": true,
+      "description": "결과가 불명확하거나 PASS/FAIL 판단 불가 시 즉시 중단"
+    },
+    {
+      "name": "incomplete_output",
+      "enabled": true,
+      "description": "출력 형식 미준수 또는 결과 불완전 시 즉시 중단"
+    },
+    {
+      "name": "unsafe_parallel_attempt",
+      "enabled": true,
+      "description": "병렬 금지 영역에 병렬 시도 발생 시 즉시 중단"
+    },
+    {
+      "name": "workspace_scope_violation",
+      "enabled": true,
+      "description": "C:\\work\\nox 외 경로 수정 또는 C:\\work\\wind 접근 시 즉시 중단"
+    },
+    {
+      "name": "docs_baseline_modified_without_explicit_task",
+      "enabled": true,
+      "description": "기준 문서를 명시적 작업 없이 수정하면 즉시 중단"
+    },
+    {
+      "name": "step_order_violation",
+      "enabled": true,
+      "description": "현재 STEP 순서를 어기고 선행 구현 시 즉시 중단"
+    }
+  ],
+  "review_required_rules": [
+    {
+      "name": "direction_change_detected",
+      "enabled": true,
+      "description": "작업 방향 자체가 바뀌는 제안이 감지되면 자동 진행 대신 REVIEW"
+    },
+    {
+      "name": "tech_stack_change_detected",
+      "enabled": true,
+      "description": "기술 스택 변경 필요성이 감지되면 REVIEW"
+    },
+    {
+      "name": "schema_change_after_lock",
+      "enabled": true,
+      "description": "ERD 잠금 이후 핵심 스키마 변경 필요 시 REVIEW"
+    }
+  ],
+  "notification_on_stop": [
+    "FAIL",
+    "STOP",
+    "REVIEW"
+  ]
+}

@@ -1,0 +1,205 @@
+[ROUND]
+STEP-019
+
+[TASK TYPE]
+real execution validation (NO CODE CHANGE unless FAIL)
+
+[OBJECTIVE]
+현재 NOX 시스템의 “실제 실행 검증” 수행.
+
+정적 검증(tsc/build)은 이미 완료됨.
+이 단계는 반드시 실제 UI/API 호출 기반으로 검증해야 한다.
+
+모든 테스트는:
+- 실제 API 호출
+- 실제 DB write/read
+- 실제 권한 흐름
+
+기준으로 진행한다.
+
+---
+
+[STRICT RULES]
+
+- ❌ 추측 금지
+- ❌ 코드 리팩터링 금지
+- ❌ UI 개선 금지
+- ❌ 계산 로직 변경 금지
+- ❌ computeSessionShares 수정 금지
+
+- ✅ FAIL 발생 시에만 수정 허용
+- ✅ 모든 FAIL은 “재현 단계 + 원인” 기록 필수
+
+---
+
+[TEST SCOPE]
+
+### 1. PAYOUT FLOW
+
+#### 1-1. Hostess payout
+- 정상 지급 실행
+- payout_records 생성 확인
+- 잔액 감소 확인
+- audit 기록 확인
+
+#### 1-2. Manager payout
+- 동일 검증
+
+#### 1-3. Partial payout
+- 일부 금액 지급
+- remaining 계산 확인
+
+#### 1-4. Prepayment
+- 선지급 처리
+- 이후 settlement 반영 확인
+
+#### 1-5. 권한 검증
+- manager가 다른 매장 데이터 접근 시도 → 차단
+- hostess가 payout 접근 시도 → 차단
+
+---
+
+### 2. CANCEL FLOW
+
+#### 2-1. payout cancel
+- cancel 실행
+- 금액 원복 확인
+- payout_records 상태 변경 확인
+
+#### 2-2. 중복 cancel
+- 동일 payout cancel 2회 시도 → 차단
+
+#### 2-3. audit 확인
+- cancel 이벤트 기록 확인
+
+---
+
+### 3. CROSS-STORE FLOW
+
+#### 3-1. store-level owed 생성 확인
+- cross-store owed 계산 존재 여부 확인
+
+#### 3-2. manager-level partial 지급
+- 일부 실장 지급
+- store 잔액 감소 확인
+
+#### 3-3. multiple payout
+- 여러 번 나눠 지급
+- 총합 일치 확인
+
+#### 3-4. cancel 이후 재지급
+- cancel → 재지급 → 정합성 확인
+
+---
+
+### 4. MFA / REAUTH
+
+#### 4-1. payout 접근 시
+- 재인증 요구 확인
+
+#### 4-2. cross-store 접근 시
+- 재인증 요구 확인
+
+#### 4-3. OTP 실패
+- 실패 횟수 제한 확인
+
+#### 4-4. trusted device
+- 재인증 스킵 여부 확인
+
+---
+
+### 5. CLOSING FLOW
+
+#### 5-1. closing 실행
+- business_day 종료
+- closing_reports 생성 확인
+
+#### 5-2. closing 이후 write 차단
+- orders / payout / cancel → 차단 여부 확인
+
+#### 5-3. snapshot 유지 확인
+- closing 이전 데이터 불변성 확인
+
+---
+
+[VALIDATION CRITERIA]
+
+각 테스트 케이스는 아래 4개 기준으로 검증:
+
+1. API Response 정상 여부
+2. DB 상태 변화 정확성
+3. 권한 정책 준수 여부
+4. audit 기록 존재 여부
+
+---
+
+[FAIL CONDITIONS]
+
+다음 중 하나라도 발생 시 FAIL:
+
+- 금액 불일치
+- 권한 우회 가능
+- audit 누락
+- 중복 처리 허용
+- closing 이후 write 가능
+- cross-store 정합성 깨짐
+
+---
+
+[OUTPUT FORMAT]
+
+반드시 아래 형식으로 제출:
+
+---
+
+## STEP-019 RESULT
+
+### TEST SUMMARY
+- total_cases:
+- passed:
+- failed:
+
+---
+
+### PASS CASES
+- [case_name]
+- [case_name]
+
+---
+
+### FAIL CASES
+
+#### [CASE NAME]
+
+**재현 단계**
+1.
+2.
+3.
+
+**기대 결과**
+-
+
+**실제 결과**
+-
+
+**원인 (추정 금지 / 실제 코드 기반)**
+-
+
+**영향 범위**
+-
+
+---
+
+### FINAL VERDICT
+
+- READY_FOR_PRODUCTION: YES / NO
+
+---
+
+[STOP CONDITIONS]
+
+- FAIL 1개라도 존재 시:
+  → 즉시 STEP-020로 전환 (버그 수정 라운드)
+
+- ALL PASS 시:
+  → STEP-021로 진행

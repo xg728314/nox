@@ -1,0 +1,37 @@
+﻿{
+  "telegram": {
+    "enabled": true,
+    "bot_token": "PUT_TELEGRAM_BOT_TOKEN_HERE",
+    "chat_id": "PUT_TELEGRAM_CHAT_ID_HERE",
+    "notification_types": [
+      "START",
+      "PASS",
+      "FAIL",
+      "STOP",
+      "REVIEW"
+    ],
+    "message_format": {
+      "include_project_name": true,
+      "include_step": true,
+      "include_task_name": true,
+      "include_result_status": true,
+      "include_next_blocker": true
+    },
+    "send_on_events": {
+      "task_started": true,
+      "task_passed": true,
+      "task_failed": true,
+      "auto_stopped": true,
+      "review_required": true
+    }
+  },
+  "rules": {
+    "no_mid_log_spam": true,
+    "critical_only": true,
+    "fail_closed_notification": true
+  },
+  "notes": {
+    "purpose": "Example template only",
+    "warning": "Do not store production secrets in baseline example files"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$comment": "Numeric thresholds per bot. Bots read this via shared/config.mjs. Tune without redeploying code.",
+
+  "cutover_sentry": {
+    "login_p95_ms_yellow": 1500,
+    "login_p95_ms_orange": 3000,
+    "login_p95_ms_red": 5000,
+    "me_p95_ms_yellow": 800,
+    "me_p95_ms_orange": 1500,
+    "me_p95_ms_red": 3000,
+    "probe_timeout_ms": 8000,
+    "probe_retries_on_network_err": 1,
+    "red_triggers_rollback_recommendation": true
+  },
+
+  "security_watch": {
+    "window_seconds": 300,
+    "login_fail_spike_yellow": 30,
+    "login_fail_spike_orange": 100,
+    "login_fail_spike_red": 300,
+    "otp_abuse_per_identity_orange": 10,
+    "otp_abuse_per_identity_red": 25,
+    "brute_force_per_ip_orange": 20,
+    "brute_force_per_ip_red": 50,
+    "membership_invalid_yellow": 5,
+    "membership_ambiguous_orange": 1,
+    "security_state_unavailable_orange": 1,
+    "rate_limit_trip_yellow": 50,
+    "rate_limit_trip_orange": 200
+  },
+
+  "db_guardian": {
+    "duplicate_primary_membership_any_is_red": true,
+    "auth_rate_limits_stale_rows_yellow": 10000,
+    "auth_rate_limits_stale_rows_orange": 100000,
+    "active_lockouts_yellow": 5,
+    "active_lockouts_orange": 20,
+    "active_lockouts_red": 100,
+    "orphan_membership_without_store_red": true,
+    "orphan_membership_without_profile_red": true,
+    "scan_lookback_minutes": 60
+  },
+
+  "runtime_monitor": {
+    "$comment": "P1 scaffold — values drafted, not yet read by code.",
+    "api_error_rate_yellow_pct": 0.5,
+    "api_error_rate_orange_pct": 2.0,
+    "api_error_rate_red_pct": 5.0,
+    "p95_budget_ms": {
+      "GET /api/auth/me": 800,
+      "POST /api/auth/login": 1500,
+      "GET /api/rooms": 600
+    },
+    "cron_silence_minutes_orange": 30,
+    "cron_silence_minutes_red": 120
+  },
+
+  "cleanup_auditor": {
+    "$comment": "P2 scaffold — regression only, not absolute counts.",
+    "new_reverify_candidates_blue": 1,
+    "new_reverify_candidates_yellow": 10,
+    "new_disk_junk_entries_blue": 1,
+    "migration_anomaly_increase_orange": 1
+  }
+}

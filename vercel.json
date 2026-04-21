@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/ble-history-reaper",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
