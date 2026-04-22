@@ -1,4 +1,5 @@
 import "./globals.css"
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 export const metadata = {
   title: "NOX Counter OS",
@@ -15,7 +16,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {children}
+        <SpeedInsights />
+      </body>
     </html>
   )
 }
