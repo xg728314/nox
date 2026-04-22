@@ -50,6 +50,21 @@ export default function OwnerPage() {
   const [switching, setSwitching] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
 
+  // 미배정 아가씨 배정 섹션 (T2 round)
+  type UnassignedHostess = {
+    membership_id: string
+    name: string
+    stage_name: string | null
+    phone: string | null
+    created_at: string
+  }
+  const [unassigned, setUnassigned] = useState<UnassignedHostess[]>([])
+  const [unassignedLoading, setUnassignedLoading] = useState(false)
+  const [assignModalFor, setAssignModalFor] = useState<UnassignedHostess | null>(null)
+  const [selectedManagerId, setSelectedManagerId] = useState<string>("")
+  const [assignSubmitting, setAssignSubmitting] = useState(false)
+  const [assignToast, setAssignToast] = useState<string>("")
+
   const me = useCurrentProfile()
   const currentStoreUuid = me?.store_uuid ?? ""
 
@@ -158,6 +173,68 @@ export default function OwnerPage() {
     } catch { /* ignore */ }
   }
 
+  // 미배정 아가씨 조회 — 대시보드 진입 시 1회 + 배정 직후 재조회.
+  async function fetchUnassigned() {
+    setUnassignedLoading(true)
+    try {
+      const res = await apiFetch("/api/hostesses/unassigned")
+      if (res.ok) {
+        const data = await res.json()
+        setUnassigned((data.hostesses ?? []) as UnassignedHostess[])
+      }
+    } catch { /* ignore */ }
+    finally { setUnassignedLoading(false) }
+  }
+
+  // Mount: 미배정 목록 1회 로드.
+  useEffect(() => {
+    fetchUnassigned()
+  }, [])
+
+  function openAssignModal(h: UnassignedHostess) {
+    setAssignModalFor(h)
+    setSelectedManagerId("")
+  }
+
+  function closeAssignModal() {
+    setAssignModalFor(null)
+    setSelectedManagerId("")
+  }
+
+  async function submitAssign() {
+    if (!assignModalFor || !selectedManagerId) return
+    setAssignSubmitting(true)
+    try {
+      const res = await apiFetch(
+        `/api/hostesses/${assignModalFor.membership_id}/assign`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ manager_membership_id: selectedManagerId }),
+        },
+      )
+      if (res.ok) {
+        setAssignToast("배정 완료")
+        closeAssignModal()
+        fetchUnassigned()
+        setTimeout(() => setAssignToast(""), 2000)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setAssignToast(body.message || "배정 실패")
+        setTimeout(() => setAssignToast(""), 3000)
+      }
+    } catch {
+      setAssignToast("서버 오류")
+      setTimeout(() => setAssignToast(""), 3000)
+    } finally {
+      setAssignSubmitting(false)
+    }
+  }
+
+  // 현재 store 의 승인된 실장 목록 — 모달 드롭다운 데이터소스.
+  const managerOptions = staff.filter(
+    (s) => s.role === "manager" && s.status === "approved",
+  )
+
   async function handleSwitchStore(m: StoreMembership) {
     // SECURITY (R-1 remediation): store_uuid/role cannot be stored client-side
     // anymore — they live in the HttpOnly session. The server needs to be
@@ -253,6 +330,54 @@ export default function OwnerPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 미배정 아가씨 배정 섹션 — T2 round.
+              hostesses.manager_membership_id IS NULL 인 행을 노출하고
+              실장 드롭다운으로 즉시 배정. 배정 완료 시 /api/manager/hostesses
+              에 바로 나타난다. */}
+          {unassigned.length > 0 && (
+            <div className="rounded-2xl border border-pink-400/20 bg-pink-500/5 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-medium text-pink-200">미배정 아가씨</div>
+                <div className="text-[11px] text-slate-500">{unassigned.length}명</div>
+              </div>
+              <div className="space-y-2">
+                {unassigned.map((h) => (
+                  <div
+                    key={h.membership_id}
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-100 truncate">
+                        {h.name}
+                        {h.stage_name && (
+                          <span className="ml-2 text-xs text-pink-300">@{h.stage_name}</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {h.phone ? `📞 ${h.phone} · ` : ""}
+                        {new Date(h.created_at).toLocaleDateString("ko-KR")}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openAssignModal(h)}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-pink-500/20 text-pink-200 border border-pink-500/30 hover:bg-pink-500/30"
+                    >
+                      실장 배정
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {unassignedLoading && (
+                <div className="mt-2 text-[11px] text-slate-500">로딩 중...</div>
+              )}
+            </div>
+          )}
+          {assignToast && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs px-3 py-2">
+              {assignToast}
             </div>
           )}
 
@@ -428,6 +553,59 @@ export default function OwnerPage() {
           </div>
         </div>
       </div>
+
+      {/* 실장 선택 모달 — T2 round. 미배정 아가씨 1건에 실장을 배정. */}
+      {assignModalFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-pink-400/25 bg-[#0A1222] p-5 space-y-3">
+            <div>
+              <div className="text-xs text-slate-400">실장 배정</div>
+              <div className="text-base font-semibold text-pink-200 mt-0.5">
+                {assignModalFor.name}
+                {assignModalFor.stage_name && (
+                  <span className="ml-2 text-xs text-pink-300">@{assignModalFor.stage_name}</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">실장 선택</label>
+              <select
+                value={selectedManagerId}
+                onChange={(e) => setSelectedManagerId(e.target.value)}
+                className="w-full bg-[#030814] border border-white/10 rounded-lg px-3 py-2 text-sm [&>option]:bg-[#030814]"
+              >
+                <option value="">실장을 선택하세요</option>
+                {managerOptions.map((m) => (
+                  <option key={m.membership_id} value={m.membership_id}>
+                    {m.name || m.membership_id.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+              {managerOptions.length === 0 && (
+                <p className="mt-1 text-[11px] text-amber-300/80">
+                  승인된 실장이 없습니다. 먼저 실장 계정을 승인하세요.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={closeAssignModal}
+                className="flex-1 h-10 rounded-xl bg-white/5 text-slate-300 text-sm border border-white/10"
+                disabled={assignSubmitting}
+              >
+                취소
+              </button>
+              <button
+                onClick={submitAssign}
+                disabled={!selectedManagerId || assignSubmitting}
+                className="flex-1 h-10 rounded-xl bg-pink-500/25 text-pink-100 text-sm font-medium border border-pink-500/40 disabled:opacity-50"
+              >
+                {assignSubmitting ? "배정 중..." : "확인"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

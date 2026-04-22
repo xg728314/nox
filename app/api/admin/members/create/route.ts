@@ -423,6 +423,41 @@ export async function POST(request: Request) {
 
   const membershipId = memRow.id as string
 
+  // 4b. Hostess role → also insert into `hostesses` table so the new
+  //     account shows up in manager-scoped queries (assigned hostess
+  //     list, manager settlement summary, name-match pool, etc).
+  //     manager_membership_id auto-binding rule:
+  //       - caller is manager  → manager_membership_id = caller.membership_id
+  //                              (manager creates own assigned hostess)
+  //       - caller is owner    → manager_membership_id = null
+  //                              (unassigned; manager picks up later)
+  //       - caller is super_admin
+  //                            → manager_membership_id = null
+  //     This mirrors how /api/manager/hostesses reads the assignment.
+  //     If this insert fails we roll back the store_memberships row and
+  //     (for new users) the auth user, so the account is not half-created.
+  if (targetRole === "hostess") {
+    const managerMembershipId = isManager ? auth.membership_id : null
+    const { error: hostErr } = await admin
+      .from("hostesses")
+      .insert({
+        store_uuid: targetStoreUuid,
+        membership_id: membershipId,
+        manager_membership_id: managerMembershipId,
+        name: fullName,
+        phone,
+        is_active: true,
+      })
+    if (hostErr) {
+      // Rollback store_memberships (hard-delete — we just inserted it)
+      try { await admin.from("store_memberships").delete().eq("id", membershipId) } catch {}
+      if (!isExistingUser) {
+        try { await admin.auth.admin.deleteUser(userId) } catch {}
+      }
+      return bad("HOSTESS_WRITE_FAILED", "아가씨 레코드 생성에 실패했습니다.", 500)
+    }
+  }
+
   // 5. Audit — best-effort, does not block success response on failure.
   try {
     await logAuditEvent(admin, {
@@ -437,6 +472,11 @@ export async function POST(request: Request) {
         target_email: email,
         existing_user: isExistingUser,
         via: "admin_member_create",
+        // Hostess auto-assignment trace — helps post-hoc who-assigned-whom
+        // queries without reading the hostesses row directly.
+        ...(targetRole === "hostess"
+          ? { manager_membership_id: isManager ? auth.membership_id : null }
+          : {}),
       },
     })
   } catch {

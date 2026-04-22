@@ -286,6 +286,29 @@ export default function ManagerPage() {
           <div className="mx-4 mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
         )}
 
+        {/* 아가씨 등록 버튼 — manager 전용 내부 생성 경로 바로가기 */}
+        <div className="px-4 pt-4">
+          <button
+            onClick={() => router.push("/admin/members/create")}
+            className="w-full rounded-2xl border border-pink-400/25 bg-pink-400/5 p-4 flex items-center justify-between hover:bg-pink-400/10 transition-colors"
+          >
+            <div className="text-left">
+              <div className="text-sm font-medium text-pink-200">➕ 아가씨 등록</div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                내 담당 아가씨를 직접 등록합니다. 등록 즉시 내 담당으로 배정됩니다.
+              </div>
+            </div>
+            <span className="text-pink-300">›</span>
+          </button>
+        </div>
+
+        {/* 미배정 아가씨 — "내가 맡기" (T2 round).
+            owner 가 만든 미배정 hostess 를 manager 본인이 직접 클릭으로
+            담당 등록. PATCH /api/hostesses/:id/assign 이 본인(=manager)
+            한정 self-assign 을 서버에서 재검증. */}
+        <UnassignedClaimSection />
+
+
         {/* 요약 카드 */}
         <div className="px-4 py-4">
           <div className="grid grid-cols-2 gap-3">
@@ -474,6 +497,136 @@ export default function ManagerPage() {
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 미배정 아가씨 목록 + "내가 맡기" 버튼. manager 만 사용하는 컴포넌트로
+ * 분리해 ManagerPage 의 상태 증가를 피한다. GET /api/hostesses/unassigned
+ * 는 owner/manager/super_admin 모두 접근 가능하지만, PATCH assign 은
+ * manager 가 self-assign 만 가능하도록 서버가 재검증한다.
+ */
+function UnassignedClaimSection() {
+  type UnassignedHostess = {
+    membership_id: string
+    name: string
+    stage_name: string | null
+    phone: string | null
+    created_at: string
+  }
+  const [list, setList] = useState<UnassignedHostess[]>([])
+  const [loading, setLoading] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [toast, setToast] = useState<string>("")
+
+  async function fetchList() {
+    setLoading(true)
+    try {
+      const res = await apiFetch("/api/hostesses/unassigned")
+      if (res.ok) {
+        const d = await res.json()
+        setList((d.hostesses ?? []) as UnassignedHostess[])
+      }
+    } catch { /* ignore */ }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => {
+    fetchList()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function claim(h: UnassignedHostess) {
+    setBusyId(h.membership_id)
+    try {
+      // manager_membership_id: null 를 보내면 서버가 auth.membership_id
+      // 와 비교해 self-assign 만 허용. 대신 명시적으로 마커를 전달하고자
+      // 빈 값 "" 을 보내 서버에서 string 아닌 값으로 거부당하지 않도록
+      // 주의. 여기서는 null 을 보내서 자가지정 의도를 표현하되 서버는
+      // string 이 아니면 400 으로 거절하므로, 대신 자신의 membership_id
+      // 를 동봉해야 함 → useCurrentProfile 에서 가져오거나 별도 endpoint
+      // 가 필요. 간단화를 위해 현재는 서버에 null 보내기보다, 클라이언트
+      // 가 auth.membership_id 를 알 수 있는 경로를 이용한다.
+      // useCurrentProfile 사용:
+      const meRes = await apiFetch("/api/auth/me")
+      if (!meRes.ok) {
+        setToast("인증 정보를 불러오지 못했습니다.")
+        setTimeout(() => setToast(""), 2500)
+        return
+      }
+      const me = await meRes.json().catch(() => ({})) as { membership_id?: string }
+      if (!me.membership_id) {
+        setToast("membership_id 조회 실패")
+        setTimeout(() => setToast(""), 2500)
+        return
+      }
+      const res = await apiFetch(
+        `/api/hostesses/${h.membership_id}/assign`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ manager_membership_id: me.membership_id }),
+        },
+      )
+      if (res.ok) {
+        setToast("내 담당으로 등록")
+        fetchList()
+        setTimeout(() => setToast(""), 2000)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setToast(body.message || "배정 실패")
+        setTimeout(() => setToast(""), 3000)
+      }
+    } catch {
+      setToast("서버 오류")
+      setTimeout(() => setToast(""), 3000)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (!loading && list.length === 0) return null
+
+  return (
+    <div className="px-4 pt-3">
+      <div className="rounded-2xl border border-pink-400/20 bg-pink-500/5 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-medium text-pink-200">미배정 아가씨</div>
+          <div className="text-[11px] text-slate-500">{list.length}명</div>
+        </div>
+        {loading && <div className="text-[11px] text-slate-500">로딩 중...</div>}
+        <div className="space-y-2">
+          {list.map((h) => (
+            <div
+              key={h.membership_id}
+              className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-100 truncate">
+                  {h.name}
+                  {h.stage_name && (
+                    <span className="ml-2 text-xs text-pink-300">@{h.stage_name}</span>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {h.phone ? `📞 ${h.phone} · ` : ""}
+                  {new Date(h.created_at).toLocaleDateString("ko-KR")}
+                </div>
+              </div>
+              <button
+                onClick={() => claim(h)}
+                disabled={busyId === h.membership_id}
+                className="text-xs px-3 py-1.5 rounded-lg bg-pink-500/20 text-pink-200 border border-pink-500/30 hover:bg-pink-500/30 disabled:opacity-50"
+              >
+                {busyId === h.membership_id ? "처리 중..." : "내가 맡기"}
+              </button>
+            </div>
+          ))}
+        </div>
+        {toast && (
+          <div className="mt-3 text-[11px] text-emerald-300">{toast}</div>
+        )}
       </div>
     </div>
   )
