@@ -8,7 +8,7 @@
  * the API outcome to preserve email-existence privacy.
  */
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -18,11 +18,60 @@ type DoneState =
   | { kind: "rate_limited"; message: string; retryAfter?: number }
   | { kind: "unknown"; message: string }
 
+type RecoveryFragment =
+  | null
+  | { kind: "success"; hash: string }
+  | { kind: "expired"; description: string | null }
+  | { kind: "error"; code: string | null; description: string | null }
+
+/**
+ * Parse `#access_token=...&type=recovery` or `#error=access_denied&
+ * error_code=otp_expired&...` fragments that Supabase appends to the
+ * redirectTo URL.
+ */
+function parseRecoveryFragment(hash: string): RecoveryFragment {
+  if (!hash || hash.length < 2) return null
+  const h = hash.startsWith("#") ? hash.slice(1) : hash
+  const p = new URLSearchParams(h)
+  if (p.get("access_token") && p.get("type") === "recovery") {
+    return { kind: "success", hash: `#${h}` }
+  }
+  if (p.get("error") || p.get("error_code")) {
+    const code = p.get("error_code")
+    const description = p.get("error_description")
+    if (code === "otp_expired") return { kind: "expired", description }
+    return { kind: "error", code, description }
+  }
+  return null
+}
+
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [done, setDone] = useState<DoneState | null>(null)
+  const [recoveryError, setRecoveryError] = useState<RecoveryFragment>(null)
+
+  // Recovery tokens / error fragments arrive via `window.location.hash`
+  // when the user clicks the email link. We forward valid tokens to
+  // /reset-password/confirm so the existing HOTFIX-2 completion page
+  // handles them, and we render an inline banner for `otp_expired` /
+  // generic errors so users aren't silently dumped into the login flow.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const frag = parseRecoveryFragment(window.location.hash)
+    if (!frag) return
+    if (frag.kind === "success") {
+      window.location.replace(`/reset-password/confirm${frag.hash}`)
+      return
+    }
+    // Clear the fragment from the visible URL so a second render or
+    // refresh doesn't keep flashing the error state.
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search)
+    } catch { /* noop */ }
+    setRecoveryError(frag)
+  }, [])
 
   async function handleSubmit() {
     setError("")
@@ -42,12 +91,33 @@ export default function ResetPasswordPage() {
         setError("요청이 너무 많습니다. 잠시 후 다시 시도하세요.")
         return
       }
-      // HOTFIX-3: parse the delivery classification the API now emits
-      // instead of assuming success.
+      // HOTFIX: any non-2xx response is a failure. Previously the UI
+      // always parsed the body and fell through to the "unknown" success
+      // card, even on 5xx (e.g. 503 SECURITY_STATE_UNAVAILABLE). A failed
+      // API must NEVER display the "요청 접수됨" success state.
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as {
+          error?: string; message?: string
+        }
+        const tag = errBody.error ? ` (${errBody.error})` : ""
+        setError(
+          errBody.message ??
+            `요청 처리에 실패했습니다${tag}. 잠시 후 다시 시도하세요.`,
+        )
+        return
+      }
+      // HOTFIX-3: parse the delivery classification the API emits so we
+      // can show accurate wording for queued / rate_limited / unknown.
       const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
         delivery?: "queued" | "rate_limited" | "unknown"
         message?: string
         retry_after_seconds?: number
+      }
+      if (body.ok !== true) {
+        // 2xx but `ok` missing/false → also treat as failure.
+        setError("요청 처리에 실패했습니다. 잠시 후 다시 시도하세요.")
+        return
       }
       const msg = body.message ?? ""
       if (body.delivery === "queued") {
@@ -65,11 +135,9 @@ export default function ResetPasswordPage() {
         })
       }
     } catch {
-      // Network error — operator should not be told "success".
-      setDone({
-        kind: "unknown",
-        message: "요청 처리 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-      })
+      // Network error — NEVER show the success card; keep the user on
+      // the form with an explicit failure banner so they can retry.
+      setError("요청 처리 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.")
     } finally {
       setLoading(false)
     }
@@ -153,6 +221,26 @@ export default function ResetPasswordPage() {
                   <h2 className="mt-2 text-2xl font-semibold tracking-tight">비밀번호 재설정</h2>
                   <p className="mt-1 text-sm text-slate-400">가입 시 사용한 이메일을 입력하면 재설정 링크를 보내드립니다.</p>
                 </div>
+
+                {recoveryError && (
+                  <div
+                    role="alert"
+                    className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+                  >
+                    <div className="font-semibold">
+                      {recoveryError.kind === "expired"
+                        ? "재설정 링크가 만료되었거나 이미 사용되었습니다."
+                        : "재설정 링크를 처리하지 못했습니다."}
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                      {recoveryError.kind === "expired"
+                        ? "메일함 보안 스캐너가 링크를 먼저 열어 토큰이 소모되었을 수 있습니다. 아래에서 이메일을 다시 입력하고 새 링크를 요청해주세요."
+                        : recoveryError.kind === "error"
+                          ? (recoveryError.description ?? "잠시 후 새 링크를 요청해주세요.")
+                          : "잠시 후 새 링크를 요청해주세요."}
+                    </p>
+                  </div>
+                )}
 
                 <div className="mt-6 space-y-3">
                   <div className="rounded-2xl border border-white/10 bg-[#0A1222]/80 px-4 py-3">

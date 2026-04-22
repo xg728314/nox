@@ -97,6 +97,19 @@ export async function POST(request: Request) {
     // SECURITY (R-7): durable distributed rate-limit. Per-IP primary
     // (stops single-source brute-force) + per-email secondary (stops
     // targeted account enumeration even across different IPs).
+    //
+    // HOTFIX (password-reset public-access): a logged-out user on the
+    // public /reset-password page cannot do anything to fix a durable
+    // rate-limit DB failure. Previously a `db_error` return made this
+    // route respond 503 + `SECURITY_STATE_UNAVAILABLE`, which blocked
+    // password reset whenever `auth_rate_limits` was unhealthy.
+    //
+    // New behaviour:
+    //   - `window_exceeded` / `locked`  → actual rate hit → 429 (unchanged)
+    //   - `db_error`                    → durable layer unhealthy →
+    //       log + CONTINUE. The in-memory per-IP limit above + Supabase's
+    //       own email rate limit remain in effect; password reset must
+    //       not be blocked by a broken security-state table.
     for (const bucket of [
       { key: `reset-password:ip:${ip}`,     limit: 5  },
       { key: `reset-password:email:${email}`, limit: 3 },
@@ -108,10 +121,17 @@ export async function POST(request: Request) {
         windowSeconds: 60,
       })
       if (!rl.ok) {
-        const status = rl.reason === "db_error" ? 503 : 429
+        if (rl.reason === "db_error") {
+          // Degrade gracefully. Do not surface 503 to a logged-out user.
+          console.warn("[reset-password] durable_rate_limit_degraded", {
+            bucket: bucket.key,
+            reason: rl.reason,
+          })
+          continue
+        }
         return NextResponse.json(
-          { ok: false, error: rl.reason === "db_error" ? "SECURITY_STATE_UNAVAILABLE" : "RATE_LIMITED" },
-          { status, headers: { "Retry-After": String(Math.max(1, rl.retryAfter)) } }
+          { ok: false, error: "RATE_LIMITED" },
+          { status: 429, headers: { "Retry-After": String(Math.max(1, rl.retryAfter)) } }
         )
       }
     }
@@ -141,23 +161,33 @@ export async function POST(request: Request) {
     const anon = createClient(supabaseUrl, supabaseAnonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-    // HOTFIX: pass explicit `redirectTo` so the email link lands on the
-    // password-completion page instead of the project's default Site URL
-    // (which is root "/" — and root redirects to /login, dropping the
-    // recovery tokens on the floor). Origin is derived from the request
-    // so dev/staging/prod each resolve correctly without a hard-coded env
-    // dependency. The Supabase project's Redirect URL allowlist must
-    // include `<host>/reset-password/confirm` for this to take effect;
-    // otherwise Supabase silently falls back to Site URL.
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      request.headers.get("origin") ||
-      (() => {
-        const proto = request.headers.get("x-forwarded-proto") || "https"
-        const host = request.headers.get("host")
-        return host ? `${proto}://${host}` : null
-      })()
-    const redirectTo = origin ? `${origin}/reset-password/confirm` : undefined
+    // ─── Canonical redirect target (HOTFIX production) ──────────────
+    //   Production recovery links MUST point at https://nox.ai.kr/reset-password.
+    //
+    //   Previous implementation trusted `NEXT_PUBLIC_SITE_URL` blindly,
+    //   which caused vercel.app hosts leaked from old build env to
+    //   override the canonical domain — users then received emails
+    //   pointing at `nox-eight.vercel.app/reset-password`, which then
+    //   fell through to /login#error=access_denied&error_code=otp_expired.
+    //
+    //   New policy:
+    //     1. Canonical is ALWAYS `https://nox.ai.kr/reset-password`
+    //        (hard-coded in code — no env override for production hosts).
+    //     2. An env override is accepted ONLY when it matches an
+    //        explicit dev allowlist (http://localhost:* or
+    //        http://127.0.0.1:*). Any other value (incl. vercel.app
+    //        preview URLs) is ignored and we fall back to canonical.
+    //     3. The Supabase project's Redirect URL allowlist must still
+    //        include `https://nox.ai.kr/reset-password`. If it doesn't,
+    //        Supabase silently substitutes its Site URL — that setting
+    //        lives in the Supabase dashboard, not this codebase.
+    const CANONICAL_REDIRECT = "https://nox.ai.kr/reset-password"
+    const DEV_HOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
+    const envBase = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "")
+    const redirectTo =
+      envBase && DEV_HOST_RE.test(envBase)
+        ? `${envBase}/reset-password`
+        : CANONICAL_REDIRECT
     // HOTFIX-3: classify Supabase's actual response so the UI can show
     // accurate wording. We now surface:
     //   - queued       : Supabase accepted; mail.send fired (log evidence)
@@ -173,7 +203,7 @@ export async function POST(request: Request) {
     try {
       const { error: rpErr } = await anon.auth.resetPasswordForEmail(
         email,
-        redirectTo ? { redirectTo } : undefined
+        { redirectTo }
       )
       if (rpErr) {
         const msg = rpErr.message || ""

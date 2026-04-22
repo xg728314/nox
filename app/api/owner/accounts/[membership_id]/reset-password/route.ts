@@ -73,24 +73,27 @@ export async function POST(
 
     // Best-effort send via anon client. We do NOT surface auth errors to
     // the caller so account existence cannot be probed via timing.
-    // HOTFIX: explicit redirectTo → /reset-password/confirm so the recovery
-    // link does not fall back to Site URL (root → /login which loses tokens).
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      request.headers.get("origin") ||
-      (() => {
-        const proto = request.headers.get("x-forwarded-proto") || "https"
-        const host = request.headers.get("host")
-        return host ? `${proto}://${host}` : null
-      })()
-    const redirectTo = origin ? `${origin}/reset-password/confirm` : undefined
+    //
+    // HOTFIX (production recovery URL): match the public /api/auth/reset-password
+    // canonical policy — `https://nox.ai.kr/reset-password` is the one
+    // production destination, regardless of request origin header or
+    // NEXT_PUBLIC_SITE_URL env. Only localhost/127.0.0.1 env values
+    // are honored for dev. This prevents vercel.app preview hosts
+    // from leaking into the recovery email.
+    const CANONICAL_REDIRECT = "https://nox.ai.kr/reset-password"
+    const DEV_HOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
+    const envBase = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "")
+    const redirectTo =
+      envBase && DEV_HOST_RE.test(envBase)
+        ? `${envBase}/reset-password`
+        : CANONICAL_REDIRECT
     let sendOk = false
     if (email) {
       try {
         const anon = createClient(supabaseUrl, supabaseAnonKey, {
           auth: { autoRefreshToken: false, persistSession: false },
         })
-        await anon.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined)
+        await anon.auth.resetPasswordForEmail(email, { redirectTo })
         sendOk = true
       } catch {
         // swallow

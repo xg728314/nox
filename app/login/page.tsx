@@ -15,11 +15,23 @@ export default function LoginPage() {
   // here, forward the user to the actual password-change page so the
   // recovery tokens aren't dropped on the floor. The fragment is read
   // client-side; it is never transmitted to the server.
+  //
+  // HOTFIX-B (production wrong-host): a stale Supabase Site URL can
+  // route error fragments (`#error=access_denied&error_code=otp_expired`
+  // and friends) to /login instead of /reset-password. If we see such
+  // a fragment here, bounce the user to /reset-password where the
+  // dedicated error banner + retry UI lives. Fragment is preserved so
+  // the target page can render the exact reason.
   useEffect(() => {
     if (typeof window === "undefined") return
     const hash = window.location.hash || ""
     if (hash.includes("type=recovery") && hash.includes("access_token=")) {
       window.location.replace(`/reset-password/confirm${hash}`)
+      return
+    }
+    if (hash.includes("error_code=") || hash.includes("error=access_denied")) {
+      window.location.replace(`/reset-password${hash}`)
+      return
     }
   }, [])
   const [email, setEmail] = useState("")
