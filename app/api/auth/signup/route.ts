@@ -7,6 +7,16 @@ import { getClientIp } from "@/lib/security/clientIp"
 /**
  * STEP-025B — POST /api/auth/signup
  *
+ * 🔒 SIGNUP POLICY (locked):
+ *   - 공개 self-signup 은 **아가씨(hostess) 전용**.
+ *   - 사장(owner) / 실장(manager) / 스태프(staff) 계정은 이 라우트로
+ *     만들 수 없다. 로그인된 owner/admin 이 별도 초대/생성 플로우를
+ *     통해 생성한다 (회원 생성: `/admin/members/create`).
+ *   - `body.role` 은 수용하지 않는다. 클라이언트가 role 을 보내도
+ *     서버는 읽지 않고 `role='hostess'` 로 하드코딩한다 (line 260
+ *     근처). 이 경로로 owner/manager/staff 가 생성되는 루프홀이 없도록
+ *     유지한다.
+ *
  * Hostess-only, approval-gated signup. Producer for the existing
  * approvals consumer (app/api/store/approvals/route.ts).
  *

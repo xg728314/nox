@@ -77,9 +77,12 @@ export async function GET(
     }
 
     // 3. Get participants for the active session (scoped by store_uuid)
+    // `name_edited_at` (migration 058) replaces the audit_events scan
+    // previously used to compute the name_edited badge. No extra
+    // round-trip needed.
     const { data: participants, error: participantsError } = await supabase
       .from("session_participants")
-      .select("id, role, status, membership_id, external_name, category, time_minutes, price_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, origin_store_uuid, entered_at, left_at, memo, manager_membership_id")
+      .select("id, role, status, membership_id, external_name, category, time_minutes, price_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, origin_store_uuid, entered_at, left_at, memo, manager_membership_id, name_edited_at")
       .eq("store_uuid", authContext.store_uuid)
       .eq("session_id", session.id)
       .order("entered_at", { ascending: true })
@@ -190,22 +193,13 @@ export async function GET(
       for (const s of storesData ?? []) storeNameById.set(s.id, s.store_name)
     }
 
-    // 6. 이름 수정 이력 조회 (name_edited 판정)
-    const participantIds = (participants ?? []).map((p: { id: string }) => p.id)
-    const nameEditedSet = new Set<string>()
-    if (participantIds.length > 0) {
-      const { data: auditRows } = await supabase
-        .from("audit_events")
-        .select("entity_id")
-        .eq("entity_table", "session_participants")
-        .eq("action", "update_external_name")
-        .in("entity_id", participantIds)
-      for (const a of auditRows ?? []) {
-        nameEditedSet.add(a.entity_id)
-      }
-    }
+    // 6. 이름 수정 이력은 session_participants.name_edited_at 컬럼에서
+    //    직접 파생 (migration 058). 이전 audit_events 스캔은 제거 —
+    //    store_uuid 필터/시간 윈도우 없는 full-table 스캔이었고,
+    //    skill-01 (store_uuid 스코프) 위반 상태였다. audit_events 는
+    //    여전히 이력 소스이나 hot read 경로에서 호출하지 않는다.
 
-    const participantsWithNames = (participants ?? []).map((p: { id: string; role: string; status: string; membership_id: string; external_name: string | null; category: string | null; time_minutes: number | null; price_amount: number | null; cha3_amount: number | null; banti_amount: number | null; waiter_tip_received: boolean | null; waiter_tip_amount: number | null; origin_store_uuid: string | null; entered_at: string; left_at: string | null; memo: string | null; manager_membership_id: string | null }) => {
+    const participantsWithNames = (participants ?? []).map((p: { id: string; role: string; status: string; membership_id: string; external_name: string | null; category: string | null; time_minutes: number | null; price_amount: number | null; cha3_amount: number | null; banti_amount: number | null; waiter_tip_received: boolean | null; waiter_tip_amount: number | null; origin_store_uuid: string | null; entered_at: string; left_at: string | null; memo: string | null; manager_membership_id: string | null; name_edited_at: string | null }) => {
       // 우선순위: session 단위 → hostesses 기본 담당
       const sessionMgrId = p.manager_membership_id
       const hostessMgrId = managerMap.get(p.membership_id)?.manager_membership_id ?? null
@@ -250,7 +244,7 @@ export async function GET(
         manager_name: managerName,
         match_status: matchStatus,
         match_candidates: matchCandidates.length > 0 ? matchCandidates : undefined,
-        name_edited: nameEditedSet.has(p.id),
+        name_edited: p.name_edited_at !== null,
         origin_store_name: p.origin_store_uuid ? (storeNameById.get(p.origin_store_uuid) ?? null) : null,
       }
     })

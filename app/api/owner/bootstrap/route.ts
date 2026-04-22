@@ -1,46 +1,10 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
-
-type ForwardResult<T> = { ok: true; data: T; ms: number } | { ok: false; status: number; error: string; ms: number }
-
-// P0-4: forwardJson now measures per-slot latency and emits a server-log
-// line per slot. The format is a single stringified JSON on stdout so
-// Vercel log scraping can pick `perf.bootstrap.slot` to aggregate p50/p99
-// per upstream without regex gymnastics.
-async function forwardJson<T>(
-  routeTag: string,
-  slot: string,
-  origin: string,
-  path: string,
-  cookie: string,
-): Promise<ForwardResult<T>> {
-  const t0 = Date.now()
-  try {
-    const r = await fetch(`${origin}${path}`, {
-      method: "GET",
-      headers: cookie ? { cookie } : {},
-      cache: "no-store",
-    })
-    const ms = Date.now() - t0
-    if (!r.ok) {
-      console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: r.status, ms }))
-      return { ok: false, status: r.status, error: `HTTP_${r.status}`, ms }
-    }
-    const data = (await r.json()) as T
-    const msTotal = Date.now() - t0
-    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: true, status: r.status, ms: msTotal }))
-    return { ok: true, data, ms: msTotal }
-  } catch (e) {
-    const ms = Date.now() - t0
-    const err = e instanceof Error ? e.message : "network"
-    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: 0, error: err, ms }))
-    return { ok: false, status: 0, error: err, ms }
-  }
-}
-
-// P0-1: replaced local createClient with shared singleton.
-const supa = getServiceClient
+import { getStoreProfile } from "@/lib/server/queries/storeProfile"
+import { getStoreStaff } from "@/lib/server/queries/storeStaff"
+import { getStoreSettlementOverview } from "@/lib/server/queries/storeSettlementOverview"
+import { getChatUnread } from "@/lib/server/queries/chatUnread"
 
 type MembershipShape = {
   membership_id: string
@@ -51,7 +15,7 @@ type MembershipShape = {
 }
 
 async function loadMemberships(userId: string): Promise<MembershipShape[]> {
-  const s = supa()
+  const s = getServiceClient()
   const { data: memberships, error } = await s
     .from("store_memberships")
     .select("id, store_uuid, role, status, is_primary")
@@ -77,6 +41,25 @@ async function loadMemberships(userId: string): Promise<MembershipShape[]> {
   }))
 }
 
+async function slot<T>(
+  routeTag: string,
+  slotName: string,
+  fn: () => Promise<T>,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  const t0 = Date.now()
+  try {
+    const data = await fn()
+    const ms = Date.now() - t0
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot: slotName, ok: true, ms }))
+    return { ok: true, data }
+  } catch (e) {
+    const ms = Date.now() - t0
+    const error = e instanceof Error ? e.message : "err"
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot: slotName, ok: false, error, ms }))
+    return { ok: false, error }
+  }
+}
+
 export async function GET(request: Request) {
   let auth
   try {
@@ -93,29 +76,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "ROLE_FORBIDDEN", message: "owner only" }, { status: 403 })
   }
 
-  const cookie = request.headers.get("cookie") ?? ""
-  const origin = new URL(request.url).origin
   const tStart = Date.now()
 
   const [profileR, staffR, overviewR, chatR, membershipsR] = await Promise.all([
-    forwardJson<Record<string, unknown>>("owner", "profile", origin, "/api/store/profile", cookie),
-    forwardJson<{ staff?: unknown[] }>("owner", "staff", origin, "/api/store/staff", cookie),
-    forwardJson<{ overview?: unknown[] }>("owner", "overview", origin, "/api/store/settlement/overview", cookie),
-    forwardJson<{ unread_count?: number }>("owner", "chat_unread", origin, "/api/chat/unread", cookie),
-    (async () => {
-      const t0 = Date.now()
-      try {
-        const list = await loadMemberships(auth.user_id)
-        const ms = Date.now() - t0
-        console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: "owner", slot: "memberships", path: "(direct)", ok: true, ms }))
-        return { ok: true as const, data: list }
-      } catch (e) {
-        const ms = Date.now() - t0
-        const err = e instanceof Error ? e.message : "memberships_failed"
-        console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: "owner", slot: "memberships", path: "(direct)", ok: false, error: err, ms }))
-        return { ok: false as const, status: 500, error: err }
-      }
-    })(),
+    slot("owner", "profile", () => getStoreProfile(auth)),
+    slot("owner", "staff", () => getStoreStaff(auth)),
+    slot("owner", "overview", () => getStoreSettlementOverview(auth)),
+    slot("owner", "chat_unread", () => getChatUnread(auth)),
+    slot("owner", "memberships", () => loadMemberships(auth.user_id)),
   ])
   console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "owner", ms: Date.now() - tStart }))
 

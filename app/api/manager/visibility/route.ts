@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getManagerVisibility } from "@/lib/server/queries/managerVisibility"
 
 /**
  * GET  /api/manager/visibility — get current visibility settings
@@ -16,24 +17,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
+    try {
+      const data = await getManagerVisibility(authContext)
+      return NextResponse.json(data)
+    } catch {
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    const { data: mgr } = await supabase
-      .from("managers")
-      .select("membership_id, show_profit_to_owner, show_hostess_profit_to_owner")
-      .eq("membership_id", authContext.membership_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
-
-    return NextResponse.json({
-      show_profit_to_owner: mgr?.show_profit_to_owner ?? false,
-      show_hostess_profit_to_owner: mgr?.show_hostess_profit_to_owner ?? false,
-    })
   } catch (error) {
     if (error instanceof AuthError) {
       const status = ["AUTH_MISSING", "AUTH_INVALID"].includes(error.type) ? 401 : 403

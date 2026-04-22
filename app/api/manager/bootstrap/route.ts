@@ -1,37 +1,29 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
+import { getManagerDashboard } from "@/lib/server/queries/managerDashboard"
+import { getManagerHostesses } from "@/lib/server/queries/managerHostesses"
+import { getManagerSettlementSummary } from "@/lib/server/queries/managerSettlementSummary"
+import { getAttendance } from "@/lib/server/queries/attendance"
+import { getChatUnread } from "@/lib/server/queries/chatUnread"
+import { getManagerParticipants } from "@/lib/server/queries/managerParticipants"
+import { getManagerVisibility } from "@/lib/server/queries/managerVisibility"
 
-type ForwardResult<T> = { ok: true; data: T; ms: number } | { ok: false; status: number; error: string; ms: number }
-
-// P0-4: per-slot timing to Vercel logs.
-async function forwardJson<T>(
+async function slot<T>(
   routeTag: string,
-  slot: string,
-  origin: string,
-  path: string,
-  cookie: string,
-): Promise<ForwardResult<T>> {
+  slotName: string,
+  fn: () => Promise<T>,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
   const t0 = Date.now()
   try {
-    const r = await fetch(`${origin}${path}`, {
-      method: "GET",
-      headers: cookie ? { cookie } : {},
-      cache: "no-store",
-    })
+    const data = await fn()
     const ms = Date.now() - t0
-    if (!r.ok) {
-      console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: r.status, ms }))
-      return { ok: false, status: r.status, error: `HTTP_${r.status}`, ms }
-    }
-    const data = (await r.json()) as T
-    const msTotal = Date.now() - t0
-    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: true, status: r.status, ms: msTotal }))
-    return { ok: true, data, ms: msTotal }
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot: slotName, ok: true, ms }))
+    return { ok: true, data }
   } catch (e) {
     const ms = Date.now() - t0
-    const err = e instanceof Error ? e.message : "network"
-    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: 0, error: err, ms }))
-    return { ok: false, status: 0, error: err, ms }
+    const error = e instanceof Error ? e.message : "err"
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot: slotName, ok: false, error, ms }))
+    return { ok: false, error }
   }
 }
 
@@ -51,18 +43,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "ROLE_FORBIDDEN", message: "manager/owner only" }, { status: 403 })
   }
 
-  const cookie = request.headers.get("cookie") ?? ""
-  const origin = new URL(request.url).origin
   const tStart = Date.now()
 
   const [dashboardR, hostessesR, settlementR, attendanceR, chatR, participantsR, visibilityR] = await Promise.all([
-    forwardJson<Record<string, unknown>>("manager", "dashboard", origin, "/api/manager/dashboard", cookie),
-    forwardJson<{ hostesses?: unknown[] }>("manager", "hostesses", origin, "/api/manager/hostesses", cookie),
-    forwardJson<Record<string, unknown>>("manager", "settlement", origin, "/api/manager/settlement/summary", cookie),
-    forwardJson<{ attendance?: unknown[] }>("manager", "attendance", origin, "/api/attendance", cookie),
-    forwardJson<{ unread_count?: number }>("manager", "chat_unread", origin, "/api/chat/unread", cookie),
-    forwardJson<{ participants?: unknown[] }>("manager", "participants", origin, "/api/manager/participants", cookie),
-    forwardJson<Record<string, unknown>>("manager", "visibility", origin, "/api/manager/visibility", cookie),
+    slot("manager", "dashboard", () => getManagerDashboard(auth)),
+    slot("manager", "hostesses", () => getManagerHostesses(auth)),
+    slot("manager", "settlement", () => getManagerSettlementSummary(auth)),
+    slot("manager", "attendance", () => getAttendance(auth)),
+    slot("manager", "chat_unread", () => getChatUnread(auth)),
+    slot("manager", "participants", () => getManagerParticipants(auth)),
+    slot("manager", "visibility", () => getManagerVisibility(auth)),
   ])
   console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "manager", ms: Date.now() - tStart }))
 

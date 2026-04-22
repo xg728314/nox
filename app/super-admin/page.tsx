@@ -118,6 +118,9 @@ export default function SuperAdminDashboardPage() {
             <Link href="/super-admin/location-corrections" className="text-[11px] text-cyan-300 hover:text-cyan-100 font-semibold">
               위치 검수 로그
             </Link>
+            <Link href="/admin/members/create" className="text-[11px] text-cyan-300 hover:text-cyan-100 font-semibold">
+              회원 생성
+            </Link>
             <Link href="/counter" className="text-[11px] text-slate-400 hover:text-white">
               카운터로
             </Link>

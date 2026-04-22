@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getInventoryItems } from "@/lib/server/queries/inventoryItems"
 
 /**
  * POST /api/inventory/items — 품목 등록
@@ -123,62 +124,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
     const { searchParams } = new URL(request.url)
     const showInactive = searchParams.get("include_inactive") === "true"
 
-    let query = supabase
-      .from("inventory_items")
-      .select("id, name, unit, current_stock, min_stock, unit_cost, store_price, units_per_box, cost_per_box, cost_per_unit, is_active, updated_at")
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .order("name", { ascending: true })
-
-    if (!showInactive) {
-      query = query.eq("is_active", true)
-    }
-
-    const { data: items, error: queryError } = await query
-
-    if (queryError) {
+    try {
+      const data = await getInventoryItems(authContext, { include_inactive: showInactive })
+      return NextResponse.json(data)
+    } catch {
       return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
-
-    const enriched = (items ?? []).map((item: {
-      id: string; name: string; unit: string;
-      current_stock: number; min_stock: number; unit_cost: number;
-      store_price?: number | null; cost_per_box?: number | null; cost_per_unit?: number | null;
-      units_per_box?: number | null;
-      is_active: boolean; updated_at: string
-    }) => {
-      const upb = item.units_per_box && item.units_per_box > 0 ? item.units_per_box : 1
-      const isBoxed = (item.unit === "박스") && upb > 1
-      return {
-        ...item,
-        units_per_box: upb,
-        converted_stock: isBoxed ? item.current_stock * upb : item.current_stock,
-        is_low_stock: item.min_stock > 0 && item.current_stock <= item.min_stock,
-        is_out_of_stock: item.current_stock <= 0,
-      }
-    })
-
-    const lowStockCount = enriched.filter((i: { is_low_stock: boolean }) => i.is_low_stock).length
-    const outOfStockCount = enriched.filter((i: { is_out_of_stock: boolean }) => i.is_out_of_stock).length
-
-    return NextResponse.json({
-      items: enriched,
-      summary: {
-        total: enriched.length,
-        low_stock: lowStockCount,
-        out_of_stock: outOfStockCount,
-      },
-    })
   } catch (error) {
     if (error instanceof AuthError) {
       const status = error.type === "AUTH_MISSING" || error.type === "AUTH_INVALID" ? 401 : 403

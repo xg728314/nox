@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext } from "@/lib/auth/resolveAuthContext"
-import { createServiceClient } from "@/lib/session/createServiceClient"
 import { handleRouteError } from "@/lib/session/handleAuthError"
+import { getChatUnread } from "@/lib/server/queries/chatUnread"
 
 /**
  * GET /api/chat/unread
@@ -10,23 +10,8 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 export async function GET(request: Request) {
   try {
     const authContext = await resolveAuthContext(request)
-
-    const svc = createServiceClient()
-    if (svc.error) return svc.error
-    const supabase = svc.supabase
-
-    const { data: participants } = await supabase
-      .from("chat_participants")
-      .select("unread_count")
-      .eq("membership_id", authContext.membership_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("left_at", null)
-
-    const total = (participants ?? []).reduce(
-      (sum: number, p: { unread_count: number }) => sum + (p.unread_count ?? 0), 0
-    )
-
-    return NextResponse.json({ unread_count: total })
+    const data = await getChatUnread(authContext)
+    return NextResponse.json(data)
   } catch (error) {
     return handleRouteError(error, "chat/unread")
   }

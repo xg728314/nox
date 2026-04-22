@@ -14,25 +14,77 @@ export type AuthContext = {
   // decide whether to accept a `target_store_uuid` param.
   global_roles: string[]
   is_super_admin: boolean
+  /**
+   * Forced password change gate (invite-flow round 057). Sourced from
+   * `profiles.must_change_password`. Exposed here so middleware and
+   * privileged routes can decide to block or redirect. Cleared by
+   * POST /api/auth/change-password. Optional for backward compat with
+   * synthetic `AuthContext` constructions used in denied/cron paths —
+   * treat `undefined` as `false` (no forced change).
+   */
+  must_change_password?: boolean
 }
 
 const VALID_ROLES = ["owner", "manager", "waiter", "staff", "hostess"] as const
 const VALID_STATUSES = ["approved", "pending", "rejected", "suspended"] as const
 
+export type AuthErrorType =
+  | "AUTH_MISSING"
+  | "AUTH_INVALID"
+  | "MEMBERSHIP_NOT_FOUND"
+  | "MEMBERSHIP_INVALID"
+  | "MEMBERSHIP_NOT_APPROVED"
+  | "PASSWORD_CHANGE_REQUIRED"
+  | "SERVER_CONFIG_ERROR"
+
 export class AuthError extends Error {
   constructor(
-    public readonly type:
-      | "AUTH_MISSING"
-      | "AUTH_INVALID"
-      | "MEMBERSHIP_NOT_FOUND"
-      | "MEMBERSHIP_INVALID"
-      | "MEMBERSHIP_NOT_APPROVED"
-      | "SERVER_CONFIG_ERROR",
+    public readonly type: AuthErrorType,
     message: string
   ) {
     super(message)
     this.name = "AuthError"
   }
+
+  /**
+   * Canonical HTTP status for this AuthError. Routes are encouraged to
+   * use this directly instead of a hardcoded switch, so new error types
+   * (e.g. PASSWORD_CHANGE_REQUIRED, added in the api-level-enforcement
+   * round) get the correct status without touching every call site.
+   * Existing routes with hardcoded switches still work — their unknown
+   * types fall through to 500 but the error body keeps the right code.
+   */
+  get status(): number {
+    switch (this.type) {
+      case "AUTH_MISSING":
+      case "AUTH_INVALID":
+        return 401
+      case "MEMBERSHIP_NOT_FOUND":
+      case "MEMBERSHIP_INVALID":
+      case "MEMBERSHIP_NOT_APPROVED":
+      case "PASSWORD_CHANGE_REQUIRED":
+        return 403
+      case "SERVER_CONFIG_ERROR":
+        return 500
+      default:
+        return 500
+    }
+  }
+}
+
+/**
+ * Paths exempt from the PASSWORD_CHANGE_REQUIRED gate. These MUST be
+ * reachable even when the caller's flag is true, otherwise the user
+ * gets locked out with no way to escape (can't log out, can't change
+ * password). Mirror of the middleware exemption list.
+ */
+const MUST_CHANGE_PASSWORD_EXEMPT_PATHS: readonly string[] = [
+  "/api/auth/change-password",
+  "/api/auth/logout",
+]
+
+function isMustChangePasswordExempt(pathname: string): boolean {
+  return MUST_CHANGE_PASSWORD_EXEMPT_PATHS.includes(pathname)
 }
 
 /**
@@ -89,6 +141,24 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
   //     cache entries are only populated after a successful resolution.
   const cached = getCachedAuth(token)
   if (cached) {
+    // API-level forced-change gate (api-level-enforcement round).
+    //   If the caller's `must_change_password` flag is true, throw a
+    //   new AuthError type that every route's catch block will surface
+    //   as an auth failure. Exempt the two routes the user MUST still
+    //   be able to call while locked (change-password, logout).
+    //   Routes with the shared `AuthError.status` getter (or any future
+    //   helper) will return 403 naturally. Legacy routes with a
+    //   hardcoded switch will return 500 but STILL block (business
+    //   logic never executes) — enforcement guaranteed.
+    if (cached.must_change_password) {
+      const pathname = new URL(req.url).pathname
+      if (!isMustChangePasswordExempt(pathname)) {
+        throw new AuthError(
+          "PASSWORD_CHANGE_REQUIRED",
+          "비밀번호를 먼저 변경해야 합니다.",
+        )
+      }
+    }
     return {
       user_id: cached.user_id,
       membership_id: cached.membership_id,
@@ -97,6 +167,7 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
       membership_status: cached.membership_status,
       global_roles: cached.global_roles,
       is_super_admin: cached.is_super_admin,
+      must_change_password: cached.must_change_password,
     }
   }
 
@@ -165,22 +236,43 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
     throw new AuthError("MEMBERSHIP_NOT_APPROVED", `Membership status is '${membershipStatus}'. Only approved memberships can access the system.`)
   }
 
-  // 9. Global role lookup (super_admin etc.).
-  //    Failure here is non-fatal — store-scoped auth still succeeds. Only
-  //    super-admin-gated endpoints care about this value.
-  let globalRoles: string[] = []
-  try {
-    const { data: gr } = await supabase
+  // 9. Parallel auxiliary fetches on cache miss:
+  //    (a) user_global_roles → super_admin / other global roles
+  //    (b) profiles.must_change_password → forced-change gate (invite-flow)
+  //    Both are non-fatal; store-scoped auth still succeeds on failure.
+  const [globalRolesRes, profileRes] = await Promise.all([
+    supabase
       .from("user_global_roles")
       .select("role")
       .eq("user_id", userId)
       .eq("status", "approved")
       .is("deleted_at", null)
-    globalRoles = Array.from(new Set((gr ?? []).map((r: { role: string }) => r.role)))
-  } catch {
-    globalRoles = []
-  }
+      .then(
+        (r) => ({ ok: true as const, data: r.data as { role: string }[] | null }),
+        () => ({ ok: false as const, data: null }),
+      ),
+    supabase
+      .from("profiles")
+      .select("must_change_password")
+      .eq("id", userId)
+      .maybeSingle()
+      .then(
+        (r) => ({ ok: true as const, data: r.data as { must_change_password: boolean | null } | null }),
+        () => ({ ok: false as const, data: null }),
+      ),
+  ])
+
+  const globalRoles: string[] = globalRolesRes.ok && globalRolesRes.data
+    ? Array.from(new Set(globalRolesRes.data.map((r) => r.role)))
+    : []
   const isSuperAdmin = globalRoles.includes("super_admin")
+
+  // Default FALSE on missing row / query failure — fail-open for access
+  // (a missing profile row is a pre-existing edge case; we don't want a
+  // transient profiles read error to lock the user out). The write path
+  // (invite flow) only ever sets TRUE, so a query that returns null here
+  // is reliably "no pending reset".
+  const mustChangePassword = !!(profileRes.ok && profileRes.data?.must_change_password)
 
   // 10. AuthContext 반환
   const ctx: AuthContext = {
@@ -191,6 +283,7 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
     membership_status: membershipStatus as AuthContext["membership_status"],
     global_roles: globalRoles,
     is_super_admin: isSuperAdmin,
+    must_change_password: mustChangePassword,
   }
 
   // P0-1: populate the warm-instance cache so subsequent calls on this
@@ -204,8 +297,22 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
     membership_status: ctx.membership_status,
     global_roles: ctx.global_roles,
     is_super_admin: ctx.is_super_admin,
+    must_change_password: !!ctx.must_change_password,
   }
   setCachedAuth(token, toCache)
+
+  // Same gate applies after a cache-miss resolution. Cache is populated
+  // with the current flag value; the next call hits the cache-hit branch
+  // above.
+  if (ctx.must_change_password) {
+    const pathname = new URL(req.url).pathname
+    if (!isMustChangePasswordExempt(pathname)) {
+      throw new AuthError(
+        "PASSWORD_CHANGE_REQUIRED",
+        "비밀번호를 먼저 변경해야 합니다.",
+      )
+    }
+  }
 
   return ctx
 }

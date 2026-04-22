@@ -52,6 +52,12 @@ export type CachedAuth = {
   membership_status: "approved" | "pending" | "rejected" | "suspended"
   global_roles: string[]
   is_super_admin: boolean
+  /**
+   * Forced-password-change gate mirrored from `profiles.must_change_password`.
+   * Added in the invite-flow round (057). Cached so middleware does not
+   * need to re-query profiles on warm hits.
+   */
+  must_change_password: boolean
 }
 
 type Entry = CachedAuth & { expiresAt: number }

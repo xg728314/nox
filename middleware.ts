@@ -105,6 +105,14 @@ const COUNTER_ROLE_PREFIXES = [
 // tier that must be explicitly granted.
 const SUPER_ADMIN_ONLY_PREFIXES = ["/super-admin"]
 
+// Invite-flow round (renamed in members-UI restructure): prefixes
+// where EITHER `owner` role OR `is_super_admin=true` is sufficient.
+// A precise carve-out against the broader OWNER_ONLY `/admin` tree:
+//   - /admin/members/create   회원 생성 (privileged role creation)
+// All other /admin/* paths remain strict owner-only via the unchanged
+// OWNER_ONLY_PREFIXES check below.
+const SUPER_ADMIN_OR_OWNER_PREFIXES = ["/admin/members/create"]
+
 const COUNTER_ALLOWED_ROLES: readonly Role[] = ["owner", "manager", "waiter", "staff"]
 
 function matchesPrefix(pathname: string, prefixes: readonly string[]): boolean {
@@ -121,8 +129,84 @@ function redirectTo(req: NextRequest, path: string): NextResponse {
   return NextResponse.redirect(url)
 }
 
+// API-level forced-change enforcement (api-level-enforcement round).
+//   These API paths MUST be reachable even when the caller's
+//   `must_change_password` flag is true — otherwise the user has no
+//   way to escape the locked state:
+//     - change-password: the only way to clear the flag
+//     - logout:          the only way to discard the session
+//   Other auth-public paths (login/signup/reset-password/find-id) and
+//   cron paths are also skipped because either (a) the caller has no
+//   session yet or (b) auth is out-of-band (Bearer/user-agent cron
+//   secret). Skipping those prevents spurious redirect / JSON 403.
+const API_FLAG_EXEMPT_EXACT: readonly string[] = [
+  "/api/auth/change-password",
+  "/api/auth/logout",
+]
+const API_FLAG_EXEMPT_PREFIXES: readonly string[] = [
+  "/api/auth/",     // login / signup / find-id / reset-password / me / ...
+  "/api/cron/",     // cron jobs (separate auth)
+]
+
+function isApiPath(pathname: string): boolean {
+  return pathname.startsWith("/api/")
+}
+
+function isApiFlagExempt(pathname: string): boolean {
+  if (API_FLAG_EXEMPT_EXACT.includes(pathname)) return true
+  for (const p of API_FLAG_EXEMPT_PREFIXES) {
+    if (pathname.startsWith(p)) return true
+  }
+  return false
+}
+
+function jsonPasswordChangeRequired(): NextResponse {
+  return NextResponse.json(
+    {
+      error: "PASSWORD_CHANGE_REQUIRED",
+      message: "비밀번호를 먼저 변경해야 합니다.",
+    },
+    { status: 403 },
+  )
+}
+
 export async function middleware(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl
+
+  // ─────────────────────────────────────────────────────────────
+  //  API branch (api-level-enforcement round)
+  //
+  //  For /api/* paths we do a LIGHT middleware pass:
+  //   - exempt auth/cron routes → pass through untouched
+  //   - else check authCache for the must_change_password flag
+  //   - on cache hit + flag=true → JSON 403 PASSWORD_CHANGE_REQUIRED
+  //   - on cache miss → pass through; the route's own
+  //     resolveAuthContext will throw PASSWORD_CHANGE_REQUIRED (Layer 1)
+  //  This gives correct 403 status on the hot (cache-hit) path while
+  //  keeping cold-start cost minimal (no extra Supabase query in
+  //  middleware). Layer 1 in resolveAuthContext guarantees enforcement
+  //  even when the cache is cold.
+  // ─────────────────────────────────────────────────────────────
+  if (isApiPath(pathname)) {
+    if (isApiFlagExempt(pathname)) {
+      return NextResponse.next()
+    }
+    const apiToken = req.cookies.get("nox_access_token")?.value
+    if (!apiToken) {
+      // Unauthenticated API request → let the route's auth check
+      // decide (likely 401). Middleware does not duplicate 401 logic.
+      return NextResponse.next()
+    }
+    const apiCached = getCachedAuth(apiToken)
+    if (apiCached?.must_change_password) {
+      return jsonPasswordChangeRequired()
+    }
+    return NextResponse.next()
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  Page branch (original middleware behavior)
+  // ─────────────────────────────────────────────────────────────
 
   // 1. Cookie presence check — fail-closed on missing.
   const token = req.cookies.get("nox_access_token")?.value
@@ -138,10 +222,12 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   const cached = getCachedAuth(token)
   let userId: string
   let role: Role
+  let mustChangePassword = false
   let supabase: ReturnType<typeof getServiceClient> | null = null
   if (cached) {
     userId = cached.user_id
     role = cached.role as Role
+    mustChangePassword = cached.must_change_password
   } else {
     // 2b. Supabase env — fail-closed on misconfiguration.
     try {
@@ -163,16 +249,25 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 
     // 4. Resolve primary-approved membership (mirrors resolveAuthContext
     //    lines 62-97 — is_primary=true, deleted_at IS NULL, status='approved').
-    //    We fetch the full set so the result can seed the shared authCache
-    //    (which is also used by resolveAuthContext on the API side).
+    //    Also fetch `profiles.must_change_password` in parallel for the
+    //    forced-change redirect below. Both queries run against the same
+    //    Supabase client, Promise.all parallelized.
     try {
-      const { data: memberships, error: mErr } = await supabase
-        .from("store_memberships")
-        .select("id, store_uuid, role, status")
-        .eq("profile_id", userId)
-        .eq("is_primary", true)
-        .is("deleted_at", null)
-        .limit(2)
+      const [memRes, profRes] = await Promise.all([
+        supabase
+          .from("store_memberships")
+          .select("id, store_uuid, role, status")
+          .eq("profile_id", userId)
+          .eq("is_primary", true)
+          .is("deleted_at", null)
+          .limit(2),
+        supabase
+          .from("profiles")
+          .select("must_change_password")
+          .eq("id", userId)
+          .maybeSingle(),
+      ])
+      const { data: memberships, error: mErr } = memRes
       if (mErr || !memberships || memberships.length === 0) {
         return redirectTo(req, "/login")
       }
@@ -189,6 +284,13 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
         return redirectTo(req, "/login")
       }
       role = m.role as Role
+
+      // Forced-change gate — sourced from profiles. Missing row / query
+      // failure defaults to false (fail-open for access — read failures
+      // should not lock users out).
+      const profRow = (profRes?.data ?? null) as { must_change_password?: boolean | null } | null
+      mustChangePassword = !!profRow?.must_change_password
+
       // Seed the shared cache. global_roles/is_super_admin are left empty
       // here — the super-admin branch below will populate them when it
       // actually queries user_global_roles. resolveAuthContext on the API
@@ -202,10 +304,73 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
         membership_status: "approved",
         global_roles: [],
         is_super_admin: false,
+        must_change_password: mustChangePassword,
       })
     } catch {
       return redirectTo(req, "/login")
     }
+  }
+
+  // 4b. Forced password change gate (invite-flow round).
+  //     When `profiles.must_change_password === true`, every protected
+  //     page request is redirected to /reset-password?force=1 — EXCEPT
+  //     the reset flow itself, /login, and /logout, which would trap
+  //     the user otherwise. The page completes the change via
+  //     POST /api/auth/change-password (cookie-authenticated admin API
+  //     call) which flips the flag back to false.
+  if (mustChangePassword) {
+    const onResetPage =
+      pathname === "/reset-password" ||
+      pathname.startsWith("/reset-password/")
+    const onAuthPage = pathname === "/login" || pathname === "/logout"
+    if (!onResetPage && !onAuthPage) {
+      const url = req.nextUrl.clone()
+      url.pathname = "/reset-password"
+      url.searchParams.set("force", "1")
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // 4c. Invite-flow carve-out: `/admin/members/invite` accepts BOTH
+  //     owner (for own-store invites) AND super_admin (for any store).
+  //     Evaluated BEFORE the hostess redirect and BEFORE the strict
+  //     OWNER_ONLY check on `/admin`, so that a super_admin whose primary
+  //     membership happens to be hostess/manager/staff (not owner) is not
+  //     rejected. The API enforces the same matrix server-side; this
+  //     block only gates the UI page.
+  if (matchesPrefix(pathname, SUPER_ADMIN_OR_OWNER_PREFIXES)) {
+    if (role === "owner") {
+      return NextResponse.next()
+    }
+    let carveSuperAdmin = false
+    if (cached && cached.is_super_admin) {
+      carveSuperAdmin = true
+    } else {
+      try {
+        const sb = supabase ?? getServiceClient()
+        const { data: gr } = await sb
+          .from("user_global_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .eq("role", "super_admin")
+          .eq("status", "approved")
+          .is("deleted_at", null)
+          .limit(1)
+        carveSuperAdmin = !!(gr && gr.length > 0)
+      } catch {
+        carveSuperAdmin = false
+      }
+    }
+    if (carveSuperAdmin) {
+      return NextResponse.next()
+    }
+    // Not owner, not super_admin → role-appropriate redirect. manager
+    // and hostess/staff/waiter all fall through to here.
+    const fallback =
+      role === "manager" ? "/manager" :
+      role === "hostess" ? "/me" :
+      "/counter"
+    return redirectTo(req, fallback)
   }
 
   // 5. super_admin prefix gate — checked BEFORE hostess redirect so that
@@ -312,5 +477,14 @@ export const config = {
     // Phase 6: 공용 진입 라우터. 페이지 자체가 server redirect 을
     // 수행하므로 middleware 는 인증만 확인한 뒤 통과시킨다.
     "/monitor",
+    // api-level-enforcement round: bring /api/* into the matcher so the
+    // must_change_password gate applies to business APIs, not just page
+    // navigation. The middleware function branches on isApiPath(pathname)
+    // at the very top and intentionally does NOT run the page auth logic
+    // for API requests — it only reads authCache and, on flag=true,
+    // returns a JSON 403. Exempt paths (auth/*, cron/*) are passed
+    // through immediately. Unauthenticated API calls are passed through
+    // to the route so the route's own 401 handling remains authoritative.
+    "/api/:path*",
   ],
 }

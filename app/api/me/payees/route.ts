@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getMePayees } from "@/lib/server/queries/mePayees"
 
 /**
  * STEP-010: GET/POST /api/me/payees
@@ -35,17 +36,13 @@ function supa() {
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
-    const supabase = supa()
-    const { data, error } = await supabase
-      .from("payee_accounts")
-      .select("id, linked_membership_id, payee_name, role_type, bank_name, account_holder_name, account_number, is_active, note, created_at, updated_at")
-      .eq("store_uuid", auth.store_uuid)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-    if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
+    try {
+      const data = await getMePayees(auth)
+      return NextResponse.json(data)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "err"
+      return NextResponse.json({ error: "QUERY_FAILED", message: msg }, { status: 500 })
     }
-    return NextResponse.json({ payees: (data ?? []) as PayeeRow[] })
   } catch (e) {
     if (e instanceof AuthError) {
       const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403

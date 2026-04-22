@@ -8,8 +8,10 @@
  * the API outcome to preserve email-existence privacy.
  */
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { apiFetch } from "@/lib/apiFetch"
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -46,6 +48,40 @@ function parseRecoveryFragment(hash: string): RecoveryFragment {
 }
 
 export default function ResetPasswordPage() {
+  // Next.js 15: useSearchParams requires a Suspense boundary under
+  // static prerender. We wrap the inner split.
+  return (
+    <Suspense fallback={<ResetPasswordLoading />}>
+      <ResetPasswordRouter />
+    </Suspense>
+  )
+}
+
+function ResetPasswordLoading() {
+  return (
+    <div className="min-h-screen bg-[#030814] flex items-center justify-center">
+      <div className="text-cyan-400 text-sm">로딩 중...</div>
+    </div>
+  )
+}
+
+function ResetPasswordRouter() {
+  // Forced-change mode gate (invite-flow round 057).
+  //   When middleware appends ?force=1 we render a completely different
+  //   UI: the user is already cookie-authenticated, they do NOT go
+  //   through the email recovery path — they submit a new password
+  //   directly to /api/auth/change-password. On success the server
+  //   clears `profiles.must_change_password` and the middleware gate
+  //   stops redirecting.
+  const searchParams = useSearchParams()
+  const isForceMode = searchParams?.get("force") === "1"
+  if (isForceMode) {
+    return <ForcedChangePasswordPanel />
+  }
+  return <EmailResetPanel />
+}
+
+function EmailResetPanel() {
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -270,6 +306,146 @@ export default function ResetPasswordPage() {
                   <Link href="/find-id" className="text-slate-400 hover:text-cyan-300 hover:underline">아이디 찾기</Link>
                   {" · "}
                   <Link href="/login" className="text-cyan-300 hover:underline">로그인으로 돌아가기</Link>
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Forced-change panel — cookie-authenticated direct password update.
+ * Reached only via middleware redirect `/reset-password?force=1` when
+ * `profiles.must_change_password === true`. The UI deliberately does
+ * NOT offer "cancel" or "skip" — the only way out is to finish setting
+ * a new password or log out.
+ */
+function ForcedChangePasswordPanel() {
+  const router = useRouter()
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [done, setDone] = useState(false)
+
+  async function handleSubmit() {
+    setError("")
+    if (password.length < 8) {
+      setError("비밀번호는 8자 이상이어야 합니다.")
+      return
+    }
+    if (password !== confirm) {
+      setError("비밀번호가 일치하지 않습니다.")
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await apiFetch("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ new_password: password }),
+      })
+      let data: Record<string, unknown> = {}
+      try { data = await res.json() } catch { /* non-JSON */ }
+
+      if (res.status === 401 || res.status === 403) {
+        // Session lost while the user was on this page.
+        router.push("/login")
+        return
+      }
+      if (!res.ok) {
+        setError((data.message as string) || (data.error as string) || "비밀번호 변경에 실패했습니다.")
+        return
+      }
+      setDone(true)
+      // Best practice: re-login after forced change so the authCache
+      // entry is renewed with must_change_password=false.
+      setTimeout(async () => {
+        try { await apiFetch("/api/auth/logout", { method: "POST" }) } catch { /* ignore */ }
+        router.push("/login")
+      }, 1500)
+    } catch {
+      setError("서버 오류 또는 네트워크 문제로 요청을 보낼 수 없습니다.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#030814] text-white overflow-hidden relative">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,173,255,0.15),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.10),transparent_28%)]" />
+      <div className="relative z-10 min-h-screen flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-[480px]">
+          <div className="mb-6">
+            <div className="inline-flex items-center gap-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+              <span className="text-sm font-medium tracking-wide text-amber-100">비밀번호 변경 필요</span>
+            </div>
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight">새 비밀번호 설정</h1>
+            <p className="mt-2 text-slate-400 text-sm">
+              관리자가 생성한 계정입니다. 임시 비밀번호를 새 비밀번호로 교체한 뒤에만
+              시스템을 사용할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-400/20 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-6 space-y-3 backdrop-blur-xl">
+            {done ? (
+              <div className="py-6 text-center">
+                <div className="text-3xl text-emerald-400">✓</div>
+                <h2 className="mt-3 text-xl font-semibold">변경 완료</h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  새 비밀번호로 재로그인합니다...
+                </p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">새 비밀번호 (8자 이상)</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-[#0A1222] border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    placeholder="새 비밀번호"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">새 비밀번호 확인</label>
+                  <input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                    className="w-full bg-[#0A1222] border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    placeholder="한 번 더 입력"
+                  />
+                </div>
+
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="w-full h-12 rounded-xl bg-[linear-gradient(90deg,#f59e0b,#ea580c)] text-sm font-semibold text-white shadow-[0_8px_30px_rgba(234,88,12,0.35)] disabled:opacity-50"
+                >
+                  {loading ? "변경 중..." : "비밀번호 변경 및 로그인"}
+                </button>
+
+                <p className="text-[11px] text-slate-500 text-center">
+                  비밀번호 변경 전에는 다른 페이지로 이동할 수 없습니다.
+                  {" · "}
+                  <button
+                    type="button"
+                    className="text-amber-300 hover:underline"
+                    onClick={async () => {
+                      try { await apiFetch("/api/auth/logout", { method: "POST" }) } catch {}
+                      router.push("/login")
+                    }}
+                  >
+                    로그아웃
+                  </button>
                 </p>
               </>
             )}

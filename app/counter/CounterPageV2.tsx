@@ -141,17 +141,113 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   // Note: fetchRooms / currentStoreUuid / dailySummary / realtime / polling (now)
   // are owned by useRooms(). This page calls `fetchRooms()` = refreshRooms alias.
 
-  // Wire realtime → focus refetch (hook owns subscription; page owns focus state).
+  // Wire realtime → focus state PATCH (realtime patch-mode round).
+  //
+  //   Before: every event triggered fetchFocusData → full refetch of
+  //     /api/rooms/{id}/participants + /api/sessions/orders.
+  //     BLE ingest bursts produced participants×5, orders×5 stacks
+  //     visible in the Network tab.
+  //
+  //   After: Supabase CDC payload includes the full row (RLS disabled).
+  //     We apply an in-memory patch keyed by row.id and filtered to the
+  //     currently-focused session. Patch runs in setFocusData, so render
+  //     consistency is guaranteed.
+  //
+  //   Fallback: if the payload does not match the focused session OR
+  //     the row shape is unexpected (e.g. partial payload from a server
+  //     upgrade), we fall back to fetchFocusData for that event. This
+  //     keeps the UI correct even under unknown payloads.
   useEffect(() => {
-    setOnRealtimeEvent((table: "room_sessions" | "session_participants" | "orders") => {
-      if ((table === "room_sessions" || table === "session_participants" || table === "orders") &&
-          focusRoomId && focusData?.sessionId) {
-        fetchFocusData(focusRoomId, focusData.sessionId, focusData.started_at)
+    setOnRealtimeEvent((ev: import("./hooks/useRooms").RealtimeEvent) => {
+      const focusSessionId = focusData?.sessionId
+      if (!focusRoomId || !focusSessionId) return
+
+      // room_sessions changes affect the main rooms list (already handled
+      // by useRooms.scheduleRefresh). If the focused session itself is the
+      // one changing (status flip, ended_at set), refetch the focus view
+      // because session-level flags (session_status) would otherwise go
+      // stale — this is rare and cheap.
+      if (ev.table === "room_sessions") {
+        if (ev.sessionId === focusSessionId) {
+          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
+        }
+        return
+      }
+
+      // For participants / orders: only patch if the event belongs to the
+      // focused session. Other sessions' events are ignored at the focus
+      // level (useRooms handles the room-list side).
+      const eventSessionId = ev.sessionId ?? (ev.newRow?.session_id as string | undefined) ?? (ev.oldRow?.session_id as string | undefined)
+      if (eventSessionId && eventSessionId !== focusSessionId) return
+
+      const eventType = ev.eventType ?? "UPDATE"
+
+      if (ev.table === "session_participants") {
+        const row = (ev.newRow ?? ev.oldRow) as Record<string, unknown> | null
+        const id = typeof row?.id === "string" ? row.id : null
+        if (!id) {
+          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
+          return
+        }
+        setFocusData((prev) => {
+          if (!prev || prev.sessionId !== focusSessionId) return prev
+          if (eventType === "DELETE") {
+            return { ...prev, participants: prev.participants.filter((p) => p.id !== id) }
+          }
+          // INSERT / UPDATE: merge the new row. We cast through unknown because
+          // the CDC payload column set may not perfectly match the Participant
+          // type — missing fields stay undefined which matches current
+          // optional-field semantics on Participant.
+          const nextRow = ev.newRow as unknown as import("./types").Participant | null
+          if (!nextRow || typeof nextRow.id !== "string") {
+            fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
+            return prev
+          }
+          const idx = prev.participants.findIndex((p) => p.id === id)
+          if (idx >= 0) {
+            const merged = { ...prev.participants[idx], ...nextRow }
+            const next = prev.participants.slice()
+            next[idx] = merged
+            return { ...prev, participants: next }
+          }
+          // INSERT (or UPDATE for a row the client didn't know about).
+          return { ...prev, participants: [...prev.participants, nextRow] }
+        })
+        return
+      }
+
+      if (ev.table === "orders") {
+        const row = (ev.newRow ?? ev.oldRow) as Record<string, unknown> | null
+        const id = typeof row?.id === "string" ? row.id : null
+        if (!id) {
+          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
+          return
+        }
+        setFocusData((prev) => {
+          if (!prev || prev.sessionId !== focusSessionId) return prev
+          if (eventType === "DELETE") {
+            return { ...prev, orders: prev.orders.filter((o) => o.id !== id) }
+          }
+          const nextRow = ev.newRow as unknown as import("./types").Order | null
+          if (!nextRow || typeof nextRow.id !== "string") {
+            fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
+            return prev
+          }
+          const idx = prev.orders.findIndex((o) => o.id === id)
+          if (idx >= 0) {
+            const merged = { ...prev.orders[idx], ...nextRow }
+            const next = prev.orders.slice()
+            next[idx] = merged
+            return { ...prev, orders: next }
+          }
+          return { ...prev, orders: [...prev.orders, nextRow] }
+        })
+        return
       }
     })
     return () => setOnRealtimeEvent(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusRoomId, focusData?.sessionId])
+  }, [focusRoomId, focusData?.sessionId, focusData?.started_at])
 
   // fetchOrders / fetchFocusData are owned by useFocusedSession.
 

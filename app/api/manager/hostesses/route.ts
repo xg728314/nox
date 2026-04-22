@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getManagerHostesses } from "@/lib/server/queries/managerHostesses"
 
 export async function GET(request: Request) {
   try {
@@ -13,83 +13,16 @@ export async function GET(request: Request) {
       )
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !supabaseServiceKey) {
+    try {
+      const data = await getManagerHostesses(authContext)
+      return NextResponse.json(data)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "err"
       return NextResponse.json(
-        { error: "SERVER_CONFIG_ERROR", message: "Supabase environment variables are not configured." },
+        { error: "QUERY_FAILED", message: msg },
         { status: 500 }
       )
     }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    let hostessIds: string[] = []
-
-    if (authContext.role === "owner") {
-      const { data: allHostesses, error: allHostessesError } = await supabase
-        .from("store_memberships")
-        .select("id")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("role", "hostess")
-        .eq("status", "approved")
-
-      if (allHostessesError) {
-        return NextResponse.json(
-          { error: "QUERY_FAILED", message: "Failed to query hostess assignments." },
-          { status: 500 }
-        )
-      }
-
-      hostessIds = (allHostesses ?? []).map((hostess) => hostess.id)
-    } else {
-      const { data: assignments, error: assignmentsError } = await supabase
-        .from("hostesses")
-        .select("membership_id")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("manager_membership_id", authContext.membership_id)
-
-      if (assignmentsError) {
-        return NextResponse.json(
-          { error: "QUERY_FAILED", message: "Failed to query hostess assignments." },
-          { status: 500 }
-        )
-      }
-
-      hostessIds = (assignments ?? []).map((assignment) => assignment.membership_id)
-    }
-
-    if (hostessIds.length === 0) {
-      return NextResponse.json({
-        store_uuid: authContext.store_uuid,
-        role: authContext.role,
-        hostesses: [],
-      })
-    }
-
-    const { data: hostesses, error: hostessesError } = await supabase
-      .from("store_memberships")
-      .select("id, profiles!store_memberships_profile_id_fkey(full_name)")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("role", "hostess")
-      .in("id", hostessIds)
-
-    if (hostessesError) {
-      return NextResponse.json(
-        { error: "QUERY_FAILED", message: "Failed to query hostess details." },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      store_uuid: authContext.store_uuid,
-      role: authContext.role,
-      hostesses: (hostesses ?? []).map((h: { id: string; profiles: { full_name: string }[] | null }) => ({
-        hostess_id: h.id,
-        hostess_name: h.profiles?.[0]?.full_name ?? "",
-      })),
-    })
   } catch (error) {
     if (error instanceof AuthError) {
       const status =

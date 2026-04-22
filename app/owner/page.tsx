@@ -256,6 +256,30 @@ export default function OwnerPage() {
             </div>
           )}
 
+          {/* 회원 관리 섹션 — members-UI restructure round에서 분리.
+              회원 생성 (privileged role) / 가입 승인 (hostess only) /
+              계정 관리 (전체 role) 3개 페이지로 완전히 분할. 각 액션은
+              별도 페이지에서 한 화면 한 동작으로 처리. */}
+          <div className="mt-4 mb-2 text-xs uppercase tracking-wider text-cyan-300/70">
+            회원 관리
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            {[
+              { label: "회원 생성", path: "/admin/members/create", icon: "➕" },
+              { label: "가입 승인", path: "/admin/approvals", icon: "✅" },
+              { label: "계정 관리", path: "/admin/members", icon: "👥" },
+            ].map((item) => (
+              <button
+                key={item.path}
+                onClick={() => router.push(item.path)}
+                className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-left hover:bg-cyan-400/10 transition-colors"
+              >
+                <div className="text-xl mb-1">{item.icon}</div>
+                <div className="text-xs text-slate-300">{item.label}</div>
+              </button>
+            ))}
+          </div>
+
           {/* 빠른 이동 */}
           <div className="grid grid-cols-3 gap-3">
             {[
@@ -263,7 +287,6 @@ export default function OwnerPage() {
               { label: "리포트", path: "/reports", icon: "📊" },
               { label: "카운터", path: "/counter", icon: "🖥️" },
               { label: "배정", path: "/attendance", icon: "📋" },
-              { label: "승인", path: "/approvals", icon: "✅" },
               { label: "감사 로그", path: "/audit", icon: "📜" },
               { label: "정산 현황", path: "/owner/settlement", icon: "💰" },
               { label: "지급 관리", path: "/payouts", icon: "💸" },

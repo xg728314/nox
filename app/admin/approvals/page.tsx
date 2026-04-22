@@ -1,5 +1,29 @@
 "use client"
 
+/**
+ * 가입 승인 (/admin/approvals)
+ *
+ * Canonical approvals route. Hostess-only — the public signup flow
+ * creates pending rows, and this page is the sole owner/super_admin
+ * UI for approving/rejecting them. Other roles (manager/staff/owner
+ * of other stores) never reach this page:
+ *   - owner of this store → allowed (middleware OWNER_ONLY /admin)
+ *   - super_admin         → allowed via SUPER_ADMIN_OR_OWNER_PREFIXES
+ *                           carve-out NOT applied here (this is strict
+ *                           owner-only in the current matrix; add to
+ *                           carve-out list if cross-store admin access
+ *                           becomes a requirement)
+ *   - others              → middleware redirects to role home
+ *
+ * Data: GET /api/store/approvals returns all pending rows; we apply a
+ * defensive client filter to keep only role=hostess so non-hostess
+ * pending (shouldn't exist in current signup model, but defence in
+ * depth) never leaks into this UI.
+ *
+ * The legacy /approvals route is redirected here by Next.js
+ * `redirects()` config (308 permanent). Old bookmarks are preserved.
+ */
+
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
@@ -34,7 +58,14 @@ export default function ApprovalsPage() {
       if (res.status === 401 || res.status === 403) { router.push("/login"); return }
       if (res.ok) {
         const data = await res.json()
-        setPending(data.pending ?? [])
+        // 가입 승인 페이지는 hostess(아가씨) 신청만 노출.
+        // 공개 signup 이 hostess 전용이라 pending 은 이미 hostess 인
+        // 구조이지만, 방어적으로 클라이언트 필터를 둬서 다른 role 이
+        // 섞여 들어와도 UI 에 떠오르지 않도록 한다.
+        const hostessOnly = ((data.pending ?? []) as PendingMember[]).filter(
+          (p) => p.role === "hostess",
+        )
+        setPending(hostessOnly)
         setStoreName(data.store_name ?? null)
         setError("")
       }

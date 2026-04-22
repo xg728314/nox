@@ -7,14 +7,19 @@
  *   - Render the signup form with the six locked inputs
  *     (store, full_name, nickname, phone, email, password).
  *   - Client-side validation only.
- *   - Submit shape matches the design lock; POSTs to /api/auth/signup
- *     which does NOT exist yet — the handler tolerates 404 / network
- *     failure and surfaces a clear "준비 중" message.
+ *   - Submit shape matches the design lock; POSTs to /api/auth/signup.
  *   - role is hard-coded as `hostess`. No role picker.
  *   - Store list is fixed (Marvel / Burning / Hwangjini / Live):
  *     the only existing /api/stores route requires owner auth, so
  *     it cannot be reused for an unauthenticated signup form.
  *     Per task §STORE SELECTION RULE this is allowed.
+ *
+ * SIGNUP POLICY (locked — do not expand this page to cover other roles):
+ *   - 공개 self-signup = **아가씨(hostess) 전용**.
+ *   - 사장(owner) / 실장(manager) / 스태프(staff) 계정은 로그인된
+ *     owner 또는 운영자가 별도 초대/생성 플로우로 만든다. 공개 UI 에
+ *     role selector 를 추가하거나 body.role 을 서버가 수용하면 정책
+ *     위반.
  */
 
 import { useState } from "react"
@@ -137,9 +142,20 @@ export default function SignupPage() {
                 NOX Counter OS
               </span>
             </div>
-            <h1 className="mt-5 text-3xl font-semibold tracking-tight">회원가입</h1>
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight">아가씨 회원가입</h1>
             <p className="mt-2 text-slate-400">
-              사용할 계정 정보를 입력해 주세요.
+              아가씨(스태프) 계정을 신청합니다. 운영자 승인 후 로그인 가능합니다.
+            </p>
+          </div>
+
+          {/* 정책 안내 — owner/manager/staff 는 이 플로우로 가입 불가 */}
+          <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-[13px] text-amber-100/90">
+            <div className="font-medium">가입 대상 안내</div>
+            <p className="mt-1 text-amber-100/70">
+              이 페이지는 <b>아가씨 회원가입</b> 전용입니다.
+              사장·실장·스태프 계정은 <b>매장 관리자(사장) 또는 운영자</b>가
+              내부에서 직접 생성합니다. 해당 권한이 필요하면 소속 매장
+              관리자에게 문의해 주세요.
             </p>
           </div>
 
@@ -164,11 +180,11 @@ export default function SignupPage() {
               <>
                 <div>
                   <div className="text-xs text-cyan-200/90 tracking-widest">
-                    SIGN UP
+                    HOSTESS SIGN UP
                   </div>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight">회원가입</h2>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight">아가씨 회원가입</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    사용할 계정 정보를 입력해 주세요.
+                    소속 매장을 선택하고 계정 정보를 입력해 주세요.
                   </p>
                 </div>
 

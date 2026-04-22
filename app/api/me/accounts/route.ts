@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getMeAccounts } from "@/lib/server/queries/meAccounts"
 
 /**
  * STEP-010: GET/POST /api/me/accounts
@@ -33,19 +34,13 @@ function supa() {
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
-    const supabase = supa()
-    const { data, error } = await supabase
-      .from("settlement_accounts")
-      .select("id, bank_name, account_holder_name, account_number, account_type, is_default, is_active, note, created_at, updated_at")
-      .eq("store_uuid", auth.store_uuid)
-      .eq("owner_membership_id", auth.membership_id)
-      .is("deleted_at", null)
-      .order("is_default", { ascending: false })
-      .order("created_at", { ascending: false })
-    if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
+    try {
+      const data = await getMeAccounts(auth)
+      return NextResponse.json(data)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "err"
+      return NextResponse.json({ error: "QUERY_FAILED", message: msg }, { status: 500 })
     }
-    return NextResponse.json({ accounts: (data ?? []) as AccountRow[] })
   } catch (e) {
     if (e instanceof AuthError) {
       const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { formatRoomLabel } from "@/lib/rooms/formatRoomLabel"
+import { getAttendance } from "@/lib/server/queries/attendance"
 
 /**
  * GET /api/attendance
@@ -15,80 +15,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
+    try {
+      const data = await getAttendance(authContext)
+      return NextResponse.json(data)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "err"
+      return NextResponse.json({ error: "QUERY_FAILED", message: msg }, { status: 500 })
     }
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    // 현재 영업일 조회
-    const today = new Date().toISOString().split("T")[0]
-    let { data: bizDay } = await supabase
-      .from("store_operating_days")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_date", today)
-      .maybeSingle()
-
-    if (!bizDay) {
-      // fallback: 최근 open 영업일
-      const { data: latestDay } = await supabase
-        .from("store_operating_days")
-        .select("id")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("status", "open")
-        .order("business_date", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (!latestDay) {
-        return NextResponse.json({ store_uuid: authContext.store_uuid, business_day_id: null, attendance: [] })
-      }
-      bizDay = latestDay
-    }
-
-    const businessDayId = bizDay.id
-
-    type AttendanceRow = { id: string; membership_id: string; role: string; status: string; checked_in_at: string; checked_out_at: string | null; assigned_room_uuid: string | null; notes: string | null }
-
-    const { data: attendance, error } = await supabase
-      .from("staff_attendance")
-      .select("id, membership_id, role, status, checked_in_at, checked_out_at, assigned_room_uuid, notes")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
-      .order("checked_in_at", { ascending: true })
-
-    if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
-    }
-
-    // 이름 조회
-    const membershipIds = [...new Set((attendance ?? []).map((a: AttendanceRow) => a.membership_id))]
-    const nameMap = new Map<string, string>()
-
-    if (membershipIds.length > 0) {
-      const { data: managers } = await supabase.from("managers").select("membership_id, name").eq("store_uuid", authContext.store_uuid).in("membership_id", membershipIds)
-      for (const m of managers ?? []) nameMap.set(m.membership_id, m.name)
-      const { data: hostesses } = await supabase.from("hostesses").select("membership_id, name").eq("store_uuid", authContext.store_uuid).in("membership_id", membershipIds)
-      for (const h of hostesses ?? []) nameMap.set(h.membership_id, h.name)
-    }
-
-    // 방 이름 조회
-    const roomUuids = [...new Set((attendance ?? []).map((a: AttendanceRow) => a.assigned_room_uuid).filter(Boolean))] as string[]
-    const roomMap = new Map<string, string>()
-    if (roomUuids.length > 0) {
-      const { data: rooms } = await supabase.from("rooms").select("id, room_name, room_no").eq("store_uuid", authContext.store_uuid).in("id", roomUuids)
-      for (const r of rooms ?? []) roomMap.set(r.id, formatRoomLabel(r))
-    }
-
-    const enriched = (attendance ?? []).map((a: AttendanceRow) => ({
-      ...a,
-      name: nameMap.get(a.membership_id) || "",
-      room_name: a.assigned_room_uuid ? (roomMap.get(a.assigned_room_uuid) || null) : null,
-    }))
-
-    return NextResponse.json({ store_uuid: authContext.store_uuid, business_day_id: businessDayId, attendance: enriched })
   } catch (error) {
     if (error instanceof AuthError) {
       const status = error.type === "AUTH_MISSING" || error.type === "AUTH_INVALID" ? 401 : error.type.startsWith("MEMBERSHIP") ? 403 : 500

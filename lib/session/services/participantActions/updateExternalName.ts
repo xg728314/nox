@@ -59,9 +59,29 @@ export async function handleUpdateExternalName(
   const beforeName = p.external_name ?? null
   const afterName = externalName ?? null
 
+  // Normalized comparison so whitespace-only edits do not trip the
+  // name_edited flag. `updated_at` is unconditionally bumped (the row
+  // was touched), `name_edited_at` only when the semantic value
+  // actually changed — otherwise the badge would falsely light up on
+  // no-op saves.
+  const normalizedBefore = (beforeName ?? "").trim()
+  const normalizedAfter = (afterName ?? "").trim()
+  const nameActuallyChanged = normalizedBefore !== normalizedAfter
+
+  const updatePayload: Record<string, unknown> = {
+    external_name: afterName,
+    updated_at: new Date().toISOString(),
+  }
+  // migration 058: cache the latest edit timestamp on the row itself
+  // so the hot read paths (manager/participants, rooms/participants)
+  // can skip an audit_events scan.
+  if (nameActuallyChanged) {
+    updatePayload.name_edited_at = new Date().toISOString()
+  }
+
   await supabase
     .from("session_participants")
-    .update({ external_name: afterName, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq("id", participant_id)
 
   // Match resolution against store hostess names

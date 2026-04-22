@@ -39,6 +39,7 @@ export type RateLimitAction =
   | "mfa_verify"
   | "payout"
   | "payout_cancel"
+  | "admin_member_create"
 
 export type TickResult = {
   blocked: boolean

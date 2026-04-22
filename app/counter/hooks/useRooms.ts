@@ -39,6 +39,22 @@ export type RealtimeEvent = {
   roomId?: string | null
   /** session_id (room_sessions / session_participants / orders 공통). */
   sessionId?: string | null
+  /**
+   * Postgres CDC event type — INSERT / UPDATE / DELETE.
+   * Added in the realtime patch-mode round so callers can apply an
+   * incremental patch to local state instead of a full refetch.
+   */
+  eventType?: "INSERT" | "UPDATE" | "DELETE"
+  /**
+   * Raw `new` row (INSERT/UPDATE). Typed as unknown record — callers
+   * narrow by `table`. RLS is disabled for MVP so the full row is
+   * delivered via Supabase Realtime with no column filtering.
+   */
+  newRow?: Record<string, unknown> | null
+  /**
+   * Raw `old` row (UPDATE/DELETE).
+   */
+  oldRow?: Record<string, unknown> | null
 }
 
 type UseRoomsReturn = {
@@ -161,22 +177,32 @@ export function useRooms(): UseRoomsReturn {
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     if (!url || !key || !currentStoreUuid) return
 
-    function dispatchEvent(table: RealtimeTable, payload?: Record<string, unknown>) {
+    type CdcEventType = "INSERT" | "UPDATE" | "DELETE"
+    function dispatchEvent(
+      table: RealtimeTable,
+      eventType: CdcEventType,
+      newRow: Record<string, unknown> | null,
+      oldRow: Record<string, unknown> | null,
+    ) {
       pendingEventsRef.current.add(table)
       const sink = onRealtimeEvent
       if (sink) {
         // Legacy `(table: RealtimeTable) => void` callers keep receiving the
-        // original string. New `(ev: RealtimeEvent) => void` callers can use
-        // roomId / sessionId hints (currently always null — payload parsing
-        // is next-round scope).
+        // original string. New `(ev: RealtimeEvent) => void` callers now get
+        // the full CDC payload and can apply an in-memory patch instead of
+        // triggering a full refetch.
         const legacyLen = (sink as { length: number }).length
         if (legacyLen <= 1) {
           try { (sink as (t: RealtimeTable) => void)(table) } catch { /* ignore */ }
         } else {
+          const idRow = newRow ?? oldRow
           const ev: RealtimeEvent = {
             table,
-            roomId: typeof payload?.room_uuid === "string" ? payload.room_uuid as string : null,
-            sessionId: typeof payload?.session_id === "string" ? payload.session_id as string : null,
+            eventType,
+            newRow,
+            oldRow,
+            roomId: typeof idRow?.room_uuid === "string" ? idRow.room_uuid as string : null,
+            sessionId: typeof idRow?.session_id === "string" ? idRow.session_id as string : null,
           }
           try { (sink as (e: RealtimeEvent) => void)(ev) } catch { /* ignore */ }
         }
@@ -186,17 +212,38 @@ export function useRooms(): UseRoomsReturn {
       if (table !== "orders") scheduleRefreshRef.current?.()
     }
 
+    function extractEventType(p: unknown): CdcEventType {
+      const t = (p as { eventType?: string })?.eventType
+      if (t === "INSERT" || t === "UPDATE" || t === "DELETE") return t
+      return "UPDATE" // safe default: patch logic handles update-shape
+    }
+
     const client = createSupabaseClient(url, key)
     const channel = client
       .channel("counter-v2-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "room_sessions" }, (p) => {
-        dispatchEvent("room_sessions", p?.new as Record<string, unknown> ?? p?.old as Record<string, unknown>)
+        dispatchEvent(
+          "room_sessions",
+          extractEventType(p),
+          (p?.new as Record<string, unknown>) ?? null,
+          (p?.old as Record<string, unknown>) ?? null,
+        )
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "session_participants" }, (p) => {
-        dispatchEvent("session_participants", p?.new as Record<string, unknown> ?? p?.old as Record<string, unknown>)
+        dispatchEvent(
+          "session_participants",
+          extractEventType(p),
+          (p?.new as Record<string, unknown>) ?? null,
+          (p?.old as Record<string, unknown>) ?? null,
+        )
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (p) => {
-        dispatchEvent("orders", p?.new as Record<string, unknown> ?? p?.old as Record<string, unknown>)
+        dispatchEvent(
+          "orders",
+          extractEventType(p),
+          (p?.new as Record<string, unknown>) ?? null,
+          (p?.old as Record<string, unknown>) ?? null,
+        )
       })
       .subscribe()
     return () => {
