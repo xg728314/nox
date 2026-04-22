@@ -137,6 +137,25 @@ export async function PATCH(
     )
   }
 
+  // T3-A: manager 는 본인 담당 hostess 만 변경 가능.
+  //   위의 초기 body-level 체크(self-assign-only)는 "B 에게 넘기지
+  //   못한다" 만 보장했을 뿐, **타 실장이 이미 담당 중인 hostess 를
+  //   null 로 해제** 하는 경로는 허용되고 있었다 (T3 remaining risks #1).
+  //   hostessRow 를 조회한 뒤, manager 가 자기 것이 아닌 row 를
+  //   건드리려 하면 403. owner / super_admin 은 영향 없음.
+  if (isManager && !isOwner && !isSuperAdmin) {
+    const currentAssignee = (hostessRow.manager_membership_id as string | null) ?? null
+    if (currentAssignee !== auth.membership_id) {
+      return NextResponse.json(
+        {
+          error: "ROLE_FORBIDDEN",
+          message: "본인 담당만 변경할 수 있습니다.",
+        },
+        { status: 403 },
+      )
+    }
+  }
+
   // Assign path (not unassign): verify target manager is a real manager
   // in the hostess's store.
   if (nextManagerId !== null) {

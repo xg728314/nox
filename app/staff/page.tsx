@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import WorkLogModal from "./components/WorkLogModal"
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -106,15 +107,47 @@ export default function StaffPage() {
   // Grade editing
   const [gradeBusy, setGradeBusy] = useState<string | null>(null)
 
+  // Phase 1 — work log modal state (1 hostess at a time)
+  const [workLogTarget, setWorkLogTarget] = useState<{
+    membership_id: string
+    name: string
+  } | null>(null)
+
+  // Phase 1 — 최근 근무 로그 리스트 (origin scope, started_at desc)
+  // Phase 2 — lifecycle action 을 위해 created_by, manager_membership_id 포함.
+  type WorkLogRow = {
+    id: string
+    started_at: string
+    ended_at: string | null
+    working_store_name: string
+    working_store_room_label: string | null
+    category: string
+    work_type: string
+    status: string
+    hostess_name: string
+    hostess_membership_id: string
+    manager_membership_id: string | null
+    created_by: string | null
+  }
+  const [recentLogs, setRecentLogs] = useState<WorkLogRow[]>([])
+  const [recentLogsLoading, setRecentLogsLoading] = useState(false)
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null)
+  const [lifecycleToast, setLifecycleToast] = useState<string>("")
+
   // Role — from server-authenticated /api/auth/me (not localStorage)
   const profile = useCurrentProfile()
   const userRole = profile?.role ?? null
+
+  // Caller identity — created_by 비교 및 manager 자기 담당 판정에 사용.
+  const myUserId = profile?.user_id ?? ""
+  const myMembershipId = profile?.membership_id ?? ""
 
   // ── Load data ──
 
   useEffect(() => {
     loadSettings()
     loadManagers()
+    loadRecentLogs()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -123,6 +156,83 @@ export default function StaffPage() {
     loadAnalytics()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodDays, minDays, perfUnit, perfMinCount])
+
+  async function loadRecentLogs() {
+    setRecentLogsLoading(true)
+    try {
+      const res = await apiFetch("/api/staff-work-logs?limit=10")
+      if (res.ok) {
+        const data = await res.json()
+        setRecentLogs((data.items ?? []) as WorkLogRow[])
+      }
+    } catch { /* ignore */ }
+    finally { setRecentLogsLoading(false) }
+  }
+
+  // Phase 2 lifecycle actions — 얇은 inline UX.
+  //   confirm: body 없음
+  //   void:    reason 필수 (prompt)
+  //   dispute: reason 필수 (prompt)
+  async function runLifecycle(
+    logId: string,
+    action: "confirm" | "void" | "dispute",
+  ) {
+    let body: Record<string, unknown> | undefined = undefined
+    if (action === "void" || action === "dispute") {
+      if (typeof window === "undefined") return
+      const msg =
+        action === "void"
+          ? "무효화 사유를 입력하세요"
+          : "이의 제기 사유를 입력하세요"
+      const reason = window.prompt(msg)
+      if (!reason || !reason.trim()) return
+      body = { reason: reason.trim() }
+    }
+    setLifecycleBusyId(logId)
+    try {
+      const res = await apiFetch(`/api/staff-work-logs/${logId}/${action}`, {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
+      })
+      const data = await res.json().catch(() => ({})) as {
+        ok?: boolean; status?: string; message?: string; error?: string
+      }
+      if (res.ok) {
+        setLifecycleToast(
+          action === "confirm" ? "확정 완료"
+          : action === "void" ? "무효화 완료"
+          : "이의 제기됨",
+        )
+        loadRecentLogs()
+      } else {
+        setLifecycleToast(data.message || data.error || "처리 실패")
+      }
+    } catch {
+      setLifecycleToast("서버 오류")
+    } finally {
+      setLifecycleBusyId(null)
+      setTimeout(() => setLifecycleToast(""), 2500)
+    }
+  }
+
+  // 로그 1건에서 caller 가 수행 가능한 action 목록 산출 — UI 표시용.
+  // 서버가 최종 게이트이므로 UI 는 편의적 힌트.
+  function availableActions(log: WorkLogRow): ("confirm" | "void" | "dispute")[] {
+    const isOwnerRole = userRole === "owner"
+    const isManagerRole = userRole === "manager"
+    const acts: ("confirm" | "void" | "dispute")[] = []
+    if (log.status === "settled" || log.status === "voided") return []
+    if (log.status === "draft") {
+      if (isOwnerRole) acts.push("confirm", "void")
+      else if (isManagerRole && log.created_by === myUserId) acts.push("void")
+    } else if (log.status === "confirmed") {
+      if (isOwnerRole) acts.push("void", "dispute")
+      else if (isManagerRole && log.manager_membership_id === myMembershipId)
+        acts.push("dispute")
+    }
+    // disputed: 이번 라운드는 추가 전이 UI 없음
+    return acts
+  }
 
   async function loadSettings() {
     try {
@@ -251,7 +361,7 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#030814] text-white pb-20">
+    <div className="min-h-screen bg-[#030814] text-white pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,173,255,0.1),transparent_30%)] pointer-events-none" />
       <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(rgba(255,255,255,.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.12)_1px,transparent_1px)] [background-size:42px_42px] pointer-events-none" />
 
@@ -550,6 +660,20 @@ export default function StaffPage() {
                       })}
                     </div>
                   )}
+
+                  {/* Row 4 (Phase 1): 근무 기록 + — manager/owner 만.
+                      manager 는 자기 담당 아가씨에만 유효하게 동작 (서버 재검증).
+                      draft 단일 기록 모달. 타매장 근무 포함 가능. */}
+                  {canEditGrade && (
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        onClick={() => setWorkLogTarget({ membership_id: a.membership_id, name: a.name })}
+                        className="text-[11px] px-3 py-1 rounded-lg bg-pink-500/15 text-pink-200 border border-pink-500/25 hover:bg-pink-500/25"
+                      >
+                        근무 기록 +
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -588,8 +712,13 @@ export default function StaffPage() {
         )}
       </div>
 
-      {/* ─── Bottom nav ─── */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#030814]/95 backdrop-blur-sm">
+      {/* ─── Bottom nav ───
+          z-40 으로 본문(z-10) 위. pb-safe 로 iOS home-indicator 겹침 방지.
+          배경은 기존 staff 스타일 유지. */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[#030814]/95 backdrop-blur-sm"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         <div className="grid grid-cols-5 py-2">
           {[
             { label: "카운터", icon: "\u229E", path: "/counter" },
@@ -608,7 +737,127 @@ export default function StaffPage() {
             </button>
           ))}
         </div>
+
+        {/* ─── Phase 1: 최근 근무 로그 (최신 10건, origin scope) ─── */}
+        <div className="px-4 mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-slate-300">최근 근무 로그</div>
+            <button
+              onClick={loadRecentLogs}
+              className="text-[11px] text-slate-500 hover:text-cyan-300"
+            >
+              새로고침
+            </button>
+          </div>
+          {lifecycleToast && (
+            <div className="mb-2 text-[11px] text-emerald-300">{lifecycleToast}</div>
+          )}
+          {recentLogsLoading && (
+            <div className="text-[11px] text-slate-500">로딩 중...</div>
+          )}
+          {!recentLogsLoading && recentLogs.length === 0 && (
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+              <p className="text-xs text-slate-500">기록된 근무 로그가 없습니다.</p>
+            </div>
+          )}
+          {recentLogs.length > 0 && (
+            <div className="space-y-1.5">
+              {recentLogs.map((log) => {
+                const d = new Date(log.started_at)
+                const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+                const catLabel =
+                  log.category === "public" ? "퍼블릭"
+                  : log.category === "shirt" ? "셔츠"
+                  : log.category === "hyper" ? "하이퍼"
+                  : log.category === "etc" ? "기타"
+                  : log.category
+                const wtLabel =
+                  log.work_type === "full" ? "완티"
+                  : log.work_type === "half" ? "반티"
+                  : log.work_type === "cha3" ? "차3"
+                  : log.work_type === "half_cha3" ? "반차3"
+                  : log.work_type
+                return (
+                  <div
+                    key={log.id}
+                    className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[12px]"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-cyan-300 font-mono text-[11px]">{hhmm}</span>
+                      <span className="text-slate-100 font-medium truncate min-w-0">{log.hostess_name || "?"}</span>
+                      <span className="text-slate-500">→</span>
+                      <span className="text-slate-300 truncate min-w-0">
+                        {log.working_store_name || "?"}
+                        {log.working_store_room_label ? ` / ${log.working_store_room_label}` : ""}
+                      </span>
+                      <span className="text-slate-500">·</span>
+                      <span className="text-pink-300">{catLabel}</span>
+                      <span className="text-purple-300">{wtLabel}</span>
+                      <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${
+                        log.status === "draft" ? "bg-slate-500/15 text-slate-400 border-slate-500/20"
+                        : log.status === "confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
+                        : log.status === "disputed" ? "bg-amber-500/15 text-amber-300 border-amber-500/25"
+                        : log.status === "voided" ? "bg-red-500/10 text-red-400 border-red-500/20 line-through"
+                        : log.status === "settled" ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25"
+                        : "bg-slate-500/15 text-slate-400 border-slate-500/20"
+                      }`}>
+                        {log.status}
+                      </span>
+                    </div>
+                    {/* Phase 2: inline lifecycle action buttons.
+                        서버가 최종 권한 검증 — UI 는 힌트. */}
+                    {(() => {
+                      const acts = availableActions(log)
+                      if (acts.length === 0) return null
+                      return (
+                        <div className="flex gap-1 mt-1.5 justify-end">
+                          {acts.includes("confirm") && (
+                            <button
+                              onClick={() => runLifecycle(log.id, "confirm")}
+                              disabled={lifecycleBusyId === log.id}
+                              className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/25 disabled:opacity-50"
+                            >
+                              확정
+                            </button>
+                          )}
+                          {acts.includes("dispute") && (
+                            <button
+                              onClick={() => runLifecycle(log.id, "dispute")}
+                              disabled={lifecycleBusyId === log.id}
+                              className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25 hover:bg-amber-500/25 disabled:opacity-50"
+                            >
+                              이의
+                            </button>
+                          )}
+                          {acts.includes("void") && (
+                            <button
+                              onClick={() => runLifecycle(log.id, "void")}
+                              disabled={lifecycleBusyId === log.id}
+                              className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50"
+                            >
+                              무효
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Phase 1 work log modal — hostess 1명 draft 기록. */}
+      <WorkLogModal
+        open={!!workLogTarget}
+        onClose={() => setWorkLogTarget(null)}
+        hostessMembershipId={workLogTarget?.membership_id ?? ""}
+        hostessName={workLogTarget?.name ?? ""}
+        callerStoreUuid={profile?.store_uuid ?? ""}
+        onSuccess={loadRecentLogs}
+      />
     </div>
   )
 }

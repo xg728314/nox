@@ -65,6 +65,18 @@ export default function OwnerPage() {
   const [assignSubmitting, setAssignSubmitting] = useState(false)
   const [assignToast, setAssignToast] = useState<string>("")
 
+  // T3: 배정된 아가씨 list + 배정 해제 state.
+  //   /api/store/staff?role=hostess 가 manager_membership_id / manager_name
+  //   enrichment 를 포함하므로 기존 API 재사용으로 충분 (신규 API 없음).
+  type AssignedHostess = {
+    membership_id: string
+    name: string
+    manager_membership_id: string | null
+    manager_name: string | null
+  }
+  const [assignedHostesses, setAssignedHostesses] = useState<AssignedHostess[]>([])
+  const [unassignBusyId, setUnassignBusyId] = useState<string | null>(null)
+
   const me = useCurrentProfile()
   const currentStoreUuid = me?.store_uuid ?? ""
 
@@ -186,10 +198,72 @@ export default function OwnerPage() {
     finally { setUnassignedLoading(false) }
   }
 
-  // Mount: 미배정 목록 1회 로드.
+  // T3: 배정된 아가씨 목록 — /api/store/staff?role=hostess 의 enrichment
+  //   (manager_membership_id / manager_name) 를 활용. manager 가 지정된
+  //   row 만 추려 displays.
+  async function fetchAssignedHostesses() {
+    try {
+      const res = await apiFetch("/api/store/staff?role=hostess")
+      if (res.ok) {
+        const data = await res.json()
+        type Row = {
+          membership_id: string
+          name: string
+          manager_membership_id?: string | null
+          manager_name?: string | null
+        }
+        const rows = ((data.staff ?? []) as Row[])
+          .filter((r) => !!r.manager_membership_id)
+          .map((r) => ({
+            membership_id: r.membership_id,
+            name: r.name,
+            manager_membership_id: r.manager_membership_id ?? null,
+            manager_name: r.manager_name ?? null,
+          }))
+        setAssignedHostesses(rows)
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Mount: 미배정 + 배정됨 목록 1회 로드.
   useEffect(() => {
     fetchUnassigned()
+    fetchAssignedHostesses()
   }, [])
+
+  // T3: owner/super_admin 이 배정된 아가씨를 해제. PATCH /api/hostesses/:id/assign
+  //   { manager_membership_id: null } — 서버가 store scope 재검증 후 null 로 갱신.
+  async function unassignHostess(h: AssignedHostess) {
+    setUnassignBusyId(h.membership_id)
+    try {
+      const res = await apiFetch(
+        `/api/hostesses/${h.membership_id}/assign`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ manager_membership_id: null }),
+        },
+      )
+      if (res.ok) {
+        setAssignToast(`${h.name} 배정 해제 완료`)
+        // 배정됨 목록에서 optimistic 제거 + 양쪽 재조회로 정합성 확정.
+        setAssignedHostesses((prev) =>
+          prev.filter((x) => x.membership_id !== h.membership_id),
+        )
+        fetchUnassigned()
+        fetchAssignedHostesses()
+        setTimeout(() => setAssignToast(""), 2000)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setAssignToast(body.message || "해제 실패")
+        setTimeout(() => setAssignToast(""), 3000)
+      }
+    } catch {
+      setAssignToast("서버 오류")
+      setTimeout(() => setAssignToast(""), 3000)
+    } finally {
+      setUnassignBusyId(null)
+    }
+  }
 
   function openAssignModal(h: UnassignedHostess) {
     setAssignModalFor(h)
@@ -216,6 +290,7 @@ export default function OwnerPage() {
         setAssignToast("배정 완료")
         closeAssignModal()
         fetchUnassigned()
+        fetchAssignedHostesses()
         setTimeout(() => setAssignToast(""), 2000)
       } else {
         const body = await res.json().catch(() => ({}))
@@ -378,6 +453,43 @@ export default function OwnerPage() {
           {assignToast && (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs px-3 py-2">
               {assignToast}
+            </div>
+          )}
+
+          {/* 배정된 아가씨 — T3 round.
+              현재 manager 가 지정된 hostess 를 나열. 각 row 에 "배정 해제"
+              버튼으로 기존 PATCH /api/hostesses/:id/assign (manager_membership_id:null)
+              재사용. 해제 직후 위 미배정 섹션으로 이동. */}
+          {assignedHostesses.length > 0 && (
+            <div className="rounded-2xl border border-purple-400/20 bg-purple-500/5 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-medium text-purple-200">배정된 아가씨</div>
+                <div className="text-[11px] text-slate-500">{assignedHostesses.length}명</div>
+              </div>
+              <div className="space-y-2">
+                {assignedHostesses.map((h) => (
+                  <div
+                    key={h.membership_id}
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-100 truncate">
+                        {h.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        담당 실장: <span className="text-purple-300">{h.manager_name || h.manager_membership_id?.slice(0, 8) || "-"}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => unassignHostess(h)}
+                      disabled={unassignBusyId === h.membership_id}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-slate-300 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50"
+                    >
+                      {unassignBusyId === h.membership_id ? "해제 중..." : "배정 해제"}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

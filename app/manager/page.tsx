@@ -58,6 +58,10 @@ export default function ManagerPage() {
   const [showHostessProfitToOwner, setShowHostessProfitToOwner] = useState(false)
   const [visibilityLoading, setVisibilityLoading] = useState(false)
 
+  // T3: 담당 해제 state.
+  const [unassignBusyId, setUnassignBusyId] = useState<string | null>(null)
+  const [unassignToast, setUnassignToast] = useState<string>("")
+
   usePagePerf("manager")
 
   useEffect(() => {
@@ -183,6 +187,39 @@ export default function ManagerPage() {
         await fetchManagedParticipants()
       }
     } catch { /* ignore */ }
+  }
+
+  // T3: 본인 담당 hostess 를 스스로 해제. PATCH /api/hostesses/:id/assign
+  //   { manager_membership_id: null } — 서버가 self-assign 권한 (본인에게만)
+  //   재검증 후 null 로 업데이트. 성공 시 담당 목록에서 사라지고 미배정
+  //   섹션으로 이동. 기존 assign route 재사용 — 신규 API 없음.
+  async function unassignSelf(hostessId: string) {
+    setUnassignBusyId(hostessId)
+    try {
+      const res = await apiFetch(
+        `/api/hostesses/${hostessId}/assign`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ manager_membership_id: null }),
+        },
+      )
+      if (res.ok) {
+        setUnassignToast("담당 해제 완료")
+        // 담당 목록 optimistic 제거 + bootstrap re-fetch 로 정합성 확정.
+        setHostesses((prev) => prev.filter((h) => h.hostess_id !== hostessId))
+        fetchData()
+        setTimeout(() => setUnassignToast(""), 2000)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setUnassignToast(body.message || "해제 실패")
+        setTimeout(() => setUnassignToast(""), 3000)
+      }
+    } catch {
+      setUnassignToast("서버 오류")
+      setTimeout(() => setUnassignToast(""), 3000)
+    } finally {
+      setUnassignBusyId(null)
+    }
   }
 
   async function fetchChatUnread() {
@@ -450,19 +487,27 @@ export default function ManagerPage() {
 
           <div className="space-y-2">
             {hostesses.map((h) => (
-              <div key={h.hostess_id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-purple-500/20 flex items-center justify-center text-sm text-purple-300">
-                    {(h.hostess_name || "?").slice(0, 1)}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{h.hostess_name || h.hostess_id.slice(0, 8)}</div>
-                    <div className="text-xs text-slate-500">{h.hostess_id.slice(0, 8)}</div>
-                  </div>
+              <div key={h.hostess_id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-500/20 flex items-center justify-center text-sm text-purple-300 flex-shrink-0">
+                  {(h.hostess_name || "?").slice(0, 1)}
                 </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{h.hostess_name || h.hostess_id.slice(0, 8)}</div>
+                  <div className="text-xs text-slate-500">{h.hostess_id.slice(0, 8)}</div>
+                </div>
+                <button
+                  onClick={() => unassignSelf(h.hostess_id)}
+                  disabled={unassignBusyId === h.hostess_id}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-slate-300 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50 flex-shrink-0"
+                >
+                  {unassignBusyId === h.hostess_id ? "해제 중..." : "해제"}
+                </button>
               </div>
             ))}
           </div>
+          {unassignToast && (
+            <div className="mt-3 text-[11px] text-emerald-300">{unassignToast}</div>
+          )}
         </div>
       </div>
 
