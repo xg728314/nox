@@ -66,13 +66,15 @@ type UsePayeeAccountsReturn = {
   removePayee: (id: string) => Promise<void>
 }
 
-export function usePayeeAccounts(): UsePayeeAccountsReturn {
-  const [payees, setPayees] = useState<PayeeAccount[]>([])
-  const [loading, setLoading] = useState(true)
+export function usePayeeAccounts(seed?: PayeeAccount[] | null): UsePayeeAccountsReturn {
+  const seeded = Array.isArray(seed)
+  const [payees, setPayees] = useState<PayeeAccount[]>(seeded ? (seed as PayeeAccount[]) : [])
+  const [loading, setLoading] = useState(!seeded)
   const [error, setError] = useState("")
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<PayeeForm>(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
+  const [seededInitial] = useState<boolean>(seeded)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -92,7 +94,10 @@ export function usePayeeAccounts(): UsePayeeAccountsReturn {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    if (seededInitial) return
+    refresh()
+  }, [refresh, seededInitial])
 
   const openModal = useCallback((payee?: PayeeAccount) => {
     setError("")

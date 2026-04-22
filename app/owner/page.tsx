@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import { usePagePerf } from "@/lib/debug/usePagePerf"
 
 type StoreProfile = {
   store_uuid: string
@@ -52,10 +53,54 @@ export default function OwnerPage() {
   const me = useCurrentProfile()
   const currentStoreUuid = me?.store_uuid ?? ""
 
+  usePagePerf("owner")
+
   useEffect(() => {
-    fetchAll()
-    fetchMemberships()
-    fetchChatUnread()
+    // Bootstrap-first: single fan-in call, fall back to legacy fetches per slot.
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch("/api/owner/bootstrap")
+        if (cancelled) return
+        if (res.status === 401 || res.status === 403) { router.push("/login"); return }
+        if (!res.ok) {
+          fetchAll()
+          fetchMemberships()
+          fetchChatUnread()
+          return
+        }
+        const data = await res.json()
+        const missing: string[] = []
+
+        if (data.profile) setProfile(data.profile as StoreProfile)
+        else missing.push("profile")
+
+        if (Array.isArray(data.staff)) setStaff(data.staff as StaffMember[])
+        else missing.push("staff")
+
+        if (Array.isArray(data.overview)) setOverview(data.overview as SettlementOverview[])
+        else missing.push("overview")
+
+        if (Array.isArray(data.memberships)) setMemberships(data.memberships as StoreMembership[])
+        else missing.push("memberships")
+
+        if (typeof data.chat_unread === "number") setChatUnread(data.chat_unread)
+        else missing.push("chat_unread")
+
+        const needAll = missing.includes("profile") || missing.includes("staff") || missing.includes("overview")
+        if (needAll) fetchAll()
+        else setLoading(false)
+        if (missing.includes("memberships")) fetchMemberships()
+        if (missing.includes("chat_unread")) fetchChatUnread()
+      } catch {
+        if (cancelled) return
+        fetchAll()
+        fetchMemberships()
+        fetchChatUnread()
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function fetchChatUnread() {

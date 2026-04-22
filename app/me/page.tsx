@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useMyProfile } from "./hooks/useMyProfile"
-import { useMyAccounts } from "./hooks/useMyAccounts"
-import { usePayeeAccounts } from "./hooks/usePayeeAccounts"
+import { apiFetch } from "@/lib/apiFetch"
+import { usePagePerf } from "@/lib/debug/usePagePerf"
+import { useMyProfile, type MyProfile } from "./hooks/useMyProfile"
+import { useMyAccounts, type MyAccount } from "./hooks/useMyAccounts"
+import { usePayeeAccounts, type PayeeAccount } from "./hooks/usePayeeAccounts"
 import MyProfileCard from "./components/MyProfileCard"
 import MySettlementSummary from "./components/MySettlementSummary"
 import MyAccountList from "./components/MyAccountList"
@@ -23,17 +25,79 @@ import PayeeAccountModal from "./components/PayeeAccountModal"
  *
  * Page is layout-only. Data/logic lives entirely in hooks. Components
  * receive props and never fetch.
+ *
+ * Bootstrap: the outer wrapper attempts a single /api/me/bootstrap call at
+ * mount. On success, it hands seeds to each hook — skipping their initial
+ * fetches. On failure, hooks fall back to their legacy per-hook fetches.
  */
 
 type TabKey = "profile" | "settlement" | "accounts" | "payees"
 
+type MeSeed = {
+  profile: MyProfile | null
+  accounts: MyAccount[] | null
+  payees: PayeeAccount[] | null
+}
+
 export default function MeInfoPage() {
   const router = useRouter()
+  usePagePerf("me")
+
+  // undefined = in-flight, null = bootstrap failed (fall through to hooks)
+  const [seed, setSeed] = useState<MeSeed | null | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch("/api/me/bootstrap")
+        if (cancelled) return
+        if (res.status === 401 || res.status === 403) { router.push("/login"); return }
+        if (!res.ok) { setSeed(null); return }
+        const data = await res.json()
+
+        // /api/auth/me has no name/phone — map defensively to MyProfile shape.
+        const rawProfile = data.profile as Record<string, unknown> | null | undefined
+        const profile: MyProfile | null = rawProfile
+          ? {
+              user_id: (rawProfile.user_id as string) ?? "",
+              membership_id: (rawProfile.membership_id as string) ?? "",
+              store_uuid: (rawProfile.store_uuid as string) ?? "",
+              role: (rawProfile.role as string) ?? "",
+              name: (rawProfile.name as string | null) ?? null,
+              phone: (rawProfile.phone as string | null) ?? null,
+            }
+          : null
+
+        setSeed({
+          profile,
+          accounts: Array.isArray(data.accounts) ? (data.accounts as MyAccount[]) : null,
+          payees: Array.isArray(data.payees) ? (data.payees as PayeeAccount[]) : null,
+        })
+      } catch {
+        if (!cancelled) setSeed(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [router])
+
+  if (seed === undefined) {
+    return (
+      <div className="min-h-screen bg-[#030814] flex items-center justify-center">
+        <div className="text-cyan-400 text-sm">로딩 중...</div>
+      </div>
+    )
+  }
+
+  return <MeInfoInner seed={seed} router={router} />
+}
+
+function MeInfoInner({ seed, router }: { seed: MeSeed | null; router: ReturnType<typeof useRouter> }) {
   const [tab, setTab] = useState<TabKey>("profile")
 
-  const profile = useMyProfile()
-  const myAccounts = useMyAccounts()
-  const payees = usePayeeAccounts()
+  const profile = useMyProfile(seed?.profile ?? undefined)
+  const myAccounts = useMyAccounts(seed?.accounts ?? undefined)
+  const payees = usePayeeAccounts(seed?.payees ?? undefined)
 
   // Auth gate is enforced by middleware.ts (cookie-based). This page
   // relies on that; useMyProfile/useMyAccounts will surface 401 from

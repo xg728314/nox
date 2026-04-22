@@ -24,10 +24,13 @@ type UseMyProfileReturn = {
   refresh: () => Promise<void>
 }
 
-export function useMyProfile(): UseMyProfileReturn {
-  const [profile, setProfile] = useState<MyProfile | null>(null)
-  const [loading, setLoading] = useState(true)
+export function useMyProfile(seed?: MyProfile | null): UseMyProfileReturn {
+  const [profile, setProfile] = useState<MyProfile | null>(seed ?? null)
+  const [loading, setLoading] = useState(!seed)
   const [error, setError] = useState("")
+  // Capture whether the hook was seeded at mount so the initial-fetch
+  // effect can skip work when the page-level bootstrap already hydrated us.
+  const [seededInitial] = useState<boolean>(!!seed)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -54,7 +57,10 @@ export function useMyProfile(): UseMyProfileReturn {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    if (seededInitial) return
+    refresh()
+  }, [refresh, seededInitial])
 
   return { profile, loading, error, refresh }
 }

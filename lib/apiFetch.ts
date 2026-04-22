@@ -23,15 +23,42 @@
  *   doing `if (res.status === 401 || res.status === 403) router.push("/login")`.
  *   This keeps the helper usable from both hooks (no router) and
  *   components (router available).
+ *
+ * Perf logging:
+ *   Wraps fetch with perfLog("api:start" / "api:end" / "api:throw").
+ *   Transport behavior is unchanged.
  */
+import { perfLog, perfNow } from "@/lib/debug/perfLog"
+
 export async function apiFetch(url: string, opts?: RequestInit): Promise<Response> {
   const baseHeaders: Record<string, string> = {
     "Content-Type": "application/json",
   }
   const mergedHeaders = { ...baseHeaders, ...(opts?.headers as Record<string, string> | undefined) }
-  return fetch(url, {
-    ...opts,
-    credentials: "include",
-    headers: mergedHeaders,
-  })
+  const method = (opts?.method ?? "GET").toUpperCase()
+  const t_start = perfNow()
+  perfLog("api:start", { url, method })
+  try {
+    const res = await fetch(url, {
+      ...opts,
+      credentials: "include",
+      headers: mergedHeaders,
+    })
+    perfLog("api:end", {
+      url,
+      method,
+      status: res.status,
+      ok: res.ok,
+      ms: Math.round(perfNow() - t_start),
+    })
+    return res
+  } catch (err) {
+    perfLog("api:throw", {
+      url,
+      method,
+      ms: Math.round(perfNow() - t_start),
+      err: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }

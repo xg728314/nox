@@ -70,13 +70,17 @@ type UseMyAccountsReturn = {
   setDefault: (id: string) => Promise<void>
 }
 
-export function useMyAccounts(): UseMyAccountsReturn {
-  const [accounts, setAccounts] = useState<MyAccount[]>([])
-  const [loading, setLoading] = useState(true)
+export function useMyAccounts(seed?: MyAccount[] | null): UseMyAccountsReturn {
+  const seeded = Array.isArray(seed)
+  const [accounts, setAccounts] = useState<MyAccount[]>(
+    seeded ? (seed as MyAccount[]).map((a) => ({ ...a, holder_name: a.account_holder_name })) : []
+  )
+  const [loading, setLoading] = useState(!seeded)
   const [error, setError] = useState("")
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<MyAccountForm>(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
+  const [seededInitial] = useState<boolean>(seeded)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -100,7 +104,10 @@ export function useMyAccounts(): UseMyAccountsReturn {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    if (seededInitial) return
+    refresh()
+  }, [refresh, seededInitial])
 
   const openModal = useCallback((account?: MyAccount) => {
     setError("")

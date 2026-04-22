@@ -37,6 +37,8 @@ import { useCreditFlow } from "./hooks/useCreditFlow"
 import { useAccountSelectionFlow } from "./hooks/useAccountSelectionFlow"
 import { useCreditSettlementFlow } from "./hooks/useCreditSettlementFlow"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import { apiFetch } from "@/lib/apiFetch"
+import { usePagePerf } from "@/lib/debug/usePagePerf"
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -185,54 +187,61 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   // rows with manager/activity context). Falls back to a plain string[]
   // when the endpoint hasn't been enriched yet (forward-compat). Failure
   // is non-fatal — pool stays empty and matcher returns NONE.
+  // Shared shape-detection pipeline: extracted so both the legacy
+  // fetchHostessPool() path AND the new counter/bootstrap hostess_pool
+  // slot hydrate through the same code (no duplication, bootstrap truly
+  // eliminates the extra /api/store/staff?role=hostess call on success).
+  function processHostessPool(list: ReadonlyArray<Record<string, unknown>>) {
+    if (list.length === 0) { setHostessNamePool([]); return }
+    const structured = list.every(
+      (r) => typeof r?.membership_id === "string" && typeof r?.name === "string"
+    )
+    if (structured) {
+      const seen = new Set<string>()
+      const out: HostessMatchCandidate[] = []
+      for (const r of list) {
+        const mid = String(r.membership_id ?? "")
+        if (!mid || seen.has(mid)) continue
+        seen.add(mid)
+        const name = typeof r.name === "string" ? r.name : ""
+        const normalized_name =
+          typeof r.normalized_name === "string" && (r.normalized_name as string).length > 0
+            ? (r.normalized_name as string)
+            : name.replace(/\s+/g, "").trim()
+        out.push({
+          membership_id: mid,
+          name,
+          normalized_name,
+          store_uuid: (typeof r.store_uuid === "string" ? r.store_uuid : null),
+          store_name: (typeof r.store_name === "string" ? r.store_name : null),
+          manager_membership_id:
+            typeof r.manager_membership_id === "string" ? r.manager_membership_id : null,
+          manager_name:
+            typeof r.manager_name === "string" ? r.manager_name : null,
+          is_active_today:
+            typeof r.is_active_today === "boolean" ? r.is_active_today : null,
+          recent_assignment_score:
+            typeof r.recent_assignment_score === "number" ? r.recent_assignment_score : null,
+        })
+      }
+      setHostessNamePool(out)
+    } else {
+      const names = Array.from(
+        new Set(
+          list
+            .map((s) => (typeof s?.name === "string" ? (s.name as string).trim() : ""))
+            .filter((n): n is string => n.length > 0)
+        )
+      )
+      setHostessNamePool(names)
+    }
+  }
+
   async function fetchHostessPool() {
     try {
       const list = await counterApi.fetchHostessPool()
-      if (list.length === 0) { setHostessNamePool([]); return }
-      // Detect structured rows (enriched branch).
-      const structured = list.every(
-        (r) => typeof r?.membership_id === "string" && typeof r?.name === "string"
-      )
-      if (structured) {
-        const seen = new Set<string>()
-        const out: HostessMatchCandidate[] = []
-        for (const r of list) {
-          const mid = String(r.membership_id ?? "")
-          if (!mid || seen.has(mid)) continue
-          seen.add(mid)
-          const name = typeof r.name === "string" ? r.name : ""
-          const normalized_name =
-            typeof r.normalized_name === "string" && r.normalized_name.length > 0
-              ? r.normalized_name
-              : name.replace(/\s+/g, "").trim()
-          out.push({
-            membership_id: mid,
-            name,
-            normalized_name,
-            store_uuid: (typeof r.store_uuid === "string" ? r.store_uuid : null),
-            store_name: (typeof r.store_name === "string" ? r.store_name : null),
-            manager_membership_id:
-              typeof r.manager_membership_id === "string" ? r.manager_membership_id : null,
-            manager_name:
-              typeof r.manager_name === "string" ? r.manager_name : null,
-            is_active_today:
-              typeof r.is_active_today === "boolean" ? r.is_active_today : null,
-            recent_assignment_score:
-              typeof r.recent_assignment_score === "number" ? r.recent_assignment_score : null,
-          })
-        }
-        setHostessNamePool(out)
-      } else {
-        // Legacy/plain shape — fall back to name strings.
-        const names = Array.from(
-          new Set(
-            list
-              .map((s) => (typeof s?.name === "string" ? (s.name as string).trim() : ""))
-              .filter((n): n is string => n.length > 0)
-          )
-        )
-        setHostessNamePool(names)
-      }
+      processHostessPool(list as ReadonlyArray<Record<string, unknown>>)
+      return
     } catch { /* ignore */ }
   }
 
@@ -606,14 +615,66 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
 
   // ═══ Effects ══════════════════════════════════════════════════════════════════
 
+  usePagePerf("counter")
+
   useEffect(() => {
-    // Auth is enforced by middleware.ts (cookie-based). Data fetches
-    // will surface 401 from the server if the session is missing.
-    fetchRooms()
-    fetchUnreadChat()
-    fetchInventory()
-    fetchHostessStats()
-    fetchHostessPool()
+    // Bootstrap-first: attempt /api/counter/bootstrap once. Use it to prime
+    // chat_unread / inventory / hostess_stats / hostess_pool only. Rooms is
+    // left to useRooms.fetchRooms() because useRooms owns paired state
+    // (dailySummary, currentStoreUuid, realtime subscription) that a raw
+    // bootstrap slot would not update consistently. If bootstrap fails for
+    // any reason, the full legacy fan-out runs.
+    let cancelled = false
+    ;(async () => {
+      // Rooms always goes through the hook's canonical path.
+      fetchRooms()
+      try {
+        const res = await apiFetch("/api/counter/bootstrap")
+        if (cancelled) return
+        if (!res.ok) {
+          fetchUnreadChat()
+          fetchInventory()
+          fetchHostessStats()
+          fetchHostessPool()
+          return
+        }
+        const data = await res.json()
+        const missing: string[] = []
+
+        if (typeof data.chat_unread === "number") setUnreadChat(data.chat_unread)
+        else missing.push("chat_unread")
+
+        if (data.inventory && Array.isArray((data.inventory as Record<string, unknown>).items)) {
+          setInventoryItems(((data.inventory as Record<string, unknown>).items as InventoryItem[]))
+        } else missing.push("inventory")
+
+        if (data.hostess_stats && typeof data.hostess_stats === "object") {
+          const d = data.hostess_stats as {
+            managed_total: number; on_duty_count: number; waiting_count: number; in_room_count: number; scope: string
+          }
+          setHostessStats(d)
+        } else missing.push("hostess_stats")
+
+        // Hostess pool: bootstrap 이 이미 가져온 list 를 공유
+        // processHostessPool() 로 처리 → 추가 /api/store/staff?role=hostess
+        // 호출 없음. 슬롯 없으면 legacy fetchHostessPool() 로 폴백.
+        if (Array.isArray(data.hostess_pool)) {
+          processHostessPool(data.hostess_pool as ReadonlyArray<Record<string, unknown>>)
+        } else missing.push("hostess_pool")
+
+        if (missing.includes("chat_unread")) fetchUnreadChat()
+        if (missing.includes("inventory")) fetchInventory()
+        if (missing.includes("hostess_stats")) fetchHostessStats()
+        if (missing.includes("hostess_pool")) fetchHostessPool()
+      } catch {
+        if (cancelled) return
+        fetchUnreadChat()
+        fetchInventory()
+        fetchHostessStats()
+        fetchHostessPool()
+      }
+    })()
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

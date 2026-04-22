@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { usePagePerf } from "@/lib/debug/usePagePerf"
 
 type DashboardData = {
   assigned_hostess_count: number
@@ -57,11 +58,79 @@ export default function ManagerPage() {
   const [showHostessProfitToOwner, setShowHostessProfitToOwner] = useState(false)
   const [visibilityLoading, setVisibilityLoading] = useState(false)
 
+  usePagePerf("manager")
+
   useEffect(() => {
-    fetchData()
-    fetchChatUnread()
-    fetchManagedParticipants()
-    fetchVisibility()
+    // Bootstrap-first: fan-in via /api/manager/bootstrap, fall back per slot.
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch("/api/manager/bootstrap")
+        if (cancelled) return
+        if (res.status === 401 || res.status === 403) { router.push("/login"); return }
+        if (!res.ok) {
+          fetchData()
+          fetchChatUnread()
+          fetchManagedParticipants()
+          fetchVisibility()
+          return
+        }
+        const data = await res.json()
+        const missing: string[] = []
+
+        if (data.dashboard) {
+          const d = data.dashboard as Record<string, unknown>
+          setDashboard({
+            assigned_hostess_count: (d.assigned_hostess_count as number) ?? 0,
+            assigned_hostesses_preview: (d.assigned_hostesses_preview as DashboardData["assigned_hostesses_preview"]) ?? [],
+            visible_sections: (d.visible_sections as string[]) ?? [],
+          })
+        } else missing.push("dashboard")
+
+        if (Array.isArray(data.hostesses)) setHostesses(data.hostesses as Hostess[])
+        else missing.push("hostesses")
+
+        if (data.settlement) {
+          const s = data.settlement as Record<string, unknown>
+          setSettlement({
+            total_sessions: (s.total_sessions as number) ?? 0,
+            total_gross: (s.gross_total as number) ?? 0,
+            total_manager_amount: (s.manager_amount as number) ?? 0,
+          })
+        } else missing.push("settlement")
+
+        if (Array.isArray(data.attendance)) {
+          setAttendance((data.attendance as AttendanceRecord[]).filter((a) => a.status !== "off_duty"))
+        } else missing.push("attendance")
+
+        if (typeof data.chat_unread === "number") setChatUnread(data.chat_unread)
+        else missing.push("chat_unread")
+
+        if (Array.isArray(data.participants)) setManagedParticipants(data.participants as ManagedParticipant[])
+        else missing.push("participants")
+
+        if (data.visibility) {
+          const v = data.visibility as Record<string, unknown>
+          setShowProfitToOwner((v.show_profit_to_owner as boolean) ?? false)
+          setShowHostessProfitToOwner((v.show_hostess_profit_to_owner as boolean) ?? false)
+        } else missing.push("visibility")
+
+        const needData = missing.includes("dashboard") || missing.includes("hostesses") || missing.includes("settlement") || missing.includes("attendance")
+        if (needData) fetchData()
+        else setLoading(false)
+        if (missing.includes("chat_unread")) fetchChatUnread()
+        if (missing.includes("participants")) fetchManagedParticipants()
+        if (missing.includes("visibility")) fetchVisibility()
+      } catch {
+        if (cancelled) return
+        fetchData()
+        fetchChatUnread()
+        fetchManagedParticipants()
+        fetchVisibility()
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function fetchVisibility() {
