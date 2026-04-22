@@ -23,20 +23,24 @@ import { randomBytes } from "node:crypto"
  *
  * Permission matrix (enforced BEFORE any DB mutation):
  *   - caller.role === "owner" (primary, approved)
- *       → can create {manager, staff}
+ *       → can create {manager, staff, hostess}
  *       → within caller.store_uuid ONLY
- *       → owner CANNOT create another owner
+ *       → owner CANNOT create another owner (super_admin only)
+ *   - caller.role === "manager" (primary, approved)
+ *       → can create {hostess} ONLY — hostess internal-creation path
+ *       → within caller.store_uuid ONLY
+ *       → manager CANNOT create owner / manager / staff
  *   - caller.is_super_admin === true
- *       → can create {owner, manager, staff}
+ *       → can create {owner, manager, staff, hostess}
  *       → across any store
- *   - all other roles (manager, hostess, staff, unauth) → 403
+ *   - all other roles (staff, hostess, unauth) → 403
  *
  * Body:
  *   {
  *     email:             string  — required, normalized lowercase
  *     full_name:         string  — required
  *     phone:             string  — required, digits extracted
- *     role:              "owner" | "manager" | "staff"
+ *     role:              "owner" | "manager" | "staff" | "hostess"
  *     target_store_uuid: uuid    — required
  *   }
  *
@@ -68,8 +72,10 @@ import { randomBytes } from "node:crypto"
  *   - `body.role` is consulted, but ONLY values in the whitelist are
  *     accepted, and the permission matrix further restricts which value
  *     each caller can use.
- *   - Hostess creation is NEVER permitted through this route. Hostess
- *     stays on the public-signup / approval-gate pathway.
+ *   - Hostess creation via this route is permitted for owner and
+ *     manager (this is the internal-only hostess path). Public signup
+ *     still rejects role=hostess at its own whitelist; the two flows
+ *     do not overlap.
  *   - Existing users are never given a NEW primary membership here — we
  *     preserve whatever primary they already have. Only brand-new
  *     profiles get is_primary=true (their first and only membership).
@@ -82,7 +88,7 @@ const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 const PHONE_MIN = 9
 const PHONE_MAX = 15
 
-const ALLOWED_ROLES = ["owner", "manager", "staff"] as const
+const ALLOWED_ROLES = ["owner", "manager", "staff", "hostess"] as const
 type AllowedRole = typeof ALLOWED_ROLES[number]
 
 function bad(error: string, message: string, status = 400) {
@@ -123,10 +129,14 @@ export async function POST(request: Request) {
   }
 
   const isOwner = auth.role === "owner"
+  const isManager = auth.role === "manager"
   const isSuperAdmin = auth.is_super_admin === true
 
   // ─── Permission gate (coarse) ───────────────────────────────
-  if (!isOwner && !isSuperAdmin) {
+  //   Allowed callers: owner, manager, super_admin.
+  //   Manager is only allowed the hostess sub-path; that narrower
+  //   check is enforced below in the fine-grained matrix.
+  if (!isOwner && !isManager && !isSuperAdmin) {
     try {
       await logDeniedAudit(supa(), {
         auth,
@@ -196,39 +206,69 @@ export async function POST(request: Request) {
   if (phone.length < PHONE_MIN || phone.length > PHONE_MAX)
     return bad("PHONE_INVALID", "전화번호 형식을 확인하세요.")
   if (!ALLOWED_ROLES.includes(role as AllowedRole))
-    return bad("ROLE_INVALID", "role 은 owner / manager / staff 중 하나여야 합니다.")
+    return bad("ROLE_INVALID", "role 은 owner / manager / staff / hostess 중 하나여야 합니다.")
   if (!UUID_RE.test(targetStoreUuid))
     return bad("STORE_UUID_INVALID", "target_store_uuid 가 UUID 형식이 아닙니다.")
 
   const targetRole = role as AllowedRole
 
   // ─── Permission matrix (fine-grained) ───────────────────────
-  //   owner can NOT create owner, and can NOT cross store.
-  //   super_admin has no additional restriction beyond the role whitelist.
+  //   super_admin → any target role, any store
+  //   manager    → target ∈ {hostess} only, store = own
+  //   owner      → target ∈ {manager, staff, hostess}, store = own
+  //                (owner cannot bootstrap another owner — super_admin only)
   if (!isSuperAdmin) {
-    if (targetRole === "owner") {
-      try {
-        await logDeniedAudit(supa(), {
-          auth,
-          action: "member_created",
-          entity_table: "store_memberships",
-          reason: "owner cannot create owner",
-          metadata: { target_role: targetRole, target_store_uuid: targetStoreUuid },
-        })
-      } catch {}
-      return bad("ROLE_FORBIDDEN", "사장(owner) 계정은 운영자(super_admin)만 생성할 수 있습니다.", 403)
-    }
+    // Cross-store denied for non-super_admin (owner/manager).
     if (targetStoreUuid !== auth.store_uuid) {
       try {
         await logDeniedAudit(supa(), {
           auth,
           action: "member_created",
           entity_table: "store_memberships",
-          reason: "owner scope mismatch",
+          reason: "caller cannot cross store",
           metadata: { target_role: targetRole, target_store_uuid: targetStoreUuid },
         })
       } catch {}
       return bad("STORE_SCOPE_FORBIDDEN", "본인 매장 외에는 회원을 생성할 수 없습니다.", 403)
+    }
+
+    if (isManager) {
+      // Manager is restricted to hostess only.
+      if (targetRole !== "hostess") {
+        try {
+          await logDeniedAudit(supa(), {
+            auth,
+            action: "member_created",
+            entity_table: "store_memberships",
+            reason: "manager can create hostess only",
+            metadata: { target_role: targetRole, target_store_uuid: targetStoreUuid },
+          })
+        } catch {}
+        return bad(
+          "ROLE_FORBIDDEN",
+          "실장(manager)은 아가씨(hostess) 계정만 생성할 수 있습니다.",
+          403,
+        )
+      }
+    } else if (isOwner) {
+      // Owner cannot create another owner.
+      if (targetRole === "owner") {
+        try {
+          await logDeniedAudit(supa(), {
+            auth,
+            action: "member_created",
+            entity_table: "store_memberships",
+            reason: "owner cannot create owner",
+            metadata: { target_role: targetRole, target_store_uuid: targetStoreUuid },
+          })
+        } catch {}
+        return bad(
+          "ROLE_FORBIDDEN",
+          "사장(owner) 계정은 운영자(super_admin)만 생성할 수 있습니다.",
+          403,
+        )
+      }
+      // owner is free to create manager / staff / hostess at own store.
     }
   }
 

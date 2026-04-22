@@ -3,7 +3,15 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 
 /**
- * GET /api/store/approvals — 미승인 멤버십 목록 (owner/manager)
+ * GET /api/store/approvals — public signup 승인 대상 목록 (owner/manager)
+ *
+ * Returns pending memberships in the caller's store **restricted to the
+ * roles allowed by public signup**: owner / manager / staff. hostess
+ * rows are filtered out at the DB level because hostess is an
+ * internal-only creation path; a hostess row landing in `pending`
+ * (e.g. legacy data, seed, or an internal-tool bug) should not appear
+ * in the approvals queue. DB schema / role enum / existing hostess
+ * rows are not touched.
  */
 export async function GET(request: Request) {
   try {
@@ -25,6 +33,7 @@ export async function GET(request: Request) {
       .select("id, profile_id, role, status, created_at")
       .eq("store_uuid", authContext.store_uuid)
       .eq("status", "pending")
+      .neq("role", "hostess")
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
 

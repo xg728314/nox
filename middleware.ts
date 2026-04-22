@@ -105,13 +105,18 @@ const COUNTER_ROLE_PREFIXES = [
 // tier that must be explicitly granted.
 const SUPER_ADMIN_ONLY_PREFIXES = ["/super-admin"]
 
-// Invite-flow round (renamed in members-UI restructure): prefixes
-// where EITHER `owner` role OR `is_super_admin=true` is sufficient.
-// A precise carve-out against the broader OWNER_ONLY `/admin` tree:
-//   - /admin/members/create   회원 생성 (privileged role creation)
+// Members-create carve-out: precise allow-list against the broader
+// OWNER_ONLY `/admin` tree.
+//   - /admin/members/create   회원 생성 (privileged + hostess creation)
+// Accepted caller roles: owner, manager, super_admin.
+//   - owner     → can create manager / staff / hostess in own store
+//   - manager   → can create hostess only in own store
+//   - super_admin → full matrix across stores
 // All other /admin/* paths remain strict owner-only via the unchanged
-// OWNER_ONLY_PREFIXES check below.
-const SUPER_ADMIN_OR_OWNER_PREFIXES = ["/admin/members/create"]
+// OWNER_ONLY_PREFIXES check below. The server route enforces the
+// per-role target restrictions — this middleware only controls page
+// reachability.
+const MEMBER_CREATE_ALLOWED_PREFIXES = ["/admin/members/create"]
 
 const COUNTER_ALLOWED_ROLES: readonly Role[] = ["owner", "manager", "waiter", "staff"]
 
@@ -331,15 +336,16 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // 4c. Invite-flow carve-out: `/admin/members/invite` accepts BOTH
-  //     owner (for own-store invites) AND super_admin (for any store).
-  //     Evaluated BEFORE the hostess redirect and BEFORE the strict
-  //     OWNER_ONLY check on `/admin`, so that a super_admin whose primary
-  //     membership happens to be hostess/manager/staff (not owner) is not
-  //     rejected. The API enforces the same matrix server-side; this
-  //     block only gates the UI page.
-  if (matchesPrefix(pathname, SUPER_ADMIN_OR_OWNER_PREFIXES)) {
-    if (role === "owner") {
+  // 4c. Members-create carve-out: `/admin/members/create` accepts
+  //     owner, manager, AND super_admin. Evaluated BEFORE the hostess
+  //     redirect and BEFORE the strict OWNER_ONLY check on `/admin`, so
+  //     that a super_admin whose primary membership happens to be
+  //     hostess/manager/staff (not owner) is not rejected, and so that
+  //     a plain manager reaches the page to invoke the hostess-only
+  //     creation sub-path. The API enforces the per-role target matrix
+  //     server-side; this block only gates the UI page.
+  if (matchesPrefix(pathname, MEMBER_CREATE_ALLOWED_PREFIXES)) {
+    if (role === "owner" || role === "manager") {
       return NextResponse.next()
     }
     let carveSuperAdmin = false
@@ -364,10 +370,9 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     if (carveSuperAdmin) {
       return NextResponse.next()
     }
-    // Not owner, not super_admin → role-appropriate redirect. manager
-    // and hostess/staff/waiter all fall through to here.
+    // Not owner, not manager, not super_admin → role-appropriate
+    // redirect. hostess/staff/waiter fall through to here.
     const fallback =
-      role === "manager" ? "/manager" :
       role === "hostess" ? "/me" :
       "/counter"
     return redirectTo(req, fallback)

@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfileState } from "@/lib/auth/useCurrentProfile"
 
-type TargetRole = "owner" | "manager" | "staff"
+type TargetRole = "owner" | "manager" | "staff" | "hostess"
 
 type FormState = {
   target_store_uuid: string
@@ -57,10 +57,15 @@ export default function MemberCreatePage() {
   const isSuperAdmin = !!(profile as unknown as { is_super_admin?: boolean } | null)?.is_super_admin
   const callerStoreUuid = profile?.store_uuid ?? ""
 
-  // 공개 정책: owner 는 owner 생성 불가. super_admin 만 owner 도 생성 가능.
+  // Caller-scoped role options (matches server permission matrix):
+  //   - super_admin → 모든 role 생성 가능
+  //   - owner       → 본인 매장에서 manager / staff / hostess 생성
+  //   - manager     → 본인 매장에서 hostess 만 생성 (내부 전용 경로)
+  //   - 기타        → 페이지 진입 자체가 middleware 에서 차단
   const roleOptions = useMemo<TargetRole[]>(() => {
-    if (isSuperAdmin) return ["owner", "manager", "staff"]
-    if (callerRole === "owner") return ["manager", "staff"]
+    if (isSuperAdmin) return ["owner", "manager", "staff", "hostess"]
+    if (callerRole === "owner") return ["manager", "staff", "hostess"]
+    if (callerRole === "manager") return ["hostess"]
     return []
   }, [isSuperAdmin, callerRole])
 
@@ -198,7 +203,7 @@ export default function MemberCreatePage() {
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
           <button
-            onClick={() => router.push(isSuperAdmin ? "/super-admin" : "/owner")}
+            onClick={() => router.push(isSuperAdmin ? "/super-admin" : callerRole === "manager" ? "/manager" : "/owner")}
             className="text-cyan-400 text-sm"
           >
             ← 돌아가기
@@ -210,15 +215,16 @@ export default function MemberCreatePage() {
         <div className="max-w-lg mx-auto px-4 py-4 space-y-4">
           {/* 정책 안내 */}
           <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-[13px] text-amber-100/90">
-            <div className="font-medium">회원 생성 대상</div>
+            <div className="font-medium">회원 생성 권한</div>
             <p className="mt-1 text-amber-100/70">
-              이 페이지는 <b>사장 · 실장 · 스태프</b> 계정을 내부에서 직접 생성합니다.
-              아가씨(hostess)는 공개 회원가입 + 가입 승인 플로우를 사용하며
-              여기서는 <b>생성할 수 없습니다</b>.
+              이 페이지는 <b>사장 · 실장 · 스테프 · 아가씨</b> 계정을 내부에서 직접
+              생성합니다. <b>아가씨</b>는 공개 회원가입 경로에서 금지되어 있으며,
+              실장 또는 사장만 이 페이지로 생성할 수 있습니다.
             </p>
             <p className="mt-2 text-amber-100/60 text-[12px]">
               사장(owner) 계정은 <b>운영자(super_admin)</b>만 생성할 수 있습니다.
-              사장은 본인 매장 안에서 실장(manager) · 스태프(staff)만 생성할 수 있습니다.
+              실장(manager)은 본인 매장의 <b>아가씨</b>만 생성할 수 있습니다.
+              사장은 본인 매장에서 실장 · 스테프 · 아가씨를 생성할 수 있습니다.
             </p>
           </div>
 
@@ -275,7 +281,7 @@ export default function MemberCreatePage() {
                   다른 회원 생성
                 </button>
                 <button
-                  onClick={() => router.push(isSuperAdmin ? "/super-admin" : "/owner")}
+                  onClick={() => router.push(isSuperAdmin ? "/super-admin" : callerRole === "manager" ? "/manager" : "/owner")}
                   className="flex-1 h-11 rounded-xl bg-white/5 text-slate-300 text-sm font-medium border border-white/10"
                 >
                   대시보드로
@@ -296,7 +302,8 @@ export default function MemberCreatePage() {
                     <option key={r} value={r}>
                       {r === "owner" ? "사장 (owner)"
                         : r === "manager" ? "실장 (manager)"
-                        : "스태프 (staff)"}
+                        : r === "staff" ? "스테프 (staff)"
+                        : "아가씨 (hostess)"}
                     </option>
                   ))}
                 </select>

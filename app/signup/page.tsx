@@ -1,25 +1,21 @@
 "use client"
 
 /**
- * STEP-025A — Signup page (UI only).
+ * Signup page — general member signup.
  *
- * Scope (from orchestration/tasks/step-025A-signup-page.md):
- *   - Render the signup form with the six locked inputs
- *     (store, full_name, nickname, phone, email, password).
- *   - Client-side validation only.
- *   - Submit shape matches the design lock; POSTs to /api/auth/signup.
- *   - role is hard-coded as `hostess`. No role picker.
- *   - Store list is fixed (Marvel / Burning / Hwangjini / Live):
- *     the only existing /api/stores route requires owner auth, so
- *     it cannot be reused for an unauthenticated signup form.
- *     Per task §STORE SELECTION RULE this is allowed.
+ * Fields:
+ *   - 소속 매장 (store)
+ *   - 직책 (role) — 사장 / 실장 / 스테프
+ *   - 이름 (full_name)
+ *   - 닉네임 (nickname)
+ *   - 전화번호 (phone)
+ *   - 이메일 (email)
+ *   - 비밀번호 (password)
  *
- * SIGNUP POLICY (locked — do not expand this page to cover other roles):
- *   - 공개 self-signup = **아가씨(hostess) 전용**.
- *   - 사장(owner) / 실장(manager) / 스태프(staff) 계정은 로그인된
- *     owner 또는 운영자가 별도 초대/생성 플로우로 만든다. 공개 UI 에
- *     role selector 를 추가하거나 body.role 을 서버가 수용하면 정책
- *     위반.
+ * Submit shape: POSTs to /api/auth/signup with all fields including `role`.
+ * Store list stays fixed (Marvel / Burning / Hwangjini / Live) because the
+ * authenticated /api/stores route is not available to unauthenticated
+ * signup.
  */
 
 import { useState } from "react"
@@ -33,8 +29,17 @@ const STORE_OPTIONS = [
   { value: "라이브", label: "라이브 (Live)" },
 ] as const
 
+type Role = "owner" | "manager" | "staff"
+
+const ROLE_OPTIONS: { value: Role; label: string }[] = [
+  { value: "owner", label: "사장" },
+  { value: "manager", label: "실장" },
+  { value: "staff", label: "스테프" },
+]
+
 type FormState = {
   store: string
+  role: Role | ""
   full_name: string
   nickname: string
   phone: string
@@ -44,6 +49,7 @@ type FormState = {
 
 const EMPTY: FormState = {
   store: "",
+  role: "",
   full_name: "",
   nickname: "",
   phone: "",
@@ -64,6 +70,7 @@ export default function SignupPage() {
 
   function validate(): string | null {
     if (!form.store) return "소속 매장을 선택하세요."
+    if (!form.role) return "직책을 선택하세요."
     if (!form.full_name.trim()) return "이름을 입력하세요."
     if (!form.nickname.trim()) return "닉네임을 입력하세요."
     const phoneDigits = form.phone.replace(/\D/g, "")
@@ -89,6 +96,7 @@ export default function SignupPage() {
     try {
       const payload = {
         store: form.store,
+        role: form.role,
         full_name: form.full_name.trim(),
         nickname: form.nickname.trim(),
         phone: form.phone.replace(/\D/g, ""),
@@ -142,20 +150,9 @@ export default function SignupPage() {
                 NOX Counter OS
               </span>
             </div>
-            <h1 className="mt-5 text-3xl font-semibold tracking-tight">아가씨 회원가입</h1>
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight">회원가입</h1>
             <p className="mt-2 text-slate-400">
-              아가씨(스태프) 계정을 신청합니다. 운영자 승인 후 로그인 가능합니다.
-            </p>
-          </div>
-
-          {/* 정책 안내 — owner/manager/staff 는 이 플로우로 가입 불가 */}
-          <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-[13px] text-amber-100/90">
-            <div className="font-medium">가입 대상 안내</div>
-            <p className="mt-1 text-amber-100/70">
-              이 페이지는 <b>아가씨 회원가입</b> 전용입니다.
-              사장·실장·스태프 계정은 <b>매장 관리자(사장) 또는 운영자</b>가
-              내부에서 직접 생성합니다. 해당 권한이 필요하면 소속 매장
-              관리자에게 문의해 주세요.
+              소속 매장과 직책을 선택하고 계정 정보를 입력해 주세요.
             </p>
           </div>
 
@@ -180,11 +177,11 @@ export default function SignupPage() {
               <>
                 <div>
                   <div className="text-xs text-cyan-200/90 tracking-widest">
-                    HOSTESS SIGN UP
+                    SIGN UP
                   </div>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight">아가씨 회원가입</h2>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight">회원가입</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    소속 매장을 선택하고 계정 정보를 입력해 주세요.
+                    소속 매장과 직책을 선택하고 계정 정보를 입력해 주세요.
                   </p>
                 </div>
 
@@ -203,6 +200,25 @@ export default function SignupPage() {
                       {STORE_OPTIONS.map((s) => (
                         <option key={s.value} value={s.value}>
                           {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 직책 */}
+                  <div className="rounded-2xl border border-white/10 bg-[#0A1222]/80 px-4 py-3">
+                    <label className="block text-xs font-medium tracking-wide text-slate-400 mb-2">
+                      직책
+                    </label>
+                    <select
+                      value={form.role}
+                      onChange={(e) => update("role", e.target.value as Role | "")}
+                      className="w-full bg-transparent text-base outline-none [&>option]:bg-[#0A1222]"
+                    >
+                      <option value="">직책을 선택하세요</option>
+                      {ROLE_OPTIONS.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
                         </option>
                       ))}
                     </select>

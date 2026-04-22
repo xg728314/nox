@@ -3,25 +3,27 @@
 /**
  * 가입 승인 (/admin/approvals)
  *
- * Canonical approvals route. Hostess-only — the public signup flow
- * creates pending rows, and this page is the sole owner/super_admin
- * UI for approving/rejecting them. Other roles (manager/staff/owner
- * of other stores) never reach this page:
+ * Canonical approvals route. Displays pending memberships for the
+ * roles allowed by public signup — 사장 / 실장 / 스테프.
+ *
+ * Source of filtering:
+ *   - Primary: `/api/store/approvals` itself now filters `role != hostess`
+ *     at the DB query, so the server never returns hostess rows here.
+ *   - Defence in depth: the client filter below is kept as a thin
+ *     safety net so a future API shape change cannot leak hostess
+ *     into the UI without also regressing through this line.
+ *
+ * hostess is an internal-only creation path; it is not present in
+ * this queue by design. Existing hostess data in the DB is
+ * untouched.
+ *
+ * Access:
  *   - owner of this store → allowed (middleware OWNER_ONLY /admin)
- *   - super_admin         → allowed via SUPER_ADMIN_OR_OWNER_PREFIXES
- *                           carve-out NOT applied here (this is strict
- *                           owner-only in the current matrix; add to
- *                           carve-out list if cross-store admin access
- *                           becomes a requirement)
+ *   - super_admin with owner primary membership → allowed
  *   - others              → middleware redirects to role home
  *
- * Data: GET /api/store/approvals returns all pending rows; we apply a
- * defensive client filter to keep only role=hostess so non-hostess
- * pending (shouldn't exist in current signup model, but defence in
- * depth) never leaks into this UI.
- *
  * The legacy /approvals route is redirected here by Next.js
- * `redirects()` config (308 permanent). Old bookmarks are preserved.
+ * `redirects()` config (308 permanent).
  */
 
 import { useEffect, useState } from "react"
@@ -58,14 +60,14 @@ export default function ApprovalsPage() {
       if (res.status === 401 || res.status === 403) { router.push("/login"); return }
       if (res.ok) {
         const data = await res.json()
-        // 가입 승인 페이지는 hostess(아가씨) 신청만 노출.
-        // 공개 signup 이 hostess 전용이라 pending 은 이미 hostess 인
-        // 구조이지만, 방어적으로 클라이언트 필터를 둬서 다른 role 이
-        // 섞여 들어와도 UI 에 떠오르지 않도록 한다.
-        const hostessOnly = ((data.pending ?? []) as PendingMember[]).filter(
-          (p) => p.role === "hostess",
+        // 서버 (/api/store/approvals) 가 role != hostess 필터를 이미
+        // 적용하므로 아래 필터는 사실상 no-op. 서버 contract 변경이
+        // 실수로 일어나도 UI 에 hostess 가 누출되지 않도록 하는
+        // defence-in-depth 만 의도.
+        const visible = ((data.pending ?? []) as PendingMember[]).filter(
+          (p) => p.role !== "hostess",
         )
-        setPending(hostessOnly)
+        setPending(visible)
         setStoreName(data.store_name ?? null)
         setError("")
       }
@@ -126,22 +128,37 @@ export default function ApprovalsPage() {
           )}
 
           <div className="space-y-3">
-            {pending.map((m) => (
+            {pending.map((m) => {
+              const roleLabel =
+                m.role === "owner" ? "사장"
+                : m.role === "manager" ? "실장"
+                : m.role === "staff" ? "스테프"
+                : m.role
+              const roleBadgeColor =
+                m.role === "owner" ? "bg-rose-500/15 text-rose-300 border-rose-500/25"
+                : m.role === "manager" ? "bg-purple-500/15 text-purple-300 border-purple-500/25"
+                : m.role === "staff" ? "bg-sky-500/15 text-sky-300 border-sky-500/25"
+                : "bg-white/10 text-slate-300 border-white/10"
+              return (
               <div key={m.membership_id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-amber-500/20 flex items-center justify-center text-sm text-amber-300">
                     {(m.name || "?").slice(0, 1)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {m.name || m.profile_id.slice(0, 8)}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">
+                        {m.name || m.profile_id.slice(0, 8)}
+                      </span>
                       {m.nickname && (
-                        <span className="ml-2 text-xs text-cyan-300">@{m.nickname}</span>
+                        <span className="text-xs text-cyan-300">@{m.nickname}</span>
                       )}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${roleBadgeColor}`}>
+                        {roleLabel}
+                      </span>
                     </div>
-                    <div className="text-xs text-slate-500">
-                      {m.role === "manager" ? "실장" : m.role === "hostess" ? "스태프" : m.role}
-                      <span className="ml-2">{new Date(m.created_at).toLocaleDateString("ko-KR")}</span>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {new Date(m.created_at).toLocaleDateString("ko-KR")}
                     </div>
                     {m.phone && (
                       <div className="text-xs text-slate-400 mt-1">📞 {m.phone}</div>
@@ -165,7 +182,7 @@ export default function ApprovalsPage() {
                   </button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
       </div>

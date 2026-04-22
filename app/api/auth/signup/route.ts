@@ -5,45 +5,33 @@ import { rateLimitDurable } from "@/lib/security/rateLimitDurable"
 import { getClientIp } from "@/lib/security/clientIp"
 
 /**
- * STEP-025B — POST /api/auth/signup
+ * POST /api/auth/signup
  *
- * 🔒 SIGNUP POLICY (locked):
- *   - 공개 self-signup 은 **아가씨(hostess) 전용**.
- *   - 사장(owner) / 실장(manager) / 스태프(staff) 계정은 이 라우트로
- *     만들 수 없다. 로그인된 owner/admin 이 별도 초대/생성 플로우를
- *     통해 생성한다 (회원 생성: `/admin/members/create`).
- *   - `body.role` 은 수용하지 않는다. 클라이언트가 role 을 보내도
- *     서버는 읽지 않고 `role='hostess'` 로 하드코딩한다 (line 260
- *     근처). 이 경로로 owner/manager/staff 가 생성되는 루프홀이 없도록
- *     유지한다.
- *
- * Hostess-only, approval-gated signup. Producer for the existing
- * approvals consumer (app/api/store/approvals/route.ts).
+ * General member signup. Producer for the approvals consumer
+ * (app/api/store/approvals/route.ts).
  *
  * Flow:
- *   1. Validate inputs (six locked fields).
+ *   1. Validate inputs (seven fields: store / role / full_name /
+ *      nickname / phone / email / password).
  *   2. Resolve the selected store_name → store_uuid (active stores only).
- *   3. Pre-check duplicates at the application layer:
+ *   3. Role whitelist: body.role must be one of
+ *      {owner, manager, staff}. Any other value (including hostess)
+ *      is rejected with 400 ROLE_INVALID.
+ *   4. Pre-check duplicates at the application layer:
  *        a. email already exists in auth.users → EMAIL_TAKEN
- *        b. (phone, store) already has a non-rejected hostess membership
+ *        b. (phone, store, role) already has a non-rejected membership
  *           with status pending or approved → ALREADY_REGISTERED_AT_STORE
- *      No new DB constraints; this is the substitute the design lock
- *      (STEP-025) called for.
- *   4. Create the auth user via service-role admin API. This mirrors
- *      scripts/seed-test-data.ts — there is no anon-client signUp path
- *      in this codebase, and this route runs server-side only.
- *   5. Upsert the profile (full_name / nickname / phone).
- *   6. Insert one store_memberships row:
- *        role='hostess', status='pending', is_primary=true,
+ *   5. Create the auth user via service-role admin API.
+ *   6. Upsert the profile (full_name / nickname / phone).
+ *   7. Insert one store_memberships row:
+ *        role=<selected>, status='pending', is_primary=true,
  *        approved_by=null, approved_at=null
- *   7. Return { ok:true, status:'pending', message:... }.
+ *   8. Return { ok:true, status:'pending', role, message:... }.
  *
- * Rules respected:
- *   - role is hard-coded to 'hostess'. Body cannot override it.
- *   - login route is NOT modified. The existing 401 MEMBERSHIP_NOT_APPROVED
+ * Notes:
+ *   - login route is NOT modified; the existing MEMBERSHIP_NOT_APPROVED
  *     gate handles the pending state for free.
- *   - approvals route is NOT modified. The pending row this endpoint
- *     creates is exactly what that endpoint already lists.
+ *   - approvals route is NOT modified.
  *   - No migration. No schema change.
  */
 
@@ -54,12 +42,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 type SignupBody = {
   store?: unknown
+  role?: unknown
   full_name?: unknown
   nickname?: unknown
   phone?: unknown
   email?: unknown
   password?: unknown
 }
+
+const ALLOWED_SIGNUP_ROLES = ["owner", "manager", "staff"] as const
+type AllowedSignupRole = typeof ALLOWED_SIGNUP_ROLES[number]
 
 function bad(error: string, message: string, status = 400) {
   return NextResponse.json({ error, message }, { status })
@@ -71,6 +63,7 @@ export async function POST(request: Request) {
 
     // ─── 1. Validate ────────────────────────────────────────────
     const store = typeof body.store === "string" ? body.store.trim() : ""
+    const roleRaw = typeof body.role === "string" ? body.role.trim() : ""
     const fullName = typeof body.full_name === "string" ? body.full_name.trim() : ""
     const nickname = typeof body.nickname === "string" ? body.nickname.trim() : ""
     const phoneRaw = typeof body.phone === "string" ? body.phone : ""
@@ -79,6 +72,14 @@ export async function POST(request: Request) {
     const password = typeof body.password === "string" ? body.password : ""
 
     if (!store) return bad("MISSING_FIELDS", "소속 매장을 선택하세요.")
+    if (!roleRaw) return bad("MISSING_FIELDS", "직책을 선택하세요.")
+    if (!(ALLOWED_SIGNUP_ROLES as readonly string[]).includes(roleRaw)) {
+      return bad(
+        "ROLE_INVALID",
+        "직책은 사장 / 실장 / 스테프 중 하나여야 합니다.",
+      )
+    }
+    const role = roleRaw as AllowedSignupRole
     if (!fullName) return bad("MISSING_FIELDS", "이름을 입력하세요.")
     if (!nickname) return bad("MISSING_FIELDS", "닉네임을 입력하세요.")
     if (!phone) return bad("MISSING_FIELDS", "전화번호를 입력하세요.")
@@ -181,10 +182,12 @@ export async function POST(request: Request) {
     }
 
     // ─── 3b. Duplicate check: same phone already pending/approved
-    //          as a hostess at the same store ────────────────────
+    //          as the SAME role at the same store ────────────────
     // Join via profiles → store_memberships. We pre-resolve profile
     // ids whose phone matches, then look for any non-rejected
-    // hostess membership at the target store.
+    // membership at the target store with the SELECTED role. This
+    // lets the same person hold different roles at different stores
+    // (or sequentially over time) without tripping the dup check.
     const { data: phoneProfiles, error: pErr } = await admin
       .from("profiles")
       .select("id")
@@ -200,7 +203,7 @@ export async function POST(request: Request) {
         .select("id, status")
         .in("profile_id", phoneProfileIds)
         .eq("store_uuid", storeUuid)
-        .eq("role", "hostess")
+        .eq("role", role)
         .in("status", ["pending", "approved"])
         .is("deleted_at", null)
         .limit(1)
@@ -263,11 +266,11 @@ export async function POST(request: Request) {
       return bad("PROFILE_WRITE_FAILED", "프로필 생성에 실패했습니다.", 500)
     }
 
-    // ─── 6. Pending hostess membership ─────────────────────────
+    // ─── 6. Pending membership with the selected role ──────────
     const { error: memErr } = await admin.from("store_memberships").insert({
       profile_id: userId,
       store_uuid: storeUuid,
-      role: "hostess",
+      role,
       status: "pending",
       is_primary: true,
       approved_by: null,
@@ -282,6 +285,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       status: "pending",
+      role,
       message: "회원가입 신청이 접수되었습니다. 운영자 승인 후 로그인할 수 있습니다.",
     })
   } catch {
