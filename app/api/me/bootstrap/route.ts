@@ -1,19 +1,37 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 
-type ForwardResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string }
+type ForwardResult<T> = { ok: true; data: T; ms: number } | { ok: false; status: number; error: string; ms: number }
 
-async function forwardJson<T>(origin: string, path: string, cookie: string): Promise<ForwardResult<T>> {
+// P0-4: per-slot timing to Vercel logs.
+async function forwardJson<T>(
+  routeTag: string,
+  slot: string,
+  origin: string,
+  path: string,
+  cookie: string,
+): Promise<ForwardResult<T>> {
+  const t0 = Date.now()
   try {
     const r = await fetch(`${origin}${path}`, {
       method: "GET",
       headers: cookie ? { cookie } : {},
       cache: "no-store",
     })
-    if (!r.ok) return { ok: false, status: r.status, error: `HTTP_${r.status}` }
-    return { ok: true, data: (await r.json()) as T }
+    const ms = Date.now() - t0
+    if (!r.ok) {
+      console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: r.status, ms }))
+      return { ok: false, status: r.status, error: `HTTP_${r.status}`, ms }
+    }
+    const data = (await r.json()) as T
+    const msTotal = Date.now() - t0
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: true, status: r.status, ms: msTotal }))
+    return { ok: true, data, ms: msTotal }
   } catch (e) {
-    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network" }
+    const ms = Date.now() - t0
+    const err = e instanceof Error ? e.message : "network"
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: 0, error: err, ms }))
+    return { ok: false, status: 0, error: err, ms }
   }
 }
 
@@ -30,12 +48,14 @@ export async function GET(request: Request) {
 
   const cookie = request.headers.get("cookie") ?? ""
   const origin = new URL(request.url).origin
+  const tStart = Date.now()
 
   const [profileR, accountsR, payeesR] = await Promise.all([
-    forwardJson<Record<string, unknown>>(origin, "/api/auth/me", cookie),
-    forwardJson<{ accounts?: unknown[] }>(origin, "/api/me/accounts", cookie),
-    forwardJson<{ payees?: unknown[] }>(origin, "/api/me/payees", cookie),
+    forwardJson<Record<string, unknown>>("me", "profile", origin, "/api/auth/me", cookie),
+    forwardJson<{ accounts?: unknown[] }>("me", "accounts", origin, "/api/me/accounts", cookie),
+    forwardJson<{ payees?: unknown[] }>("me", "payees", origin, "/api/me/payees", cookie),
   ])
+  console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "me", ms: Date.now() - tStart }))
 
   return NextResponse.json({
     profile: profileR.ok ? profileR.data : null,

@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { getCachedAuth, setCachedAuth, type CachedAuth } from "@/lib/auth/authCache"
 
 export type AuthContext = {
   user_id: string
@@ -82,13 +83,30 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
     throw new AuthError("AUTH_MISSING", "Access token is required (cookie or Bearer).")
   }
 
-  // 3. Supabase 서버 클라이언트 생성
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !supabaseServiceKey) {
+  // 2b. P0-1: warm-cache short-circuit. If this token was already
+  //     resolved within the TTL window on the same function instance,
+  //     skip all 3 Supabase round-trips below. Correctness unchanged —
+  //     cache entries are only populated after a successful resolution.
+  const cached = getCachedAuth(token)
+  if (cached) {
+    return {
+      user_id: cached.user_id,
+      membership_id: cached.membership_id,
+      store_uuid: cached.store_uuid,
+      role: cached.role,
+      membership_status: cached.membership_status,
+      global_roles: cached.global_roles,
+      is_super_admin: cached.is_super_admin,
+    }
+  }
+
+  // 3. Supabase 서버 클라이언트 (P0-1: module singleton instead of per-call)
+  let supabase
+  try {
+    supabase = getServiceClient()
+  } catch {
     throw new AuthError("SERVER_CONFIG_ERROR", "Supabase environment variables are not configured.")
   }
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   // 4. 토큰 검증
   const { data: userData, error: userError } = await supabase.auth.getUser(token)
@@ -165,7 +183,7 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
   const isSuperAdmin = globalRoles.includes("super_admin")
 
   // 10. AuthContext 반환
-  return {
+  const ctx: AuthContext = {
     user_id: userId,
     membership_id: membershipId,
     store_uuid: storeUuid,
@@ -174,4 +192,20 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
     global_roles: globalRoles,
     is_super_admin: isSuperAdmin,
   }
+
+  // P0-1: populate the warm-instance cache so subsequent calls on this
+  // same function instance (e.g. bootstrap's 7 upstream loopbacks that
+  // land in the same warm pool slot) skip the 3 Supabase round-trips.
+  const toCache: CachedAuth = {
+    user_id: ctx.user_id,
+    membership_id: ctx.membership_id,
+    store_uuid: ctx.store_uuid,
+    role: ctx.role,
+    membership_status: ctx.membership_status,
+    global_roles: ctx.global_roles,
+    is_super_admin: ctx.is_super_admin,
+  }
+  setCachedAuth(token, toCache)
+
+  return ctx
 }

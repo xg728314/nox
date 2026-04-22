@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { getCachedAuth, setCachedAuth } from "@/lib/auth/authCache"
 
 /**
  * STEP-002B: Server-side page protection via HttpOnly cookie.
@@ -129,59 +130,82 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     return redirectTo(req, "/login")
   }
 
-  // 2. Supabase env — fail-closed on misconfiguration.
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return redirectTo(req, "/login")
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-  // 3. Validate token → user_id. Any failure → /login.
+  // 2. P0-1: warm-cache short-circuit. If this token was fully
+  //    resolved within the TTL window on this function instance, skip
+  //    both auth.getUser and store_memberships queries (-400 ms on
+  //    cross-region deployments). Same role / same membership / same
+  //    validity — only the network trip is elided.
+  const cached = getCachedAuth(token)
   let userId: string
-  try {
-    const { data: userData, error: userError } = await supabase.auth.getUser(token)
-    if (userError || !userData.user) {
-      return redirectTo(req, "/login")
-    }
-    userId = userData.user.id
-  } catch {
-    return redirectTo(req, "/login")
-  }
-
-  // 4. Resolve primary-approved membership (mirrors resolveAuthContext
-  //    lines 62-97 — is_primary=true, deleted_at IS NULL, status='approved').
   let role: Role
-  try {
-    // SECURITY (R-6): PRIMARY only, and fail closed on ambiguous (>1
-    // primary). Fetching 2 rows lets us detect the invariant violation
-    // without paying O(all-memberships) — worst case one extra row.
-    const { data: memberships, error: mErr } = await supabase
-      .from("store_memberships")
-      .select("role, status")
-      .eq("profile_id", userId)
-      .eq("is_primary", true)
-      .is("deleted_at", null)
-      .limit(2)
-    if (mErr || !memberships || memberships.length === 0) {
+  let supabase: ReturnType<typeof getServiceClient> | null = null
+  if (cached) {
+    userId = cached.user_id
+    role = cached.role as Role
+  } else {
+    // 2b. Supabase env — fail-closed on misconfiguration.
+    try {
+      supabase = getServiceClient()
+    } catch {
       return redirectTo(req, "/login")
     }
-    if (memberships.length > 1) {
-      // Data integrity violation — refuse access.
+
+    // 3. Validate token → user_id. Any failure → /login.
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser(token)
+      if (userError || !userData.user) {
+        return redirectTo(req, "/login")
+      }
+      userId = userData.user.id
+    } catch {
       return redirectTo(req, "/login")
     }
-    const m = memberships[0] as { role: string; status: string }
-    if (m.status !== "approved") {
+
+    // 4. Resolve primary-approved membership (mirrors resolveAuthContext
+    //    lines 62-97 — is_primary=true, deleted_at IS NULL, status='approved').
+    //    We fetch the full set so the result can seed the shared authCache
+    //    (which is also used by resolveAuthContext on the API side).
+    try {
+      const { data: memberships, error: mErr } = await supabase
+        .from("store_memberships")
+        .select("id, store_uuid, role, status")
+        .eq("profile_id", userId)
+        .eq("is_primary", true)
+        .is("deleted_at", null)
+        .limit(2)
+      if (mErr || !memberships || memberships.length === 0) {
+        return redirectTo(req, "/login")
+      }
+      if (memberships.length > 1) {
+        // Data integrity violation — refuse access.
+        return redirectTo(req, "/login")
+      }
+      const m = memberships[0] as { id: string; store_uuid: string; role: string; status: string }
+      if (m.status !== "approved") {
+        return redirectTo(req, "/login")
+      }
+      const validRoles: readonly Role[] = ["owner", "manager", "waiter", "staff", "hostess"]
+      if (!validRoles.includes(m.role as Role)) {
+        return redirectTo(req, "/login")
+      }
+      role = m.role as Role
+      // Seed the shared cache. global_roles/is_super_admin are left empty
+      // here — the super-admin branch below will populate them when it
+      // actually queries user_global_roles. resolveAuthContext on the API
+      // side treats missing global_roles as an empty array, which matches
+      // the behaviour that existed before the cache.
+      setCachedAuth(token, {
+        user_id: userId,
+        membership_id: m.id,
+        store_uuid: m.store_uuid,
+        role: role,
+        membership_status: "approved",
+        global_roles: [],
+        is_super_admin: false,
+      })
+    } catch {
       return redirectTo(req, "/login")
     }
-    const validRoles: readonly Role[] = ["owner", "manager", "waiter", "staff", "hostess"]
-    if (!validRoles.includes(m.role as Role)) {
-      return redirectTo(req, "/login")
-    }
-    role = m.role as Role
-  } catch {
-    return redirectTo(req, "/login")
   }
 
   // 5. super_admin prefix gate — checked BEFORE hostess redirect so that
@@ -191,18 +215,27 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   //    `status='approved'` and `deleted_at IS NULL`.
   if (matchesPrefix(pathname, SUPER_ADMIN_ONLY_PREFIXES)) {
     let isSuperAdmin = false
-    try {
-      const { data: gr } = await supabase
-        .from("user_global_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .eq("role", "super_admin")
-        .eq("status", "approved")
-        .is("deleted_at", null)
-        .limit(1)
-      isSuperAdmin = !!(gr && gr.length > 0)
-    } catch {
-      isSuperAdmin = false
+    // P0-1: use cached super-admin flag when available. If the earlier
+    // cache miss branch ran, `cached` is null here — fall through to the
+    // live query. If we hit the cache at the top but never populated
+    // is_super_admin, also query (conservative correctness).
+    if (cached && cached.is_super_admin) {
+      isSuperAdmin = true
+    } else {
+      try {
+        const sb = supabase ?? getServiceClient()
+        const { data: gr } = await sb
+          .from("user_global_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .eq("role", "super_admin")
+          .eq("status", "approved")
+          .is("deleted_at", null)
+          .limit(1)
+        isSuperAdmin = !!(gr && gr.length > 0)
+      } catch {
+        isSuperAdmin = false
+      }
     }
     if (!isSuperAdmin) {
       // Redirect to the role-appropriate home, NOT /login (user IS

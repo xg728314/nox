@@ -1,29 +1,46 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 
-type ForwardResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string }
+type ForwardResult<T> = { ok: true; data: T; ms: number } | { ok: false; status: number; error: string; ms: number }
 
-async function forwardJson<T>(origin: string, path: string, cookie: string): Promise<ForwardResult<T>> {
+// P0-4: forwardJson now measures per-slot latency and emits a server-log
+// line per slot. The format is a single stringified JSON on stdout so
+// Vercel log scraping can pick `perf.bootstrap.slot` to aggregate p50/p99
+// per upstream without regex gymnastics.
+async function forwardJson<T>(
+  routeTag: string,
+  slot: string,
+  origin: string,
+  path: string,
+  cookie: string,
+): Promise<ForwardResult<T>> {
+  const t0 = Date.now()
   try {
     const r = await fetch(`${origin}${path}`, {
       method: "GET",
       headers: cookie ? { cookie } : {},
       cache: "no-store",
     })
-    if (!r.ok) return { ok: false, status: r.status, error: `HTTP_${r.status}` }
-    return { ok: true, data: (await r.json()) as T }
+    const ms = Date.now() - t0
+    if (!r.ok) {
+      console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: r.status, ms }))
+      return { ok: false, status: r.status, error: `HTTP_${r.status}`, ms }
+    }
+    const data = (await r.json()) as T
+    const msTotal = Date.now() - t0
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: true, status: r.status, ms: msTotal }))
+    return { ok: true, data, ms: msTotal }
   } catch (e) {
-    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network" }
+    const ms = Date.now() - t0
+    const err = e instanceof Error ? e.message : "network"
+    console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: routeTag, slot, path, ok: false, status: 0, error: err, ms }))
+    return { ok: false, status: 0, error: err, ms }
   }
 }
 
-function supa() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error("SERVER_CONFIG_ERROR")
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
-}
+// P0-1: replaced local createClient with shared singleton.
+const supa = getServiceClient
 
 type MembershipShape = {
   membership_id: string
@@ -78,21 +95,29 @@ export async function GET(request: Request) {
 
   const cookie = request.headers.get("cookie") ?? ""
   const origin = new URL(request.url).origin
+  const tStart = Date.now()
 
   const [profileR, staffR, overviewR, chatR, membershipsR] = await Promise.all([
-    forwardJson<Record<string, unknown>>(origin, "/api/store/profile", cookie),
-    forwardJson<{ staff?: unknown[] }>(origin, "/api/store/staff", cookie),
-    forwardJson<{ overview?: unknown[] }>(origin, "/api/store/settlement/overview", cookie),
-    forwardJson<{ unread_count?: number }>(origin, "/api/chat/unread", cookie),
+    forwardJson<Record<string, unknown>>("owner", "profile", origin, "/api/store/profile", cookie),
+    forwardJson<{ staff?: unknown[] }>("owner", "staff", origin, "/api/store/staff", cookie),
+    forwardJson<{ overview?: unknown[] }>("owner", "overview", origin, "/api/store/settlement/overview", cookie),
+    forwardJson<{ unread_count?: number }>("owner", "chat_unread", origin, "/api/chat/unread", cookie),
     (async () => {
+      const t0 = Date.now()
       try {
         const list = await loadMemberships(auth.user_id)
+        const ms = Date.now() - t0
+        console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: "owner", slot: "memberships", path: "(direct)", ok: true, ms }))
         return { ok: true as const, data: list }
       } catch (e) {
-        return { ok: false as const, status: 500, error: e instanceof Error ? e.message : "memberships_failed" }
+        const ms = Date.now() - t0
+        const err = e instanceof Error ? e.message : "memberships_failed"
+        console.log(JSON.stringify({ tag: "perf.bootstrap.slot", route: "owner", slot: "memberships", path: "(direct)", ok: false, error: err, ms }))
+        return { ok: false as const, status: 500, error: err }
       }
     })(),
   ])
+  console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "owner", ms: Date.now() - tStart }))
 
   return NextResponse.json({
     profile: profileR.ok ? profileR.data : null,
