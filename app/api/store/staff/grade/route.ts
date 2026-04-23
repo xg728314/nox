@@ -66,6 +66,8 @@ export async function PATCH(request: Request) {
         updated_at: now,
       })
       .eq("id", hostess.id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
       .select("membership_id, grade, grade_updated_at")
       .single()
 

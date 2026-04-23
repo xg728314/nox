@@ -76,6 +76,8 @@ export async function loadOrderForMutation(
       .from("room_sessions")
       .select("business_day_id")
       .eq("id", order.session_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
       .maybeSingle()
     const guard = await assertBusinessDayOpen(supabase, sessionBizDay?.business_day_id ?? null)
     if (guard) return { error: guard }

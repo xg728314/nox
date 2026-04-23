@@ -32,6 +32,8 @@ export async function handleUpdateExternalName(
     .from("room_sessions")
     .select("id, store_uuid, business_day_id")
     .eq("id", p.session_id)
+    .eq("store_uuid", p.store_uuid as string)
+    .is("deleted_at", null)
     .maybeSingle()
 
   if (!session) {
@@ -83,6 +85,8 @@ export async function handleUpdateExternalName(
     .from("session_participants")
     .update(updatePayload)
     .eq("id", participant_id)
+    .eq("store_uuid", p.store_uuid as string)
+    .is("deleted_at", null)
 
   // Match resolution against store hostess names
   const targetStoreUuid = p.origin_store_uuid ?? session.store_uuid
@@ -99,6 +103,8 @@ export async function handleUpdateExternalName(
       .from("hostesses")
       .select("name, stage_name")
       .in("membership_id", mIds)
+      .eq("store_uuid", targetStoreUuid)
+      .is("deleted_at", null)
     for (const h of hsts ?? []) {
       if (h.name) hostessNames.add(h.name)
       if (h.stage_name) hostessNames.add(h.stage_name)

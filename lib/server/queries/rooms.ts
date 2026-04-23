@@ -86,11 +86,13 @@ export async function getRooms(auth: AuthContext): Promise<RoomsResponse> {
         .from("session_participants")
         .select("session_id, price_amount")
         .in("session_id", sessionIds)
+        .eq("store_uuid", auth.store_uuid)
         .is("deleted_at", null),
       supabase
         .from("orders")
         .select("session_id, customer_amount")
         .in("session_id", sessionIds)
+        .eq("store_uuid", auth.store_uuid)
         .is("deleted_at", null),
     ])
 

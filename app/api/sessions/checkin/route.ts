@@ -102,6 +102,8 @@ export async function POST(request: Request) {
         .from("store_operating_days")
         .update({ status: "open", closed_at: null, closed_by: null })
         .eq("id", existingDay.id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
 
       if (reopenError) {
         console.error("[checkin] reopen business_day error:", JSON.stringify(reopenError))

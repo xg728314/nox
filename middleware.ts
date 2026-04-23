@@ -63,6 +63,8 @@ const OWNER_ONLY_PREFIXES = [
   "/reports",
   "/audit",
   "/audit-events",
+  // Phase 4: cross-store settlement 검산 UI. 운영자만 금액 추적.
+  "/settlements",
 ]
 
 const OWNER_MANAGER_PREFIXES = [
@@ -477,6 +479,8 @@ export const config = {
     "/customers/:path*",
     "/manager/:path*",
     "/super-admin/:path*",
+    // Phase 4: cross-store settlement 검산 UI (owner / super_admin)
+    "/settlements/:path*",
     // Phase 5: mobile monitor tree.
     "/m/monitor/:path*",
     // Phase 6: 공용 진입 라우터. 페이지 자체가 server redirect 을

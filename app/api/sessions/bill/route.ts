@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
     // 2. 방 이름
     const { data: room } = await supabase
-      .from("rooms").select("name").eq("id", session.room_uuid).maybeSingle()
+      .from("rooms").select("name").eq("id", session.room_uuid).eq("store_uuid", authContext.store_uuid).is("deleted_at", null).maybeSingle()
 
     // 3. 주문 목록 — order_type별 분류
     const { data: orders } = await supabase

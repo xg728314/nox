@@ -121,6 +121,8 @@ export async function getManagerParticipants(auth: AuthContext): Promise<Manager
         .from("hostesses")
         .select("name, stage_name")
         .in("membership_id", mIds)
+        .eq("store_uuid", auth.store_uuid)
+        .is("deleted_at", null)
     : Promise.resolve({ data: [] as { name: string | null; stage_name: string | null }[] })
 
   const sessionsP = sessionIds.length > 0

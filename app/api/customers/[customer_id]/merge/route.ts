@@ -71,6 +71,7 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq("id", sourceId)
+      .eq("store_uuid", authContext.store_uuid)
 
     // Audit
     await supabase.from("audit_events").insert({

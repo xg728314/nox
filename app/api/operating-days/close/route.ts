@@ -179,6 +179,8 @@ export async function POST(request: Request) {
         closed_by: authContext.user_id,
       })
       .eq("id", business_day_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
 
     if (closeError) {
       return NextResponse.json(

@@ -134,6 +134,8 @@ export async function POST(request: Request) {
         .from("store_memberships")
         .update({ is_primary: false })
         .eq("id", transfer.hostess_membership_id)
+        .eq("store_uuid", transfer.from_store_uuid)
+        .is("deleted_at", null)
 
       // Check if hostess already has membership at destination store
       const { data: existingMem } = await supabase
@@ -155,6 +157,8 @@ export async function POST(request: Request) {
           .from("store_memberships")
           .update({ is_primary: true, status: "approved" })
           .eq("id", existingMem.id)
+          .eq("store_uuid", transfer.to_store_uuid)
+          .is("deleted_at", null)
       } else {
         // Get profile_id from source membership
         const { data: srcMem } = await supabase

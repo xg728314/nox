@@ -117,6 +117,8 @@ export async function POST(
       .from("store_operating_days")
       .select("id, status, business_date")
       .eq("id", sessionRow.business_day_id as string)
+      .eq("store_uuid", store_uuid)
+      .is("deleted_at", null)
       .maybeSingle()
     const businessDayOk = !!bizDay && bizDay.status !== "closed"
 

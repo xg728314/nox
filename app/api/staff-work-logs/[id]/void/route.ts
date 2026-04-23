@@ -6,8 +6,8 @@ import {
   checkBaseLifecycleGate,
   errResp,
   getServiceClient,
-  logAuditEvent,
 } from "@/lib/server/queries/staffWorkLogLifecycle"
+import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/void
@@ -71,37 +71,34 @@ export async function POST(
   const baseErr = checkBaseLifecycleGate(row, auth)
   if (baseErr) return errResp(baseErr)
 
-  // 전이 규칙
+  // 전이 규칙 (Phase 2 스펙 + Phase 4 감사):
+  //   draft    → 작성자(manager 본인) 또는 owner / super_admin
+  //   confirmed → owner / super_admin 만
+  //   disputed → owner / super_admin 만
+  //
+  // Phase 4 감사: "manager 는 타 담당/타 작성 로그를 수정할 수 없다" 규칙에
+  //   맞게, draft void 에서 manager 의 경우 created_by === auth.user_id
+  //   를 엄격히 요구한다. 이전 코드는 origin 매장 모든 manager 에 대해
+  //   허용했는데, 이는 문서화된 계약("작성자 본인")과 어긋났다.
   if (row.status === "draft") {
-    // draft → voided: 작성자 본인 OR owner/super_admin
-    const isCreator = row.created_by === auth.user_id
-    if (!isCreator && !isOwner && !isSuperAdmin) {
-      return NextResponse.json(
-        {
-          error: "ROLE_FORBIDDEN",
-          message: "작성자 또는 사장/운영자만 draft 를 무효화할 수 있습니다.",
-        },
-        { status: 403 },
-      )
+    if (isManager && !isOwner && !isSuperAdmin) {
+      if (row.created_by !== auth.user_id) {
+        return NextResponse.json(
+          {
+            error: "ASSIGNMENT_FORBIDDEN",
+            message: "본인이 작성한 draft 로그만 무효화할 수 있습니다.",
+          },
+          { status: 403 },
+        )
+      }
     }
-  } else if (row.status === "confirmed") {
-    // confirmed → voided: owner/super_admin 만
+    // owner / super_admin: 코어스 게이트(+ origin scope)만 통과하면 가능.
+  } else if (row.status === "confirmed" || row.status === "disputed") {
     if (!isOwner && !isSuperAdmin) {
       return NextResponse.json(
         {
           error: "ROLE_FORBIDDEN",
-          message: "확정(confirmed) 된 기록은 사장/운영자만 무효화할 수 있습니다.",
-        },
-        { status: 403 },
-      )
-    }
-  } else if (row.status === "disputed") {
-    // disputed → voided: owner/super_admin 만 (합리적 기본값)
-    if (!isOwner && !isSuperAdmin) {
-      return NextResponse.json(
-        {
-          error: "ROLE_FORBIDDEN",
-          message: "이의 상태(disputed) 는 사장/운영자만 무효화할 수 있습니다.",
+          message: "확정/이의 상태는 사장/운영자만 무효화할 수 있습니다.",
         },
         { status: 403 },
       )
@@ -109,10 +106,10 @@ export async function POST(
   } else {
     return NextResponse.json(
       {
-        error: "STATE_CONFLICT",
+        error: "INVALID_STATE_TRANSITION",
         message: `현재 상태(${row.status}) 에서는 void 할 수 없습니다.`,
       },
-      { status: 409 },
+      { status: 400 },
     )
   }
 
@@ -136,21 +133,20 @@ export async function POST(
     )
   }
 
-  try {
-    await logAuditEvent(supabase, {
-      auth,
-      action: "staff_work_log_voided",
-      entity_table: "store_memberships",
-      entity_id: row.hostess_membership_id,
-      before: { status: row.status },
-      reason,
-      metadata: {
-        work_log_id: id,
-        from_status: row.status,
-        to_status: "voided",
-      },
-    })
-  } catch {}
+  const auditFail = await auditOr500(supabase, {
+    auth,
+    action: "staff_work_log_voided",
+    entity_table: "store_memberships",
+    entity_id: row.hostess_membership_id,
+    before: { status: row.status },
+    reason,
+    metadata: {
+      work_log_id: id,
+      from_status: row.status,
+      to_status: "voided",
+    },
+  })
+  if (auditFail) return auditFail
 
   return NextResponse.json({ ok: true, id, status: "voided" })
 }

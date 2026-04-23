@@ -193,6 +193,7 @@ export async function GET(request: Request) {
       .from("session_participants")
       .select("id, session_id, membership_id, status, role, category, entered_at, time_minutes")
       .in("session_id", sessionIds)
+      .in("store_uuid", storeUuids)
       .in("status", ["active", "mid_out"])
       .is("deleted_at", null)
     if (partErr) {

@@ -153,6 +153,8 @@ export async function POST(request: Request) {
         .from("store_operating_days")
         .select("status")
         .eq("id", session.business_day_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
         .maybeSingle()
       if (bizDay && bizDay.status === "closed") {
         return NextResponse.json(

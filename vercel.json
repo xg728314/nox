@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/ble-history-reaper",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/ble-attendance-sync",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/ops-alerts-scan",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

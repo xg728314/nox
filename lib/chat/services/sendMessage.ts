@@ -52,6 +52,8 @@ export async function sendMessage(
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.chat_room_id)
+    .eq("store_uuid", input.store_uuid)
+    .is("deleted_at", null)
 
   // 3. Increment unread for other participants via atomic RPC
   await supabase.rpc("increment_chat_unread", {

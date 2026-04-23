@@ -139,6 +139,8 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", membership_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
 
     if (updateError) {
       return NextResponse.json({ error: "UPDATE_FAILED" }, { status: 500 })

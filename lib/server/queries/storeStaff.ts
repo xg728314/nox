@@ -28,11 +28,39 @@ export type StoreStaffParams = {
   role?: string | null
 }
 
+/**
+ * ROUND-STAFF-1: manager 권한일 때 hostess 리스트를 본인 담당만으로 축소.
+ * ROUND-STAFF-2: visibility mode 파라미터로 "store_shared" 허용.
+ *   - super_admin / owner → 원본 그대로
+ *   - manager (non-owner / non-super_admin):
+ *       visibilityMode="mine_only" (기본)  → manager_membership_id === auth.membership_id 만
+ *       visibilityMode="store_shared"      → 필터 없음 (같은 매장 전체; 이미 store_uuid scope 로 제한됨)
+ *   - manager rows 는 어느 모드든 자신 포함 유지 (role !== "hostess" 은 필터 미적용)
+ *
+ * 주의: 이 filter 는 **조회 가시성** 만 다룬다. 출근 ON/OFF 등 조작은
+ *   각 mutating route 가 manager_membership_id 자기담당 체크로 독립 시행.
+ */
+function filterByManagerScope(
+  staff: StaffMember[],
+  auth: AuthContext,
+  visibilityMode: "mine_only" | "store_shared" = "mine_only",
+): StaffMember[] {
+  if (auth.is_super_admin || auth.role === "owner") return staff
+  if (auth.role !== "manager") return staff
+  if (visibilityMode === "store_shared") return staff
+  return staff.filter((s) => {
+    if (s.role !== "hostess") return true
+    return s.manager_membership_id === auth.membership_id
+  })
+}
+
 export async function getStoreStaff(
   auth: AuthContext,
   params: StoreStaffParams = {},
+  opts: { visibilityMode?: "mine_only" | "store_shared" } = {},
 ): Promise<StoreStaffResponse> {
   const supabase = getServiceClient()
+  const visibilityMode = opts.visibilityMode ?? "mine_only"
 
   const storeNameParam = params.store_name ?? null
   const storeUuidParam = params.store_uuid ?? null
@@ -92,6 +120,8 @@ export async function getStoreStaff(
           .from("managers")
           .select("membership_id, name")
           .in("membership_id", membershipIds)
+          .eq("store_uuid", storeData.id)
+          .is("deleted_at", null)
         for (const m of (mgrs ?? []) as { membership_id: string; name: string }[]) {
           mgrNameMap.set(m.membership_id, m.name)
         }
@@ -121,6 +151,8 @@ export async function getStoreStaff(
         .from("hostesses")
         .select("membership_id, name, stage_name, manager_membership_id")
         .in("membership_id", membershipIds)
+        .eq("store_uuid", storeData.id)
+        .is("deleted_at", null)
       if (hstsErr) throw new Error(hstsErr.message)
       for (const h of (hsts ?? []) as { membership_id: string; name: string | null; stage_name: string | null; manager_membership_id: string | null }[]) {
         const display = h.name || h.stage_name
@@ -136,6 +168,8 @@ export async function getStoreStaff(
         .from("managers")
         .select("membership_id, name")
         .in("membership_id", [...new Set(mgrIds)])
+        .eq("store_uuid", storeData.id)
+        .is("deleted_at", null)
       for (const m of (mgrs ?? []) as { membership_id: string; name: string }[]) {
         mgrNameMap.set(m.membership_id, m.name)
       }
@@ -158,7 +192,7 @@ export async function getStoreStaff(
     return {
       store_uuid: storeData.id,
       store_name: storeNameParam,
-      staff,
+      staff: filterByManagerScope(staff, auth, visibilityMode),
     }
   }
 
@@ -190,11 +224,15 @@ export async function getStoreStaff(
       .from("managers")
       .select("membership_id, name")
       .in("membership_id", membershipIds)
+      .eq("store_uuid", targetStoreUuid)
+      .is("deleted_at", null)
 
     const { data: hsts } = await supabase
       .from("hostesses")
       .select("membership_id, name")
       .in("membership_id", membershipIds)
+      .eq("store_uuid", targetStoreUuid)
+      .is("deleted_at", null)
 
     for (const m of mgrs ?? []) stageNameMap.set(m.membership_id, m.name)
     for (const h of hsts ?? []) stageNameMap.set(h.membership_id, h.name)
@@ -233,6 +271,8 @@ export async function getStoreStaff(
           .from("hostesses")
           .select("membership_id, manager_membership_id")
           .in("membership_id", hostessMembershipIds)
+          .eq("store_uuid", targetStoreUuid)
+          .is("deleted_at", null)
         for (const h of (hsts ?? []) as { membership_id: string; manager_membership_id: string | null }[]) {
           hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
         }
@@ -246,6 +286,8 @@ export async function getStoreStaff(
             .from("managers")
             .select("membership_id, name")
             .in("membership_id", managerIds)
+            .eq("store_uuid", targetStoreUuid)
+            .is("deleted_at", null)
           for (const mgr of (mgrs ?? []) as { membership_id: string; name: string }[]) {
             managerNameMap.set(mgr.membership_id, mgr.name)
           }
@@ -263,6 +305,8 @@ export async function getStoreStaff(
           .from("session_participants")
           .select("membership_id, created_at")
           .in("membership_id", hostessMembershipIds)
+          .eq("store_uuid", targetStoreUuid)
+          .is("deleted_at", null)
           .gte("created_at", since7d)
         for (const row of (sp7 ?? []) as { membership_id: string | null; created_at: string }[]) {
           if (!row.membership_id) continue
@@ -291,6 +335,6 @@ export async function getStoreStaff(
   return {
     store_uuid: targetStoreUuid,
     store_name: storeNameParam ?? storeName,
-    staff,
+    staff: filterByManagerScope(staff, auth, visibilityMode),
   }
 }

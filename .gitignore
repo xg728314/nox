@@ -25,3 +25,5 @@ CLEANUP_AUDIT_FULL.json
 out/
 .vercel/
 
+.vercel
+.env*.local

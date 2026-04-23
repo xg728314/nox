@@ -93,6 +93,8 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", business_day_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
 
     if (updateError) {
       return NextResponse.json({ error: "REOPEN_FAILED", message: updateError.message }, { status: 500 })

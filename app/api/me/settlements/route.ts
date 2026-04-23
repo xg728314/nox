@@ -70,6 +70,8 @@ export async function GET(request: Request) {
         .from("store_operating_days")
         .select("id, business_date")
         .in("id", bizDayIds)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
       for (const b of bizDays ?? []) bizDayMap.set(b.id, b.business_date)
     }
 

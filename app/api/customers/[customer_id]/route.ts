@@ -71,6 +71,8 @@ export async function GET(
         .from("rooms")
         .select("id, room_no, room_name")
         .in("id", roomUuids)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
 
       const roomMap = new Map<string, string>()
       if (rooms) {
@@ -98,6 +100,7 @@ export async function GET(
         .from("session_participants")
         .select("session_id")
         .in("session_id", sessionIds)
+        .eq("store_uuid", authContext.store_uuid)
         .eq("role", "hostess")
         .is("deleted_at", null)
 

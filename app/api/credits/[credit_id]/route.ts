@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
+import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * GET   /api/credits/[credit_id] — 외상 상세 조회
@@ -64,15 +65,27 @@ export async function GET(
       )
     }
 
-    // 방이름, 실장이름
+    // 방이름, 실장이름 — ROUND-A: rooms 에 store_uuid + deleted_at 가드 추가.
+    //   이전엔 cross-store 룸 이름 누출 가능성 있었음. managers 는 이미
+    //   store_uuid 조건 있으나 deleted_at 만 보강.
     const { data: room } = await supabase
-      .from("rooms").select("name").eq("id", credit.room_uuid).maybeSingle()
+      .from("rooms")
+      .select("room_name")
+      .eq("id", credit.room_uuid)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
+      .maybeSingle()
     const { data: manager } = await supabase
-      .from("managers").select("name").eq("membership_id", credit.manager_membership_id).eq("store_uuid", authContext.store_uuid).maybeSingle()
+      .from("managers")
+      .select("name")
+      .eq("membership_id", credit.manager_membership_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
+      .maybeSingle()
 
     return NextResponse.json({
       ...credit,
-      room_name: room?.name || null,
+      room_name: room?.room_name || null,
       manager_name: manager?.name || null,
     })
   } catch (error) {
@@ -249,22 +262,17 @@ export async function PATCH(
       )
     }
 
-    // Audit
-    await supabase
-      .from("audit_events")
-      .insert({
-        store_uuid: authContext.store_uuid,
-        actor_profile_id: authContext.user_id,
-        actor_membership_id: authContext.membership_id,
-        actor_role: authContext.role,
-        actor_type: authContext.role,
-        session_id: credit.session_id || null,
-        entity_table: "credits",
-        entity_id: credit_id,
-        action: newStatus === "collected" ? "credit_collected" : "credit_cancelled",
-        before: { status: credit.status },
-        after: { status: newStatus },
-      })
+    // Audit — ROUND-A: fail-close. 이전 raw insert 는 error 를 무시했음.
+    const auditFail = await auditOr500(supabase, {
+      auth: authContext,
+      action: newStatus === "collected" ? "credit_collected" : "credit_cancelled",
+      entity_table: "credits",
+      entity_id: credit_id,
+      session_id: credit.session_id || null,
+      before: { status: credit.status },
+      metadata: { new_status: newStatus },
+    })
+    if (auditFail) return auditFail
 
     return NextResponse.json(updated)
   } catch (error) {

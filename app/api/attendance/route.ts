@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { getAttendance } from "@/lib/server/queries/attendance"
+import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 
 /**
  * GET /api/attendance
@@ -16,8 +18,9 @@ export async function GET(request: Request) {
     }
 
     try {
-      const data = await getAttendance(authContext)
-      return NextResponse.json(data)
+      const visibilityMode = await loadAttendanceVisibility(getServiceClient(), authContext)
+      const data = await getAttendance(authContext, { visibilityMode })
+      return NextResponse.json({ ...data, visibility_mode: visibilityMode })
     } catch (e) {
       const msg = e instanceof Error ? e.message : "err"
       return NextResponse.json({ error: "QUERY_FAILED", message: msg }, { status: 500 })
@@ -83,6 +86,43 @@ export async function POST(request: Request) {
 
     if (!membership) {
       return NextResponse.json({ error: "MEMBERSHIP_NOT_FOUND" }, { status: 404 })
+    }
+
+    // ROUND-STAFF-1: manager 는 자기 담당 hostess 에만 attendance 작업 가능.
+    //   대상이 hostess 인 경우: hostesses.manager_membership_id === auth.membership_id 검증.
+    //   owner / super_admin 은 영향 없음. 대상이 non-hostess (manager 자신 출근 등) 도 제외.
+    if (
+      authContext.role === "manager" &&
+      membership.role === "hostess"
+    ) {
+      const { data: hostessRow, error: hErr } = await supabase
+        .from("hostesses")
+        .select("manager_membership_id")
+        .eq("membership_id", membership_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .maybeSingle()
+      if (hErr) {
+        return NextResponse.json(
+          { error: "INTERNAL_ERROR", message: "hostess 조회에 실패했습니다." },
+          { status: 500 },
+        )
+      }
+      if (!hostessRow) {
+        return NextResponse.json(
+          { error: "HOSTESS_NOT_FOUND", message: "아가씨 레코드를 찾을 수 없습니다." },
+          { status: 404 },
+        )
+      }
+      if (hostessRow.manager_membership_id !== authContext.membership_id) {
+        return NextResponse.json(
+          {
+            error: "ASSIGNMENT_FORBIDDEN",
+            message: "본인 담당 아가씨만 출근/퇴근 처리할 수 있습니다.",
+          },
+          { status: 403 },
+        )
+      }
     }
 
     // 영업일 조회 (없으면 자동 생성)

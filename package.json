@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "cleanup:audit": "node scripts/cleanup-audit.mjs",
     "cleanup:knip": "knip",
     "monitor:verify": "node monitoring/scripts/verify-delivery.mjs",
@@ -26,6 +28,7 @@
     "knip": "^5.37.0",
     "postcss": "^8.5.9",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
   }
 }

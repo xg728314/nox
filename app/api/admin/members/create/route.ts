@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { logAuditEvent, logDeniedAudit } from "@/lib/audit/logEvent"
+import { auditOr500, logDeniedAudit } from "@/lib/audit/logEvent"
 import { rateLimitDurable } from "@/lib/security/rateLimitDurable"
 import { randomBytes } from "node:crypto"
 
@@ -450,7 +450,7 @@ export async function POST(request: Request) {
       })
     if (hostErr) {
       // Rollback store_memberships (hard-delete — we just inserted it)
-      try { await admin.from("store_memberships").delete().eq("id", membershipId) } catch {}
+      try { await admin.from("store_memberships").delete().eq("id", membershipId).eq("store_uuid", targetStoreUuid) } catch {}
       if (!isExistingUser) {
         try { await admin.auth.admin.deleteUser(userId) } catch {}
       }
@@ -458,30 +458,27 @@ export async function POST(request: Request) {
     }
   }
 
-  // 5. Audit — best-effort, does not block success response on failure.
-  try {
-    await logAuditEvent(admin, {
-      auth,
-      action: "member_created",
-      entity_table: "store_memberships",
-      entity_id: membershipId,
-      metadata: {
-        target_role: targetRole,
-        target_store_uuid: targetStoreUuid,
-        target_profile_id: userId,
-        target_email: email,
-        existing_user: isExistingUser,
-        via: "admin_member_create",
-        // Hostess auto-assignment trace — helps post-hoc who-assigned-whom
-        // queries without reading the hostesses row directly.
-        ...(targetRole === "hostess"
-          ? { manager_membership_id: isManager ? auth.membership_id : null }
-          : {}),
-      },
-    })
-  } catch {
-    // Logged by helper; never rethrown.
-  }
+  // 5. Audit — fail-close (ROUND-A). 감사 로그 실패 시 500 AUDIT_WRITE_FAILED.
+  const auditFail = await auditOr500(admin, {
+    auth,
+    action: "member_created",
+    entity_table: "store_memberships",
+    entity_id: membershipId,
+    metadata: {
+      target_role: targetRole,
+      target_store_uuid: targetStoreUuid,
+      target_profile_id: userId,
+      target_email: email,
+      existing_user: isExistingUser,
+      via: "admin_member_create",
+      // Hostess auto-assignment trace — helps post-hoc who-assigned-whom
+      // queries without reading the hostesses row directly.
+      ...(targetRole === "hostess"
+        ? { manager_membership_id: isManager ? auth.membership_id : null }
+        : {}),
+    },
+  })
+  if (auditFail) return auditFail
 
   // 6. Response
   const payload: {

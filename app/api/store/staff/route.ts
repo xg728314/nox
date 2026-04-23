@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getStoreStaff } from "@/lib/server/queries/storeStaff"
+import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 
 export async function GET(request: Request) {
   try {
@@ -19,12 +21,17 @@ export async function GET(request: Request) {
     const roleParam = searchParams.get("role")
 
     try {
-      const data = await getStoreStaff(authContext, {
-        store_name: storeNameParam,
-        store_uuid: storeUuidParam,
-        role: roleParam,
-      })
-      return NextResponse.json(data)
+      const visibilityMode = await loadAttendanceVisibility(getServiceClient(), authContext)
+      const data = await getStoreStaff(
+        authContext,
+        {
+          store_name: storeNameParam,
+          store_uuid: storeUuidParam,
+          role: roleParam,
+        },
+        { visibilityMode },
+      )
+      return NextResponse.json({ ...data, visibility_mode: visibilityMode })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err)
       console.error("store staff error:", msg)

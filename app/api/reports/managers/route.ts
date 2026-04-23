@@ -99,6 +99,8 @@ export async function GET(request: Request) {
         .from("store_memberships")
         .select("id, profile_id")
         .in("id", mids)
+        .eq("store_uuid", auth.store_uuid)
+        .is("deleted_at", null)
       const mems = (memRaw ?? []) as Array<{ id: string; profile_id: string }>
       const pids = mems.map(m => m.profile_id)
       const { data: profRaw } = await supabase

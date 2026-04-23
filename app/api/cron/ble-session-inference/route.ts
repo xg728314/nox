@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { timingSafeEqual } from "node:crypto"
+import {
+  inferWorkType as inferWorkTypePure,
+  sourceRef as sourceRefPure,
+  WINDOW_SEC as WINDOW_SEC_PURE,
+  DURATION_MIN_SKIP as DURATION_MIN_SKIP_PURE,
+} from "@/lib/server/queries/bleSessionInference"
 
 /**
  * GET /api/cron/ble-session-inference
@@ -41,10 +47,11 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 // ── Locked constants (설계 라운드에서 확정) ─────────────────────
-const WINDOW_SEC = 600 // source_ref 10분 버킷
+// WINDOW_SEC, DURATION_MIN_SKIP 은 pure helper 파일에서 import (테스트 가능).
+const WINDOW_SEC = WINDOW_SEC_PURE
 const MAX_OPEN_DURATION_MS = 4 * 60 * 60 * 1000 // 4h reaper 상한
 const DEFAULT_MIN = 15 // reaper fallback 지속시간 (분)
-const DURATION_MIN_SKIP = 9 // 9분 미만은 과금 대상 아님 (비즈룰)
+const DURATION_MIN_SKIP = DURATION_MIN_SKIP_PURE
 const EXIT_TOLERANCE_SEC = 15 // ENTER 후 15초 이내 EXIT 은 debounce skip
 const DEFAULT_SCAN_LOOKBACK_MIN = 30
 const MAX_SCAN_LOOKBACK_MIN = 180
@@ -105,19 +112,10 @@ type SkipCounters = {
   exit_debounced: number
 }
 
-function inferWorkType(durationMs: number): "cha3" | "half" | "full" | null {
-  const m = durationMs / 60000
-  if (m < DURATION_MIN_SKIP) return null
-  if (m <= 15) return "cha3"
-  if (m <= 45) return "half"
-  return "full"
-}
-
-function sourceRef(gatewayId: string, minor: number, enterIso: string): string {
-  const tsSec = Math.floor(new Date(enterIso).getTime() / 1000)
-  const bucket = Math.floor(tsSec / WINDOW_SEC)
-  return `ble:${gatewayId}:${minor}:${bucket}`
-}
+// inferWorkType / sourceRef 은 lib/server/queries/bleSessionInference.ts
+// 로 추출되어 있음 — route 에서 별칭으로 호출.
+const inferWorkType = inferWorkTypePure
+const sourceRef = sourceRefPure
 
 // Audit helper — best-effort, no throw
 async function writeAudit(

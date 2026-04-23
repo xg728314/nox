@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       .select("id, session_id, status, entered_at, price_amount")
       .eq("id", participant_id)
       .eq("session_id", session_id)
+      .eq("store_uuid", authContext.store_uuid)
       .is("deleted_at", null)
       .maybeSingle()
 
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
       .from("session_participants")
       .update(updateFields)
       .eq("id", participant_id)
+      .eq("store_uuid", authContext.store_uuid)
 
     if (updateError) {
       return NextResponse.json(
@@ -125,6 +127,7 @@ export async function POST(request: Request) {
       .from("session_participants")
       .select("id, session_id, status, left_at, price_amount")
       .eq("id", participant_id)
+      .eq("store_uuid", authContext.store_uuid)
       .single()
 
     if (!updated) {
@@ -139,6 +142,7 @@ export async function POST(request: Request) {
       .from("session_participants")
       .update({ exit_type: exitType })
       .eq("id", participant_id)
+      .eq("store_uuid", authContext.store_uuid)
       .then(() => {}, () => {})
 
     // 5. Record audit event

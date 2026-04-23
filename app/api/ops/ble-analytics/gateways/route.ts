@@ -97,7 +97,7 @@ export async function GET(request: Request) {
       for (const s of (data ?? []) as Array<{ id: string; store_name: string }>) storeNames.set(s.id, s.store_name)
     }
     if (roomUuids.length > 0) {
-      const { data } = await supabase.from("rooms").select("id, room_name, floor_no").in("id", roomUuids).is("deleted_at", null)
+      const { data } = await supabase.from("rooms").select("id, room_name, floor_no").in("id", roomUuids).in("store_uuid", storeUuids).is("deleted_at", null)
       for (const r of (data ?? []) as Array<{ id: string; room_name: string | null; floor_no: number | null }>) {
         roomInfo.set(r.id, { name: r.room_name, floor_no: r.floor_no })
       }

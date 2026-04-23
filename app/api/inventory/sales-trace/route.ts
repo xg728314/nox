@@ -133,6 +133,8 @@ export async function GET(request: Request) {
         .from("rooms")
         .select("id, room_no, room_name")
         .in("id", roomUuids)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
       for (const r of (rooms ?? []) as { id: string; room_no: string; room_name: string | null }[]) {
         roomLabel.set(r.id, formatRoomLabel(r))
       }

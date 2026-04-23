@@ -73,6 +73,8 @@ export async function POST(request: Request) {
       .select("id, session_id, time_minutes, price_amount, category, status")
       .eq("id", participant_id)
       .eq("session_id", session_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
       .maybeSingle()
 
     if (participantError || !participant) {
@@ -133,6 +135,7 @@ export async function POST(request: Request) {
         price_amount: newPriceAmount,
       })
       .eq("id", participant_id)
+      .eq("store_uuid", authContext.store_uuid)
       .select("id, session_id, time_minutes, price_amount, status")
       .single()
 

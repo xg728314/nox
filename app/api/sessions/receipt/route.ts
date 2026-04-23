@@ -158,6 +158,8 @@ export async function POST(request: Request) {
       .from("rooms")
       .select("room_no, room_name")
       .eq("id", session.room_uuid)
+      .eq("store_uuid", authContext.store_uuid)
+      .is("deleted_at", null)
       .maybeSingle()
 
     const roomLabel = formatRoomLabel(room)

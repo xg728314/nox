@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
-import { logAuditEvent } from "@/lib/audit/logEvent"
+import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * Staff Work Logs — Phase 1 (manual only)
@@ -152,6 +152,7 @@ export async function POST(request: Request) {
       .from("hostesses")
       .select("manager_membership_id")
       .eq("membership_id", hostessMembershipId)
+      .eq("store_uuid", auth.store_uuid)
       .is("deleted_at", null)
       .maybeSingle()
     const assignedMgr = (hostessRow?.manager_membership_id as string | null) ?? null
@@ -263,28 +264,25 @@ export async function POST(request: Request) {
     return bad("INSERT_FAILED", "근무 기록 생성에 실패했습니다.", 500)
   }
 
-  // ── Audit ─────────────────────────────────────────────
-  try {
-    await logAuditEvent(supabase, {
-      auth,
-      action: "staff_work_log_created",
-      entity_table: "store_memberships",
-      entity_id: hostessMembershipId,
-      metadata: {
-        work_log_id: inserted.id,
-        working_store_uuid: workingStoreUuid,
-        category,
-        work_type: workType,
-        started_at: startedAt.toISOString(),
-        ended_at: endedAt ? endedAt.toISOString() : null,
-        room_label: roomLabel || null,
-        source: "manual",
-        conflicts_detected: conflicts.length,
-      },
-    })
-  } catch {
-    /* best-effort */
-  }
+  // ── Audit (fail-close) ────────────────────────────────
+  const auditFail = await auditOr500(supabase, {
+    auth,
+    action: "staff_work_log_created",
+    entity_table: "store_memberships",
+    entity_id: hostessMembershipId,
+    metadata: {
+      work_log_id: inserted.id,
+      working_store_uuid: workingStoreUuid,
+      category,
+      work_type: workType,
+      started_at: startedAt.toISOString(),
+      ended_at: endedAt ? endedAt.toISOString() : null,
+      room_label: roomLabel || null,
+      source: "manual",
+      conflicts_detected: conflicts.length,
+    },
+  })
+  if (auditFail) return auditFail
 
   return NextResponse.json(
     {
@@ -389,10 +387,15 @@ export async function GET(request: Request) {
 
   const hostessNameMap = new Map<string, string>()
   if (hostessIds.length > 0) {
+    // store_uuid 고정 scope + deleted_at 가드. staff_work_logs 행은 이미
+    //   origin_store_uuid = auth.store_uuid 로 필터된 상태이므로 hostesses
+    //   lookup 도 동일 scope 로 defense-in-depth.
     const { data: hosts } = await supabase
       .from("hostesses")
       .select("membership_id, name, stage_name")
       .in("membership_id", hostessIds)
+      .eq("store_uuid", auth.store_uuid)
+      .is("deleted_at", null)
     for (const h of (hosts ?? []) as {
       membership_id: string; name: string | null; stage_name: string | null
     }[]) {
@@ -402,10 +405,13 @@ export async function GET(request: Request) {
 
   const storeNameMap = new Map<string, string>()
   if (storeIds.length > 0) {
+    // stores 는 의도적으로 cross-store (origin vs working) 이므로
+    //   store_uuid 고정 불가. deleted_at 만 가드.
     const { data: sts } = await supabase
       .from("stores")
       .select("id, store_name")
       .in("id", storeIds)
+      .is("deleted_at", null)
     for (const s of (sts ?? []) as { id: string; store_name: string }[]) {
       storeNameMap.set(s.id, s.store_name)
     }

@@ -6,18 +6,23 @@ import {
   checkBaseLifecycleGate,
   errResp,
   getServiceClient,
-  logAuditEvent,
 } from "@/lib/server/queries/staffWorkLogLifecycle"
+import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/confirm
  *
- * draft → confirmed 전이. owner / super_admin 만 가능.
+ * **draft → confirmed** 전용. owner / super_admin 만.
+ *
+ * disputed → confirmed 는 **별도 경로** `/resolve` 로 이동 (Phase 3-A).
+ * audit action 을 'staff_work_log_confirmed' vs 'staff_work_log_resolved'
+ * 로 분리해 운영 이력에서 "최초 확정" 과 "분쟁 해결 후 재확정" 을 구별
+ * 할 수 있게 한다. 본 route 에 disputed 를 들고 오면 400
+ * INVALID_STATE_TRANSITION.
  *
  * 정책:
- *   - 상태가 draft 가 아니면 STATE_CONFLICT
+ *   - 상태가 draft 가 아니면 INVALID_STATE_TRANSITION (400)
  *   - manager_membership_id 가 null 이면 MANAGER_REQUIRED (400)
- *     → confirmed 는 정산 귀속이 명확해야 하므로 담당 실장 미지정 차단
  *
  * No schema change — 기존 confirmed_by / confirmed_at 활용.
  */
@@ -61,12 +66,16 @@ export async function POST(
   if (baseErr) return errResp(baseErr)
 
   if (row.status !== "draft") {
+    // disputed 는 resolve route 로. 여기서는 400.
     return NextResponse.json(
       {
-        error: "STATE_CONFLICT",
-        message: `현재 상태(${row.status}) 에서는 confirm 할 수 없습니다. draft 만 가능합니다.`,
+        error: "INVALID_STATE_TRANSITION",
+        message:
+          row.status === "disputed"
+            ? "disputed 상태는 /resolve 로 재확정하세요."
+            : `현재 상태(${row.status}) 에서는 confirm 할 수 없습니다. draft 만 가능합니다.`,
       },
-      { status: 409 },
+      { status: 400 },
     )
   }
 
@@ -99,21 +108,20 @@ export async function POST(
     )
   }
 
-  try {
-    await logAuditEvent(supabase, {
-      auth,
-      action: "staff_work_log_confirmed",
-      entity_table: "store_memberships",
-      entity_id: row.hostess_membership_id,
-      before: { status: row.status },
-      metadata: {
-        work_log_id: id,
-        from_status: row.status,
-        to_status: "confirmed",
-        manager_membership_id: row.manager_membership_id,
-      },
-    })
-  } catch {}
+  const auditFail = await auditOr500(supabase, {
+    auth,
+    action: "staff_work_log_confirmed",
+    entity_table: "store_memberships",
+    entity_id: row.hostess_membership_id,
+    before: { status: row.status },
+    metadata: {
+      work_log_id: id,
+      from_status: row.status,
+      to_status: "confirmed",
+      manager_membership_id: row.manager_membership_id,
+    },
+  })
+  if (auditFail) return auditFail
 
   return NextResponse.json({ ok: true, id, status: "confirmed" })
 }

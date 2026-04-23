@@ -122,7 +122,7 @@ export async function POST(request: Request) {
       }
 
       const { data: room } = await supabase
-        .from("rooms").select("name").eq("id", session.room_uuid).maybeSingle()
+        .from("rooms").select("name").eq("id", session.room_uuid).eq("store_uuid", authContext.store_uuid).is("deleted_at", null).maybeSingle()
 
       const { data: existing } = await supabase
         .from("chat_rooms")

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
-import { logAuditEvent } from "@/lib/audit/logEvent"
+import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * PATCH /api/hostesses/[membership_id]/assign
@@ -197,6 +197,8 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
     })
     .eq("id", hostessRow.id)
+    .eq("store_uuid", hostessRow.store_uuid as string)
+    .is("deleted_at", null)
 
   if (updateErr) {
     return NextResponse.json(
@@ -205,24 +207,21 @@ export async function PATCH(
     )
   }
 
-  // Audit — best effort.
-  try {
-    await logAuditEvent(supabase, {
-      auth,
-      action: "hostess_assigned",
-      entity_table: "store_memberships",
-      entity_id: targetMembershipId,
-      before: { manager_membership_id: previousManagerId },
-      metadata: {
-        target_membership_id: targetMembershipId,
-        from_manager_membership_id: previousManagerId,
-        to_manager_membership_id: nextManagerId,
-        store_uuid: hostessRow.store_uuid as string,
-      },
-    })
-  } catch {
-    // ignore — audit never blocks success
-  }
+  // Audit — fail-close (ROUND-A). 실패 시 500 AUDIT_WRITE_FAILED.
+  const auditFail = await auditOr500(supabase, {
+    auth,
+    action: "hostess_assigned",
+    entity_table: "store_memberships",
+    entity_id: targetMembershipId,
+    before: { manager_membership_id: previousManagerId },
+    metadata: {
+      target_membership_id: targetMembershipId,
+      from_manager_membership_id: previousManagerId,
+      to_manager_membership_id: nextManagerId,
+      store_uuid: hostessRow.store_uuid as string,
+    },
+  })
+  if (auditFail) return auditFail
 
   return NextResponse.json({ ok: true })
 }

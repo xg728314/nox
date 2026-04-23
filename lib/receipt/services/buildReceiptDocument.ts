@@ -96,6 +96,7 @@ export async function buildReceiptDocument(
       .from("store_memberships")
       .select("id, display_name")
       .in("id", memberIds)
+      .is("deleted_at", null)
     if (memberships) {
       for (const m of memberships) {
         nameMap.set(m.id, m.display_name || "")

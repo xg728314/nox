@@ -23,6 +23,7 @@ export async function assertBusinessDayOpen(
     .from("store_operating_days")
     .select("status")
     .eq("id", business_day_id)
+    .is("deleted_at", null)
     .maybeSingle()
   if (data && data.status === "closed") {
     return NextResponse.json(

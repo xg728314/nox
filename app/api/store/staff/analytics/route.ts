@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
 
 /**
  * GET /api/store/staff/analytics
@@ -63,6 +64,8 @@ export async function GET(request: Request) {
       .from("hostesses")
       .select("membership_id, name, stage_name, grade, grade_updated_at, manager_membership_id")
       .in("membership_id", membershipIds)
+      .eq("store_uuid", storeUuid)
+      .is("deleted_at", null)
 
     const hostessMap = new Map<string, {
       name: string; grade: string | null; grade_updated_at: string | null; manager_membership_id: string | null
@@ -190,15 +193,26 @@ export async function GET(request: Request) {
       }
     })
 
-    // Manager scope: if manager, filter to their hostesses
+    // ROUND-STAFF-2: visibility preference 반영.
+    //   manager + mine_only (기본) → 자기 담당 축소
+    //   manager + store_shared     → 필터 없음 (같은 매장 전체; store_uuid 는 이미 auth scope)
+    //   owner / super_admin        → 필터 없음
+    const visibilityMode = await loadAttendanceVisibility(supabase, authContext)
     let filtered = analytics
-    if (authContext.role === "manager") {
-      filtered = analytics.filter(a => a.manager_membership_id === authContext.membership_id)
+    if (
+      authContext.role === "manager" &&
+      !authContext.is_super_admin &&
+      visibilityMode === "mine_only"
+    ) {
+      filtered = analytics.filter(
+        (a) => a.manager_membership_id === authContext.membership_id,
+      )
     }
 
     return NextResponse.json({
       analytics: filtered,
       criteria: { periodDays, minDays, perfUnit, perfMinCount, perfThreshold },
+      visibility_mode: visibilityMode,
     })
   } catch (error) {
     if (error instanceof AuthError) {

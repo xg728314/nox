@@ -79,6 +79,8 @@ export async function PATCH(
         .from("room_sessions")
         .select("business_day_id, status")
         .eq("id", participant.session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
         .maybeSingle()
       // STEP-003: reject mutation after session close. Preserves finalized-receipt
       // and business-day guards above while closing the gap where a session is

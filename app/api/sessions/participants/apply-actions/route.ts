@@ -107,6 +107,7 @@ export async function POST(request: Request) {
       .from("session_participants")
       .select("id, session_id, store_uuid, status, entered_at, left_at, price_amount, time_minutes, last_applied_action_id")
       .eq("id", participant_id)
+      .eq("store_uuid", auth.store_uuid)
       .is("deleted_at", null)
       .maybeSingle()
     if (!partRaw) {
@@ -255,6 +256,7 @@ export async function POST(request: Request) {
       .from("session_participants")
       .select("id, status, left_at, price_amount, time_minutes, last_applied_action_id")
       .eq("id", participant_id)
+      .eq("store_uuid", auth.store_uuid)
       .maybeSingle()
     const after = (afterRaw ?? null) as Partial<ParticipantRow> | null
 
