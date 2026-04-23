@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/ble-history-reaper",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/ble-session-inference",
-      "schedule": "*/2 * * * *"
     }
   ]
 }
