@@ -117,6 +117,9 @@ export type RoomContextInputs = RoomInlineEditor & {
   setStaffChatSubmitting: (v: boolean | ((p: boolean) => boolean)) => void
   staffChatError: string
   setStaffChatError: (v: string | ((p: string) => string)) => void
+  /** 2026-04-25: 외상 등록 모달 open 여부. 방 카드 "외상" 버튼이 켜고 끔. */
+  creditModalOpen: boolean
+  setCreditModalOpen: (v: boolean | ((p: boolean) => boolean)) => void
 }
 
 // ── Derived — 기존 RoomCardV2 inline 계산과 동일 ─────────────────────
@@ -126,6 +129,10 @@ export type RoomContextDerived = {
   hostesses: Participant[]
   unresolvedCount: number
   hasUnresolved: boolean
+  /** 하나 이상의 hostess 가 manager_membership_id=NULL 이거나 session 에
+   *  manager 미지정. 2026-04-24: 체크아웃/정산 편입 전에 UI 경고용. */
+  hasUnassignedManager: boolean
+  unassignedManagerCount: number
   participantTotal: number
   orderTotal: number
   grandTotal: number
@@ -165,6 +172,20 @@ export function RoomProvider({
       (p: Participant) => !p.category || !p.time_minutes,
     ).length
     const hasUnresolved = unresolvedCount > 0
+
+    // 2026-04-24: 실장 미지정 가드.
+    //   세션에 실장이 배정되어 있으면 (내부 membership_id OR 외부 manager_name)
+    //   체크아웃 허용. 이전엔 membership_id 만 체크해서 외부 실장 / 레거시
+    //   데이터 케이스에 "실장 미지정" 블록이 오발동했다.
+    // 2026-04-25 fix: name OR id 중 하나라도 있으면 session 레벨 배정으로 간주.
+    const hasSessionManager = !!(
+      room.session?.manager_name ||
+      room.session?.manager_membership_id
+    )
+    const unassignedManagerCount = hasSessionManager
+      ? 0
+      : hostesses.filter((p: Participant) => !p.manager_membership_id).length
+    const hasUnassignedManager = !hasSessionManager && unassignedManagerCount > 0
 
     const participantTotal = focusData?.participants.reduce(
       (s: number, p: Participant) => s + (Number(p.price_amount) || 0),
@@ -231,6 +252,7 @@ export function RoomProvider({
 
     return {
       isActive, hostesses, unresolvedCount, hasUnresolved,
+      hasUnassignedManager, unassignedManagerCount,
       participantTotal, orderTotal, grandTotal,
       collapsedRemMs,
       catCounts, cats,

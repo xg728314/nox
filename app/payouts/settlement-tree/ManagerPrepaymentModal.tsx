@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
+import { mapErrorMessage } from "./errorMessages"
 
 /**
  * ManagerPrepaymentModal — STEP-043.
@@ -123,10 +124,8 @@ export default function ManagerPrepaymentModal({
       const d = await res.json().catch(() => ({}))
       if (!res.ok) {
         const code = typeof d?.error === "string" ? d.error : ""
-        const msg =
-          code === "MANAGER_OVERPAY" ? "실장 잔액을 초과할 수 없습니다." :
-          code === "STORE_OVERPAY"   ? "가게 총 잔액을 초과할 수 없습니다." :
-          (d?.message ?? `저장 실패 (${res.status})`)
+        const fallback = typeof d?.message === "string" ? d.message : `저장 실패 (${res.status})`
+        const msg = mapErrorMessage(code, fallback)
         setError(msg)
         return
       }
@@ -172,6 +171,11 @@ export default function ManagerPrepaymentModal({
           <div className="flex justify-between text-[10px] pt-1 mt-1 border-t border-white/5 text-slate-500">
             <span>가게 잔액 (이 매장 전체)</span>
             <span>{won(storeRemaining)}</span>
+          </div>
+          <div className="text-[10px] text-slate-500 pt-1 mt-1 border-t border-white/5 leading-relaxed">
+            잔액 기준: aggregate 완료 시 <span className="text-emerald-300">정산 item 잔액</span>,
+            미실행 시 <span className="text-amber-300">aggregate 전 legacy 기준</span> 으로 상한이
+            적용됩니다. 서버가 MANAGER_OVERPAY / STORE_OVERPAY / MANAGER_NO_ITEMS 으로 차단 가능.
           </div>
         </div>
 

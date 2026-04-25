@@ -7,11 +7,15 @@ import { getServiceClient } from "@/lib/supabase/serviceClient"
 /**
  * /settlements/[id] — 헤더 한 건 + 라인 아이템 전체 (읽기 전용).
  *
- * Phase 4 편입 아이템은 다음 컬럼이 1:1 로 채워져 있다:
- *   staff_work_log_id / hostess_membership_id / manager_membership_id
- *   / category / work_type / amount
- * Legacy (manager 집계) 라인은 위 컬럼이 NULL 인 경우가 있으므로
- * 화면에서 "-" 로 표시한다.
+ * Phase 10 (2026-04-24) schema-drift fix:
+ *   live cross_store_settlement_items 에는 038 이후 다음 컬럼들이 **부재**:
+ *     - cross_store_work_record_id   (migration 075 미적용)
+ *     - staff_work_log_id            (legacy, 038 정리 대상)
+ *     - hostess_membership_id        (migration 060 미적용)
+ *     - category / work_type         (060 미적용)
+ *   → SELECT / type / UI 에서 해당 필드 참조 제거. 복원은 060/075 apply 후.
+ *   manager_membership_id / amount / paid_amount / remaining_amount / status
+ *   / created_at 은 그대로 유지.
  *
  * ROUND-C canonical 규약:
  *   from_store_uuid = payer  (working_store — 손님이 돈 낸 곳)
@@ -85,7 +89,7 @@ export default async function SettlementDetailPage(
   const { data: itemsRaw } = await supabase
     .from("cross_store_settlement_items")
     .select(
-      "id, staff_work_log_id, hostess_membership_id, manager_membership_id, category, work_type, amount, paid_amount, remaining_amount, status, created_at",
+      "id, manager_membership_id, amount, paid_amount, remaining_amount, status, created_at",
     )
     .eq("cross_store_settlement_id", id)
     .is("deleted_at", null)
@@ -93,11 +97,7 @@ export default async function SettlementDetailPage(
 
   type ItemRow = {
     id: string
-    staff_work_log_id: string | null
-    hostess_membership_id: string | null
     manager_membership_id: string | null
-    category: string | null
-    work_type: string | null
     amount: number | string | null
     paid_amount: number | string | null
     remaining_amount: number | string | null
@@ -106,11 +106,9 @@ export default async function SettlementDetailPage(
   }
   const items = (itemsRaw ?? []) as ItemRow[]
 
-  // ── Enrichment: store / hostess / manager names ───────────
+  // ── Enrichment: store / manager names ─────────────────────
+  //   hostess enrichment 제거: items.hostess_membership_id 컬럼 부재(060 미적용).
   const storeIds = Array.from(new Set([header.from_store_uuid, header.to_store_uuid]))
-  const hostessIds = Array.from(
-    new Set(items.map((i) => i.hostess_membership_id).filter((v): v is string => !!v)),
-  )
   const managerIds = Array.from(
     new Set(items.map((i) => i.manager_membership_id).filter((v): v is string => !!v)),
   )
@@ -123,20 +121,6 @@ export default async function SettlementDetailPage(
       .in("id", storeIds)
     for (const s of (sts ?? []) as { id: string; store_name: string }[]) {
       storeNameMap.set(s.id, s.store_name)
-    }
-  }
-  const hostessNameMap = new Map<string, string>()
-  if (hostessIds.length > 0) {
-    const { data: hs } = await supabase
-      .from("hostesses")
-      .select("membership_id, name, stage_name")
-      .in("membership_id", hostessIds)
-    for (const h of (hs ?? []) as {
-      membership_id: string
-      name: string | null
-      stage_name: string | null
-    }[]) {
-      hostessNameMap.set(h.membership_id, h.stage_name || h.name || "")
     }
   }
   const managerNameMap = new Map<string, string>()
@@ -171,18 +155,8 @@ export default async function SettlementDetailPage(
   }
   const shortId = (id: string | null) => (id ? id.slice(0, 8) : "-")
 
-  const CATEGORY_LABEL: Record<string, string> = {
-    public: "퍼블릭",
-    shirt: "셔츠",
-    hyper: "하퍼",
-    etc: "기타",
-  }
-  const WORK_TYPE_LABEL: Record<string, string> = {
-    full: "기본",
-    half: "반티",
-    cha3: "차3",
-    half_cha3: "반티+차3",
-  }
+  // CATEGORY_LABEL / WORK_TYPE_LABEL 제거: items 에 category/work_type 컬럼 부재
+  // (060 미적용). 복원은 060 apply 후.
 
   // ROUND-C canonical: from=payer=working_store, to=receiver=origin_store.
   const workingStoreUuid = header.from_store_uuid
@@ -287,7 +261,7 @@ export default async function SettlementDetailPage(
             <table className="w-full text-sm">
               <thead className="bg-slate-900/80 text-xs uppercase tracking-wide text-slate-400">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">아가씨</th>
+                  <th className="px-3 py-2 text-left font-medium">스태프</th>
                   <th className="px-3 py-2 text-left font-medium">실장</th>
                   <th className="px-3 py-2 text-left font-medium">원소속 (origin)</th>
                   <th className="px-3 py-2 text-left font-medium">근무매장 (working)</th>
@@ -300,10 +274,8 @@ export default async function SettlementDetailPage(
               </thead>
               <tbody className="divide-y divide-slate-800 bg-slate-950">
                 {items.map((it) => {
-                  const hostessName =
-                    it.hostess_membership_id
-                      ? hostessNameMap.get(it.hostess_membership_id) || shortId(it.hostess_membership_id)
-                      : "-"
+                  // hostess / category / work_type / 로그 연결은 live DB 에 해당
+                  // 컬럼 부재로 "-" fallback. 060/075 apply 후 복원.
                   const managerName =
                     it.manager_membership_id
                       ? managerNameMap.get(it.manager_membership_id) || shortId(it.manager_membership_id)
@@ -311,10 +283,8 @@ export default async function SettlementDetailPage(
                   return (
                     <tr key={it.id} className="hover:bg-slate-900/40">
                       <td className="px-3 py-2">
-                        <div className="text-slate-100">{hostessName}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          {shortId(it.hostess_membership_id)}
-                        </div>
+                        <div className="text-slate-100">-</div>
+                        <div className="text-[11px] text-slate-500 font-mono">-</div>
                       </td>
                       <td className="px-3 py-2">
                         <div className="text-slate-100">{managerName}</div>
@@ -328,12 +298,8 @@ export default async function SettlementDetailPage(
                       <td className="px-3 py-2 text-slate-300">
                         {storeNameMap.get(workingStoreUuid) ?? shortId(workingStoreUuid)}
                       </td>
-                      <td className="px-3 py-2 text-slate-200">
-                        {it.category ? (CATEGORY_LABEL[it.category] ?? it.category) : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-slate-200">
-                        {it.work_type ? (WORK_TYPE_LABEL[it.work_type] ?? it.work_type) : "-"}
-                      </td>
+                      <td className="px-3 py-2 text-slate-200">-</td>
+                      <td className="px-3 py-2 text-slate-200">-</td>
                       <td className="px-3 py-2 text-right font-mono text-slate-100">
                         {fmtKrw(it.amount)}
                       </td>
@@ -342,9 +308,7 @@ export default async function SettlementDetailPage(
                           {it.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-[11px] text-slate-500 font-mono">
-                        {shortId(it.staff_work_log_id)}
-                      </td>
+                      <td className="px-3 py-2 text-[11px] text-slate-500 font-mono">-</td>
                     </tr>
                   )
                 })}

@@ -1,0 +1,48 @@
+NOX DB Triggers — 2026-04-24 스냅샷
+===================================
+
+Total: 17 (non-internal)
+
+본문 추출:
+  SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+  JOIN pg_class c ON c.oid=t.tgrelid
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND NOT t.tgisinternal
+    AND t.tgname='<TRIGGER_NAME>';
+
+── Trigger 목록 ─────────────────────────────────
+
+credits:
+  trg_credit_status_transition
+
+hostesses:
+  trg_validate_hostess_manager_roles
+
+audit_events:
+  trg_validate_audit_actor
+
+receipts:
+  trg_block_receipts_closed
+  trg_receipt_status_transition
+  trg_validate_receipts_business_day
+
+session_participants:
+  trg_block_participants_on_nonactive_session
+  trg_validate_cross_store_participant
+
+room_sessions:
+  trg_block_sessions_closed
+  trg_session_status_transition
+
+orders:
+  trg_block_orders_closed
+  trg_block_orders_on_nonactive_session
+  trg_validate_orders_business_day
+
+settlement_items:
+  trg_fill_settlement_item_remaining
+
+location_correction_logs (3종 — append-only 강제):
+  trg_lcl_dedup
+  trg_lcl_no_delete
+  trg_lcl_no_update

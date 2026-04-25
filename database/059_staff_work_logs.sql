@@ -1,3 +1,10 @@
+-- ⚠️ 파일명 주의 (2026-04-24 Round 1 실사):
+--   이름은 `staff_work_logs` 지만 live DB 에는 **`staff_work_logs` 테이블 없음**.
+--   실제로는 `cross_store_work_records` 테이블이 이 migration 결과로 존재.
+--   /api/staff-work-logs route 는 cross_store_work_records 기준으로 재작성됨.
+--   후속 migration (060) 은 staff_work_logs 전제라 미적용 상태.
+--   상세: database/README.md
+--
 -- ============================================================
 -- 059_staff_work_logs.sql
 -- 아가씨 중심 1차원 운영 로그 (Phase 1 — manual 기록).

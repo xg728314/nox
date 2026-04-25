@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
+import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+
+// Global 채팅 자동 참여 허용 role. 서버 가드(SSOT)와 동일 집합 유지.
+// 다른 role 은 여전히 /chat 리스트 자체는 열 수 있지만 global 방에는
+// 자동으로 upsert 되지 않음. 서버가 추가 방어 (ROLE_FORBIDDEN 403).
+const GLOBAL_AUTOJOIN_ROLES: readonly string[] = ["owner", "manager"]
 
 /**
  * useChatRooms — owns the chat rooms list + new-DM modal + auto-join-global
@@ -64,13 +70,19 @@ export function useChatRooms(): UseChatRoomsReturn {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [creating, setCreating] = useState(false)
 
+  const profile = useCurrentProfile()
+  const role = profile?.role ?? null
+
   const fetchRooms = useCallback(async () => {
     try {
-      // Global 채팅방 자동 참여 — matches original chat page behavior.
-      await apiFetch("/api/chat/rooms", {
-        method: "POST",
-        body: JSON.stringify({ type: "global" }),
-      })
+      // Global 채팅방 자동 참여 — owner/manager 만. 그 외 role 은 서버 가드
+      // (ROLE_FORBIDDEN 403) 로도 차단되지만 불필요한 POST 자체를 생략.
+      if (role !== null && GLOBAL_AUTOJOIN_ROLES.includes(role)) {
+        await apiFetch("/api/chat/rooms", {
+          method: "POST",
+          body: JSON.stringify({ type: "global" }),
+        })
+      }
 
       const res = await apiFetch("/api/chat/rooms")
       if (res.ok) {
@@ -85,7 +97,7 @@ export function useChatRooms(): UseChatRoomsReturn {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [role])
 
   const fetchStaff = useCallback(async () => {
     try {
@@ -197,8 +209,11 @@ export function useChatRooms(): UseChatRoomsReturn {
         document.removeEventListener("visibilitychange", onVisibility)
       }
     }
+    // role 이 profile 로드 후 null → "owner" 등으로 1회 전이되면 fetchRooms
+    //   closure 가 갱신되어야 global 자동 참여 분기가 실제로 POST 를 쏜다.
+    //   그 외에는 변경 없음 (role 은 mount 후 최대 1~2회만 변함).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [role])
 
   return {
     rooms, loading, error, setError,

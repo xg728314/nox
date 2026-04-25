@@ -170,7 +170,7 @@ export default function OrderSectionV2({
                     <span className="font-semibold w-[4.5rem] text-right flex-shrink-0">{fmtWon(o.amount)}</span>
                     <button
                       onClick={() => onDelete(o.id)}
-                      className="text-slate-600 hover:text-red-400 text-[10px] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-red-400 active:text-red-500 text-xs flex-shrink-0 md:opacity-60 hover:opacity-100 transition-opacity"
                     >&#x2715;</button>
                   </div>
                 )
@@ -193,7 +193,7 @@ export default function OrderSectionV2({
                   >+</button>
                   <button
                     onClick={() => onDelete(latest.id)}
-                    className="text-slate-600 hover:text-red-400 text-[10px] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-red-400 active:text-red-500 text-xs flex-shrink-0 md:opacity-60 hover:opacity-100 transition-opacity"
                     title="최근 1병 제거"
                   >&#x2715;</button>
                 </div>

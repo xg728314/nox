@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { getAttendance } from "@/lib/server/queries/attendance"
-import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
+import { getAttendance } from "@/lib/server/queries/ops/attendance"
+import { loadAttendanceVisibility } from "@/lib/server/queries/ops/attendanceVisibility"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/attendance
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
       }
       if (!hostessRow) {
         return NextResponse.json(
-          { error: "HOSTESS_NOT_FOUND", message: "아가씨 레코드를 찾을 수 없습니다." },
+          { error: "HOSTESS_NOT_FOUND", message: "스태프 레코드를 찾을 수 없습니다." },
           { status: 404 },
         )
       }
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error: "ASSIGNMENT_FORBIDDEN",
-            message: "본인 담당 아가씨만 출근/퇴근 처리할 수 있습니다.",
+            message: "본인 담당 스태프만 출근/퇴근 처리할 수 있습니다.",
           },
           { status: 403 },
         )
@@ -126,7 +127,7 @@ export async function POST(request: Request) {
     }
 
     // 영업일 조회 (없으면 자동 생성)
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
     let { data: bizDay } = await supabase
       .from("store_operating_days")
       .select("id")

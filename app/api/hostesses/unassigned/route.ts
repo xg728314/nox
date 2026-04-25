@@ -7,7 +7,7 @@ import { getServiceClient } from "@/lib/supabase/serviceClient"
  *
  * Lists active hostesses in the caller's store whose
  * `manager_membership_id IS NULL`. Consumed by:
- *   - owner dashboard — "미배정 아가씨" section (pick a manager per row)
+ *   - owner dashboard — "미배정 스태프" section (pick a manager per row)
  *   - manager dashboard — "내가 맡기" section (one-click self-claim)
  *
  * Access:
@@ -68,9 +68,31 @@ export async function GET(request: Request) {
 
   if (error) {
     return NextResponse.json(
-      { error: "QUERY_FAILED", message: "미배정 아가씨 조회 실패." },
+      { error: "QUERY_FAILED", message: "미배정 스태프 조회 실패." },
       { status: 500 },
     )
+  }
+
+  // 2026-04-24 P2 fix: super_admin 이 store_uuid 쿼리파라미터로 타 매장을
+  //   조회하면 감사 흔적 남김. 조회 자체는 읽기 전용이지만 건물 전체에
+  //   걸친 열람 이력을 남겨 사후 확인 가능하도록 함.
+  if (isSuperAdmin && targetStoreUuid !== auth.store_uuid) {
+    await supabase.from("audit_events").insert({
+      store_uuid: targetStoreUuid,
+      actor_profile_id: auth.user_id,
+      actor_membership_id: auth.membership_id,
+      actor_role: auth.role,
+      actor_type: "super_admin",
+      entity_table: "hostesses",
+      entity_id: null,
+      action: "super_admin_cross_store_read",
+      after: {
+        endpoint: "/api/hostesses/unassigned",
+        source_store_uuid: auth.store_uuid,
+        target_store_uuid: targetStoreUuid,
+        result_count: data?.length ?? 0,
+      },
+    })
   }
 
   return NextResponse.json({

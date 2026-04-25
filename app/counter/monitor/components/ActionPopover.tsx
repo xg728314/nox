@@ -22,8 +22,8 @@ import { apiFetch } from "@/lib/apiFetch"
 import type { MonitorBlePresence, MonitorRecommendation, MonitorRoom } from "../types"
 import { STATUS_STYLES, elapsedLabel, participantState } from "../statusStyles"
 import { REC_LABEL } from "@/lib/counter/monitorAlertsTypes"
-import BleFeedbackButtons, { type FeedbackSubject } from "./BleFeedbackButtons"
-import ApplyStatusBadge, { isApplyStale } from "./ApplyStatusBadge"
+import BleFeedbackButtons, { type FeedbackSubject } from "./ble/BleFeedbackButtons"
+import ApplyStatusBadge, { isApplyStale } from "./badges/ApplyStatusBadge"
 import { useRetryParticipantAction } from "../hooks/useRetryParticipantAction"
 
 export type ActionSubject = {

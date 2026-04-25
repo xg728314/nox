@@ -5,7 +5,7 @@ import { isValidUUID } from "@/lib/validation"
 
 /**
  * GET /api/manager/hostesses/[hostess_id]/sessions?business_day_id=xxx
- * 특정 아가씨의 당일 세션별 참여 내역을 반환한다.
+ * 특정 스태프의 당일 세션별 참여 내역을 반환한다.
  * hostess_id = membership_id
  */
 export async function GET(
@@ -50,7 +50,7 @@ export async function GET(
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // 매니저는 자기 담당 아가씨만 조회 가능
+    // 매니저는 자기 담당 스태프만 조회 가능
     if (authContext.role === "manager") {
       const { data: assignment } = await supabase
         .from("hostesses")
@@ -62,7 +62,7 @@ export async function GET(
 
       if (!assignment) {
         return NextResponse.json(
-          { error: "NOT_ASSIGNED", message: "이 아가씨는 담당이 아닙니다." },
+          { error: "NOT_ASSIGNED", message: "이 스태프는 담당이 아닙니다." },
           { status: 403 }
         )
       }
@@ -81,7 +81,7 @@ export async function GET(
 
     const sessionIds = sessions.map((s: { id: string }) => s.id)
 
-    // 2. 이 아가씨의 참여 내역
+    // 2. 이 스태프의 참여 내역
     const { data: participations } = await supabase
       .from("session_participants")
       .select("id, session_id, membership_id, role, category, time_minutes, price_amount, manager_payout_amount, hostess_payout_amount, status")
@@ -130,7 +130,7 @@ export async function GET(
       sessionMap.set(s.id, { room_uuid: s.room_uuid, status: s.status })
     }
 
-    // 6. 아가씨 이름 조회
+    // 6. 스태프 이름 조회
     const { data: hostessInfo } = await supabase
       .from("hostesses")
       .select("name")
@@ -141,6 +141,17 @@ export async function GET(
     const hostessName = hostessInfo?.name || ""
 
     // 7. 응답 조합
+    // R28-fix: CLAUDE.md 의 잠긴 규칙 — "사장이 볼 수 없음: 실장 개별 수익,
+    //   아가씨 개별 수익. owner 정산 UI 에서 manager_payout_amount,
+    //   hostess_payout_amount 개별 노출 금지". 이전엔 owner 호출 시도 그대로
+    //   응답해 비즈니스 규칙 위반.
+    //
+    //   권한 매트릭스:
+    //     manager (본인 담당 스태프 조회) → 자기 수익이라 노출 OK
+    //     owner                          → 개별 금액 마스킹 (null)
+    //     hostess                        → 위에서 차단됨 (line 18)
+    const isOwnerView = authContext.role === "owner"
+
     const result = participations.map((p: {
       id: string; session_id: string; membership_id: string; role: string;
       category: string; time_minutes: number; price_amount: number;
@@ -155,8 +166,8 @@ export async function GET(
         category: p.category,
         time_minutes: p.time_minutes,
         price_amount: p.price_amount,
-        manager_payout_amount: p.manager_payout_amount,
-        hostess_payout_amount: p.hostess_payout_amount,
+        manager_payout_amount: isOwnerView ? null : p.manager_payout_amount,
+        hostess_payout_amount: isOwnerView ? null : p.hostess_payout_amount,
         status: p.status,
         room_name: sess ? roomNameMap.get(sess.room_uuid) || null : null,
         session_status: sess?.status || "unknown",

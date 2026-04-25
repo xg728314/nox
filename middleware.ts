@@ -65,6 +65,10 @@ const OWNER_ONLY_PREFIXES = [
   "/audit-events",
   // Phase 4: cross-store settlement 검산 UI. 운영자만 금액 추적.
   "/settlements",
+  // R28-security (2026-04-26): debug / dev-only 라우트.
+  //   배포 후 사용자가 우연히 진입해도 운영 정보가 노출되면 안 됨.
+  "/ble",
+  "/test-offline",
 ]
 
 const OWNER_MANAGER_PREFIXES = [
@@ -87,6 +91,11 @@ const OWNER_MANAGER_PREFIXES = [
   // 서버 필터(`corrected_by_store_uuid = auth.store_uuid`)가 데이터
   // 범위를 강제한다.
   "/admin/location-corrections",
+  // R28-security (2026-04-26): 신규 메뉴 + 운영용 페이지 — owner/manager 만.
+  //   hostess 가 직접 URL 입력해도 /me 로 리다이렉트.
+  "/reconcile",
+  "/settlement",
+  "/receipt",
 ]
 
 const MANAGER_ONLY_PREFIXES = ["/manager"]
@@ -483,6 +492,13 @@ export const config = {
     "/settlements/:path*",
     // Phase 5: mobile monitor tree.
     "/m/monitor/:path*",
+    // R28-security: 신규 메뉴 + 디버그 페이지를 matcher 에 포함하여
+    //   hostess 차단 + 인증 강제 적용.
+    "/settlement/:path*",
+    "/reconcile/:path*",
+    "/ble/:path*",
+    "/receipt/:path*",
+    "/test-offline/:path*",
     // Phase 6: 공용 진입 라우터. 페이지 자체가 server redirect 을
     // 수행하므로 middleware 는 인증만 확인한 뒤 통과시킨다.
     "/monitor",

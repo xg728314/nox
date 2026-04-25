@@ -5,6 +5,9 @@ import { createServiceClient } from "@/lib/session/createServiceClient"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
+import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 export async function POST(request: Request) {
   try {
@@ -53,6 +56,39 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
+    // 2026-04-24 P0 fix: manager_membership_id 를 DB 에서 검증.
+    //   이전에는 클라가 임의 UUID 를 보내도 그대로 저장 → 다른 매장 실장,
+    //   퇴사자, 존재하지 않는 계정을 세션에 할당할 수 있었다. 같은
+    //   매장의 승인된 manager role 만 허용.
+    if (managerMembershipId) {
+      const { data: mgrRow, error: mgrErr } = await supabase
+        .from("store_memberships")
+        .select("id, role, status, deleted_at, store_uuid")
+        .eq("id", managerMembershipId)
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("role", "manager")
+        .eq("status", "approved")
+        .is("deleted_at", null)
+        .maybeSingle()
+      if (mgrErr) {
+        console.error("[checkin] manager verify error:", JSON.stringify(mgrErr))
+        return NextResponse.json(
+          { error: "MANAGER_VERIFY_FAILED", message: "실장 검증에 실패했습니다." },
+          { status: 500 },
+        )
+      }
+      if (!mgrRow) {
+        return NextResponse.json(
+          {
+            error: "MANAGER_INVALID",
+            message:
+              "지정한 실장이 이 매장에 소속된 승인된 실장이 아닙니다. 실장 재선택 필요.",
+          },
+          { status: 403 },
+        )
+      }
+    }
+
     // 1. Verify room exists in this store
     const { data: room, error: roomError } = await supabase
       .from("rooms")
@@ -69,13 +105,17 @@ export async function POST(request: Request) {
     }
 
     // 2. Check for active session in this room (conflict guard)
-    const { data: existingSession } = await supabase
-      .from("room_sessions")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("room_uuid", roomUuid)
-      .eq("status", "active")
-      .maybeSingle()
+    //   2026-04-25: archived 된 세션은 conflict 대상에서 제외. migration 미
+    //   적용 DB 도 안전 (archivedAtFilter 가 컬럼 부재 시 no-op).
+    const applyArchivedNull = await archivedAtFilter(supabase)
+    const { data: existingSession } = await applyArchivedNull(
+      supabase
+        .from("room_sessions")
+        .select("id")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("room_uuid", roomUuid)
+        .eq("status", "active")
+    ).maybeSingle()
 
     if (existingSession) {
       return NextResponse.json(
@@ -85,7 +125,7 @@ export async function POST(request: Request) {
     }
 
     // 3. Get or create business_day for today
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
 
     let businessDayId: string
 
@@ -154,6 +194,14 @@ export async function POST(request: Request) {
       .single()
 
     if (sessionError || !session) {
+      // R28-fix: migration 093 의 partial UNIQUE index (uq_room_active_session)
+      //   가 race 시 23505 unique_violation 반환. 사용자 친화 메시지로 변환.
+      if (sessionError?.code === "23505") {
+        return NextResponse.json(
+          { error: "SESSION_CONFLICT", message: "An active session already exists for this room." },
+          { status: 409 }
+        )
+      }
       console.error("[checkin] session create error:", JSON.stringify(sessionError))
       return NextResponse.json(
         { error: "SESSION_CREATE_FAILED", message: sessionError?.message || "Failed to create session." },
@@ -175,6 +223,10 @@ export async function POST(request: Request) {
         business_day_id: businessDayId,
       },
     })
+
+    // R29-perf: 캐시 즉시 무효화 → 다른 카운터에서 바로 반영.
+    invalidateCache("rooms")
+    invalidateCache("monitor")
 
     return NextResponse.json(
       {

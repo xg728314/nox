@@ -58,6 +58,25 @@ export async function POST(request: Request) {
 
     // === GLOBAL ===
     if (type === "global") {
+      // Role gate: global 채팅은 owner / manager 만. staff / waiter / hostess 차단.
+      //   - 기존엔 role 체크가 없어 /chat 진입 시 모든 사용자가 auto-join 되었음.
+      //   - FE 훅(useChatRooms)도 role-aware 로 보조 변경되지만 서버 측이 단일
+      //     진실 공급원 (SSOT). 어떤 경로로 POST 해도 이 가드로 차단.
+      const GLOBAL_CHAT_ALLOWED_ROLES = ["owner", "manager"] as const
+      if (
+        !(GLOBAL_CHAT_ALLOWED_ROLES as readonly string[]).includes(
+          authContext.role,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error: "ROLE_FORBIDDEN",
+            message: "매장 전체 채팅은 사장/실장만 참여 가능합니다.",
+          },
+          { status: 403 },
+        )
+      }
+
       const { data: existing } = await supabase
         .from("chat_rooms")
         .select("id")

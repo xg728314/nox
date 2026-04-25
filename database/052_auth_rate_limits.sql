@@ -1,3 +1,7 @@
+-- ⚠️ APPLIED AS: 044_auth_rate_limits_and_security_logs  (via MCP)
+-- 로컬 번호 052 이지만 Supabase 에는 044 slot 으로 기록됨.
+-- 파일 rename 없이 이 주석으로 매핑 기록. database/README.md 참조.
+--
 -- Migration 052 — auth_rate_limits table + RPC wrappers.
 --
 -- SECURITY (R-7 backfill): the `auth_rate_limits` table and its

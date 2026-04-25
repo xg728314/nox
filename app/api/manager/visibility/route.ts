@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { getManagerVisibility } from "@/lib/server/queries/managerVisibility"
+import { getManagerVisibility } from "@/lib/server/queries/manager/visibility"
 
 /**
  * GET  /api/manager/visibility — get current visibility settings

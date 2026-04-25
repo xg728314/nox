@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
 
 type RoomStatus = { room_uuid: string; room_no: string; room_name: string; status: string }
 type AuditEntry = { id: string; action: string; entity_table: string; actor_role: string; created_at: string }
@@ -151,6 +152,9 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* ROUND-CLEANUP-002: daily ops check gate */}
+      <DailyOpsCheckGate />
     </div>
   )
 }

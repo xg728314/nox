@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { MonitorBlePresence, MonitorRecommendation, MonitorRoom, MonitorRoomParticipant } from "../types"
 import { FLOOR_LAYOUTS, FLOOR_TABS, type FloorId } from "../zones"
 import { STATUS_STYLES, participantState, type WorkerState } from "../statusStyles"
-import { LEVEL_LABEL, LEVEL_STYLE, REASON_LABEL, type ConfidenceLevel } from "./confidenceStyles"
+import { LEVEL_LABEL, LEVEL_STYLE, REASON_LABEL, type ConfidenceLevel } from "./badges/confidenceStyles"
 
 /**
  * FloorMap — 미니맵 & 위치 추적.

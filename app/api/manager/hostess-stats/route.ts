@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getManagerHostessStats } from "@/lib/server/queries/managerHostessStats"
+import { getManagerHostessStats } from "@/lib/server/queries/manager/hostessStats"
 
 /**
  * GET /api/manager/hostess-stats

@@ -104,7 +104,8 @@ export async function GET(request: Request) {
       .is("deleted_at", null)
       .or(`store_uuid.is.null,store_uuid.eq.${safeStoreUuid}`)
     if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
+      console.error("[admin/preferences] failed:", error)
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
 
     const rows = (data ?? []) as Row[]
@@ -158,7 +159,8 @@ export async function PUT(request: Request) {
       : await matchQuery.eq("store_uuid", store_uuid)
 
     if (existing.error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: existing.error.message }, { status: 500 })
+      console.error("[admin/preferences] existing query failed:", existing.error)
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
 
     const now = new Date().toISOString()
@@ -233,7 +235,8 @@ export async function DELETE(request: Request) {
       ? await base.is("store_uuid", null)
       : await base.eq("store_uuid", store_uuid)
     if (error) {
-      return NextResponse.json({ error: "DELETE_FAILED", message: error.message }, { status: 500 })
+      console.error("[admin/preferences] delete failed:", error)
+      return NextResponse.json({ error: "DELETE_FAILED" }, { status: 500 })
     }
     return NextResponse.json({ ok: true })
   } catch (e) {

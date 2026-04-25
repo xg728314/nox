@@ -2,52 +2,52 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { auditOr500 } from "@/lib/audit/logEvent"
+import { UUID_RE, WORK_LOG_SELECT_COLS } from "@/lib/server/queries/staff/workLogLifecycle"
 
 /**
- * Staff Work Logs — Phase 1 (manual only)
+ * Staff Work Logs — cross_store_work_records 기준 API.
+ *
+ * ⚠️ 2026-04-24 재작성:
+ *   라이브 DB 에 `staff_work_logs` 테이블이 없고 `cross_store_work_records`
+ *   만 존재. 본 route 는 해당 테이블 실 컬럼에 맞춰 다시 작성됐다.
+ *   staff_work_logs 로 되돌리는 작업이 아니며, `manager_membership_id` /
+ *   `started_at` / `ended_at` / `category` / `work_type` / `memo` /
+ *   `source` / `created_by` / `working_store_room_*` / `external_amount_hint`
+ *   등 과거 컬럼은 cross_store_work_records 에 존재하지 않아 전부 제거됨.
+ *
+ *   다른 테이블 (sessions / session_participants / hostesses / customers)
+ *   의 `manager_membership_id` 는 **그대로 유지**. 본 라운드는 staff-work-logs
+ *   API 계열만 대상.
  *
  * POST /api/staff-work-logs
- *   아가씨 한 명의 근무 이벤트를 1-row 로 기록 (draft 상태).
+ *   cross_store_work_records 1건 생성 (status = 'pending').
+ *   requested_by = auth.membership_id. approved_by/at = null.
  *
  * GET /api/staff-work-logs
- *   원(origin) 스코프 조회. manager 는 자기 담당만 자동 필터.
- *
- * Constraints (Phase 1 strict):
- *   - settlement 연결 필드는 채우지 않음 (cross_store_settlement_id 등)
- *   - BLE 관련 필드는 default 만 (source='manual', ble_event_id=null)
- *   - 기존 session/participants 수정/참조 금지 (FK 도 null 고정)
- *   - store_uuid scope: origin_store_uuid === auth.store_uuid 강제
+ *   origin scope 조회 (auth.store_uuid). manager 는 requested_by = auth.membership_id
+ *   로 자기 요청 건만 노출 (manager_membership_id 컬럼이 없어진 대체).
  *
  * 인바리언트:
- *   - 쓰기: owner/manager/super_admin 만.
- *     manager 는 hostess.manager_membership_id === auth.membership_id 일 때만.
- *   - 아가씨의 home store == auth.store_uuid (store_memberships 검증).
- *   - working_store 는 존재 + is_active (타매장 포함 허용).
- *   - 같은 아가씨 겹치는 시간대 (draft/confirmed/settled) 존재 시 409 TIME_CONFLICT.
+ *   - 쓰기: owner / manager / super_admin
+ *     manager 는 hostesses.manager_membership_id === auth.membership_id 인
+ *     스태프만 기록 (조회 전용 게이트. cross_store_work_records 에는 저장 안 함).
+ *   - hostess home store == auth.store_uuid (store_memberships 검증).
+ *   - working_store 는 존재 + is_active.
+ *   - session_id / business_day_id 존재 검증 (필수 FK).
  */
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const ALLOWED_CATEGORY = ["public", "shirt", "hyper", "etc"] as const
-const ALLOWED_WORK_TYPE = ["full", "half", "cha3", "half_cha3"] as const
 
 type SwlBody = {
   hostess_membership_id?: unknown
   working_store_uuid?: unknown
-  started_at?: unknown
-  ended_at?: unknown
-  working_store_room_label?: unknown
-  working_store_room_uuid?: unknown
-  category?: unknown
-  work_type?: unknown
-  external_amount_hint?: unknown
-  memo?: unknown
+  session_id?: unknown
+  business_day_id?: unknown
 }
 
 function bad(error: string, message: string, status = 400) {
   return NextResponse.json({ error, message }, { status })
 }
 
-// ─── POST: create a new work log (draft) ────────────────────
+// ─── POST: create a new work record (status=pending) ────────
 export async function POST(request: Request) {
   let auth
   try {
@@ -69,85 +69,48 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as SwlBody
 
-  // ── 필드 파싱 / 기본 검증 ───────────────────────────────
   const hostessMembershipId =
     typeof body.hostess_membership_id === "string" ? body.hostess_membership_id.trim() : ""
   const workingStoreUuid =
     typeof body.working_store_uuid === "string" ? body.working_store_uuid.trim() : ""
-  const startedAtRaw = typeof body.started_at === "string" ? body.started_at : ""
-  const endedAtRaw = typeof body.ended_at === "string" ? body.ended_at : ""
-  const roomLabel =
-    typeof body.working_store_room_label === "string"
-      ? body.working_store_room_label.trim()
-      : ""
-  const roomUuid =
-    typeof body.working_store_room_uuid === "string"
-      ? body.working_store_room_uuid.trim()
-      : ""
-  const category = typeof body.category === "string" ? body.category : ""
-  const workType = typeof body.work_type === "string" ? body.work_type : ""
-  const amountHintRaw =
-    typeof body.external_amount_hint === "number" ? body.external_amount_hint : null
-  const memo = typeof body.memo === "string" ? body.memo.trim() : ""
+  const sessionId =
+    typeof body.session_id === "string" ? body.session_id.trim() : ""
+  const businessDayId =
+    typeof body.business_day_id === "string" ? body.business_day_id.trim() : ""
 
   if (!UUID_RE.test(hostessMembershipId))
     return bad("MISSING_FIELDS", "hostess_membership_id 가 필요합니다.")
   if (!UUID_RE.test(workingStoreUuid))
     return bad("MISSING_FIELDS", "working_store_uuid 가 필요합니다.")
-  if (!startedAtRaw) return bad("MISSING_FIELDS", "started_at 이 필요합니다.")
-  const startedAt = new Date(startedAtRaw)
-  if (Number.isNaN(startedAt.getTime()))
-    return bad("TIME_INVALID", "started_at 형식이 올바르지 않습니다.")
-  let endedAt: Date | null = null
-  if (endedAtRaw) {
-    endedAt = new Date(endedAtRaw)
-    if (Number.isNaN(endedAt.getTime()))
-      return bad("TIME_INVALID", "ended_at 형식이 올바르지 않습니다.")
-    if (endedAt.getTime() < startedAt.getTime())
-      return bad("INVALID_TIME_RANGE", "ended_at 은 started_at 이후여야 합니다.")
-  }
-  if (!(ALLOWED_CATEGORY as readonly string[]).includes(category))
-    return bad(
-      "CATEGORY_INVALID",
-      "category 는 public / shirt / hyper / etc 중 하나여야 합니다.",
-    )
-  if (!(ALLOWED_WORK_TYPE as readonly string[]).includes(workType))
-    return bad(
-      "WORK_TYPE_INVALID",
-      "work_type 은 full / half / cha3 / half_cha3 중 하나여야 합니다.",
-    )
-  if (roomUuid && !UUID_RE.test(roomUuid))
-    return bad("ROOM_UUID_INVALID", "working_store_room_uuid 형식이 올바르지 않습니다.")
-  if (amountHintRaw !== null && (!Number.isFinite(amountHintRaw) || amountHintRaw < 0))
-    return bad("AMOUNT_INVALID", "external_amount_hint 는 0 이상의 숫자여야 합니다.")
+  if (!UUID_RE.test(sessionId))
+    return bad("MISSING_FIELDS", "session_id 가 필요합니다.")
+  if (!UUID_RE.test(businessDayId))
+    return bad("MISSING_FIELDS", "business_day_id 가 필요합니다.")
 
   const supabase = getServiceClient()
 
   // ── hostess 유효성 + origin scope ───────────────────────
-  //   hostess.home_store = auth.store_uuid 여야 함 (super_admin 도 동일 — 이번 라운드는
-  //   작성자 store 귀속만 허용. super_admin 다매장 기록은 Phase 2 에서 별도 쿼리 파라미터).
   const { data: hostessMem, error: hostessMemErr } = await supabase
     .from("store_memberships")
     .select("id, role, status, store_uuid")
     .eq("id", hostessMembershipId)
     .is("deleted_at", null)
     .maybeSingle()
-  if (hostessMemErr) return bad("INTERNAL_ERROR", "아가씨 조회 실패", 500)
-  if (!hostessMem) return bad("HOSTESS_NOT_FOUND", "아가씨를 찾을 수 없습니다.", 404)
+  if (hostessMemErr) return bad("INTERNAL_ERROR", "스태프 조회 실패", 500)
+  if (!hostessMem) return bad("HOSTESS_NOT_FOUND", "스태프를 찾을 수 없습니다.", 404)
   if (hostessMem.role !== "hostess" || hostessMem.status !== "approved")
-    return bad("HOSTESS_ROLE_INVALID", "아가씨 멤버십이 유효하지 않습니다.", 400)
+    return bad("HOSTESS_ROLE_INVALID", "스태프 멤버십이 유효하지 않습니다.", 400)
   if (hostessMem.store_uuid !== auth.store_uuid)
     return bad(
       "STORE_SCOPE_FORBIDDEN",
-      "본 매장 소속 아가씨만 기록할 수 있습니다.",
+      "본 매장 소속 스태프만 기록할 수 있습니다.",
       403,
     )
 
   // ── manager 권한 제약 — 자기 담당만 ───────────────────
-  //    담당 관계는 `hostesses.manager_membership_id` 에서 읽는다
-  //    (NOX 의 실제 매니저–아가씨 연결 구조).
-  let snapshotManagerId: string | null = null
-  {
+  //   hostesses.manager_membership_id 는 "담당 실장 검증" 용도로만 읽고,
+  //   cross_store_work_records 에는 저장하지 않는다 (테이블에 없는 컬럼).
+  if (isManager && !isOwner && !isSuperAdmin) {
     const { data: hostessRow } = await supabase
       .from("hostesses")
       .select("manager_membership_id")
@@ -156,19 +119,12 @@ export async function POST(request: Request) {
       .is("deleted_at", null)
       .maybeSingle()
     const assignedMgr = (hostessRow?.manager_membership_id as string | null) ?? null
-
-    if (isManager && !isOwner && !isSuperAdmin) {
-      if (assignedMgr !== auth.membership_id) {
-        return bad(
-          "ASSIGNMENT_FORBIDDEN",
-          "자기 담당 아가씨만 기록할 수 있습니다.",
-          403,
-        )
-      }
-      snapshotManagerId = auth.membership_id
-    } else {
-      // owner / super_admin: 현재 담당 실장 스냅샷 (없을 수 있음)
-      snapshotManagerId = assignedMgr
+    if (assignedMgr !== auth.membership_id) {
+      return bad(
+        "ASSIGNMENT_FORBIDDEN",
+        "자기 담당 스태프만 기록할 수 있습니다.",
+        403,
+      )
     }
   }
 
@@ -187,81 +143,53 @@ export async function POST(request: Request) {
       400,
     )
 
-  // ── 시간 충돌 1차 — soft warning (이번 라운드는 hard block 금지) ──
-  //   같은 hostess + 시간 겹침 + 같은 working_store + 같은 room_label
-  //   4-매칭을 "의심" 으로 표시해 응답에 포함한다. 이번 라운드는
-  //   ended_at < started_at 만 hard 400 (위 INVALID_TIME_RANGE 에서 처리).
-  const WINDOW_MS = 5 * 60 * 1000  // ±5분 근접 시 잠재 중복으로 간주
-  const windowStart = new Date(startedAt.getTime() - 4 * 60 * 60 * 1000).toISOString()
-  const windowEndRef = (endedAt ?? new Date(startedAt.getTime() + 4 * 60 * 60 * 1000)).toISOString()
-  const { data: candidates } = await supabase
-    .from("staff_work_logs")
-    .select("id, started_at, ended_at, working_store_uuid, working_store_room_label, status")
-    .eq("hostess_membership_id", hostessMembershipId)
-    .in("status", ["draft", "confirmed", "settled"])
+  // ── session_id + business_day_id FK 검증 ────────────────
+  const { data: sess } = await supabase
+    .from("room_sessions")
+    .select("id, store_uuid, business_day_id")
+    .eq("id", sessionId)
     .is("deleted_at", null)
-    .gte("started_at", windowStart)
-    .lte("started_at", windowEndRef)
-
-  const nextStart = startedAt.getTime()
-  const nextEnd = endedAt ? endedAt.getTime() : nextStart + 1
-  const conflicts: { id: string; kind: "overlap" | "near_duplicate"; started_at: string }[] = []
-  for (const c of (candidates ?? []) as {
-    id: string
-    started_at: string
-    ended_at: string | null
-    working_store_uuid: string
-    working_store_room_label: string | null
-  }[]) {
-    const cStart = new Date(c.started_at).getTime()
-    const cEnd = c.ended_at ? new Date(c.ended_at).getTime() : cStart + 1
-    const timeOverlap = nextStart < cEnd && cStart < nextEnd
-    const nearDup =
-      Math.abs(cStart - nextStart) <= WINDOW_MS &&
-      c.working_store_uuid === workingStoreUuid &&
-      (c.working_store_room_label ?? "") === (roomLabel || "")
-    if (timeOverlap || nearDup) {
-      conflicts.push({
-        id: c.id,
-        kind: timeOverlap ? "overlap" : "near_duplicate",
-        started_at: c.started_at,
-      })
-    }
+    .maybeSingle()
+  if (!sess) return bad("SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.", 404)
+  if (sess.store_uuid !== workingStoreUuid) {
+    return bad(
+      "SESSION_STORE_MISMATCH",
+      "session_id 의 store_uuid 가 working_store_uuid 와 일치하지 않습니다.",
+      400,
+    )
+  }
+  if (sess.business_day_id !== businessDayId) {
+    return bad(
+      "BUSINESS_DAY_MISMATCH",
+      "session 의 business_day_id 와 입력 값이 일치하지 않습니다.",
+      400,
+    )
   }
 
-  // ── INSERT (conflicts 가 있어도 저장 진행; UI 에 warning 전달) ────
+  // ── INSERT (cross_store_work_records 실 컬럼만) ─────────
   const { data: inserted, error: insertErr } = await supabase
-    .from("staff_work_logs")
+    .from("cross_store_work_records")
     .insert({
-      origin_store_uuid: auth.store_uuid,
+      session_id: sessionId,
+      business_day_id: businessDayId,
       working_store_uuid: workingStoreUuid,
+      origin_store_uuid: auth.store_uuid,
       hostess_membership_id: hostessMembershipId,
-      manager_membership_id: snapshotManagerId,
-      started_at: startedAt.toISOString(),
-      ended_at: endedAt ? endedAt.toISOString() : null,
-      working_store_room_label: roomLabel || null,
-      working_store_room_uuid: roomUuid || null,
-      category,
-      work_type: workType,
-      source: "manual",
-      source_ref: null,
-      ble_event_id: null,
-      external_amount_hint: amountHintRaw,
-      status: "draft",
-      session_id: null,
-      session_participant_id: null,
-      cross_store_settlement_id: null,
-      memo: memo || null,
-      created_by: auth.user_id,
-      created_by_role: auth.role,
+      requested_by: auth.membership_id,
+      approved_by: null,
+      approved_at: null,
+      status: "pending",
     })
-    .select(
-      "id, origin_store_uuid, working_store_uuid, hostess_membership_id, manager_membership_id, started_at, ended_at, working_store_room_label, working_store_room_uuid, category, work_type, status, source, external_amount_hint, memo, created_at",
-    )
+    .select(WORK_LOG_SELECT_COLS)
     .single()
 
-  if (insertErr || !inserted) {
-    return bad("INSERT_FAILED", "근무 기록 생성에 실패했습니다.", 500)
+  const insertedRow = inserted as unknown as { id: string } | null
+  if (insertErr || !insertedRow) {
+    return bad(
+      "INSERT_FAILED",
+      `근무 기록 생성 실패: ${insertErr?.message ?? "unknown"}`,
+      500,
+    )
   }
 
   // ── Audit (fail-close) ────────────────────────────────
@@ -271,30 +199,19 @@ export async function POST(request: Request) {
     entity_table: "store_memberships",
     entity_id: hostessMembershipId,
     metadata: {
-      work_log_id: inserted.id,
+      work_log_id: insertedRow.id,
       working_store_uuid: workingStoreUuid,
-      category,
-      work_type: workType,
-      started_at: startedAt.toISOString(),
-      ended_at: endedAt ? endedAt.toISOString() : null,
-      room_label: roomLabel || null,
-      source: "manual",
-      conflicts_detected: conflicts.length,
+      origin_store_uuid: auth.store_uuid,
+      session_id: sessionId,
+      business_day_id: businessDayId,
     },
   })
   if (auditFail) return auditFail
 
-  return NextResponse.json(
-    {
-      ok: true,
-      item: inserted,
-      ...(conflicts.length > 0 ? { conflicts } : {}),
-    },
-    { status: 201 },
-  )
+  return NextResponse.json({ ok: true, item: insertedRow }, { status: 201 })
 }
 
-// ─── GET: list logs in own (origin) scope ───────────────────
+// ─── GET: list in origin scope ──────────────────────────────
 export async function GET(request: Request) {
   let auth
   try {
@@ -317,8 +234,6 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const hostessFilter = url.searchParams.get("hostess_membership_id") ?? ""
   const statusFilter = url.searchParams.get("status") ?? ""
-  const fromStr = url.searchParams.get("from") ?? ""
-  const toStr = url.searchParams.get("to") ?? ""
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1") || 1)
   const limitRaw = Number(url.searchParams.get("limit") ?? "50") || 50
   const limit = Math.min(200, Math.max(1, limitRaw))
@@ -327,18 +242,16 @@ export async function GET(request: Request) {
   const supabase = getServiceClient()
 
   let q = supabase
-    .from("staff_work_logs")
-    .select(
-      "id, origin_store_uuid, working_store_uuid, hostess_membership_id, manager_membership_id, started_at, ended_at, working_store_room_label, working_store_room_uuid, category, work_type, source, external_amount_hint, status, memo, created_at, updated_at, created_by, created_by_role",
-      { count: "exact" },
-    )
+    .from("cross_store_work_records")
+    .select(WORK_LOG_SELECT_COLS, { count: "exact" })
     .eq("origin_store_uuid", auth.store_uuid)
     .is("deleted_at", null)
-    .order("started_at", { ascending: false })
+    .order("created_at", { ascending: false })
 
-  // manager 는 자기 담당 자동 필터 (Phase 1 정책)
+  // manager 는 자기가 요청한 건만 자동 필터. (cross_store_work_records 에
+  //   manager_membership_id 컬럼이 없으므로 requested_by 기준으로 대체.)
   if (isManager && !isOwner && !isSuperAdmin) {
-    q = q.eq("manager_membership_id", auth.membership_id)
+    q = q.eq("requested_by", auth.membership_id)
   }
 
   if (hostessFilter && UUID_RE.test(hostessFilter)) {
@@ -346,18 +259,6 @@ export async function GET(request: Request) {
   }
   if (statusFilter) {
     q = q.eq("status", statusFilter)
-  }
-  if (fromStr) {
-    const fromDate = new Date(fromStr)
-    if (!Number.isNaN(fromDate.getTime())) {
-      q = q.gte("started_at", fromDate.toISOString())
-    }
-  }
-  if (toStr) {
-    const toDate = new Date(toStr)
-    if (!Number.isNaN(toDate.getTime())) {
-      q = q.lte("started_at", toDate.toISOString())
-    }
   }
 
   const workingStoreFilter = url.searchParams.get("working_store_uuid") ?? ""
@@ -368,14 +269,12 @@ export async function GET(request: Request) {
   const { data, error, count } = await q.range(offset, offset + limit - 1)
 
   if (error) {
-    return bad("QUERY_FAILED", "조회 실패", 500)
+    return bad("QUERY_FAILED", `조회 실패: ${error.message}`, 500)
   }
 
-  const rows = (data ?? []) as Array<Record<string, unknown>>
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
 
-  // ── Enrichment: hostess_name + working_store_name ──
-  //   /api/manager/hostesses 가 이미 사용하는 hostesses.name 경로 재사용.
-  //   store 이름은 stores.store_name 으로 join. 모두 N+1 대신 in() 로 한 번.
+  // ── Enrichment: hostess_name + store_name ──
   const hostessIds = [...new Set(rows.map((r) => r.hostess_membership_id as string))]
   const storeIds = [
     ...new Set(
@@ -387,9 +286,6 @@ export async function GET(request: Request) {
 
   const hostessNameMap = new Map<string, string>()
   if (hostessIds.length > 0) {
-    // store_uuid 고정 scope + deleted_at 가드. staff_work_logs 행은 이미
-    //   origin_store_uuid = auth.store_uuid 로 필터된 상태이므로 hostesses
-    //   lookup 도 동일 scope 로 defense-in-depth.
     const { data: hosts } = await supabase
       .from("hostesses")
       .select("membership_id, name, stage_name")
@@ -405,8 +301,6 @@ export async function GET(request: Request) {
 
   const storeNameMap = new Map<string, string>()
   if (storeIds.length > 0) {
-    // stores 는 의도적으로 cross-store (origin vs working) 이므로
-    //   store_uuid 고정 불가. deleted_at 만 가드.
     const { data: sts } = await supabase
       .from("stores")
       .select("id, store_name")
@@ -417,14 +311,69 @@ export async function GET(request: Request) {
     }
   }
 
-  const items = rows.map((r) => ({
-    ...r,
-    hostess_name: hostessNameMap.get(r.hostess_membership_id as string) ?? "",
-    working_store_name: storeNameMap.get(r.working_store_uuid as string) ?? "",
-    origin_store_name: storeNameMap.get(r.origin_store_uuid as string) ?? "",
-  }))
+  // Phase 10 P1 (2026-04-24): room_sessions 조인. 근무시간 SSOT =
+  //   room_sessions.started_at / ended_at / manager_membership_id.
+  //   cross_store_work_records.created_at 은 origin 등록 시각 (참고용).
+  //   rooms 조인으로 room_no 추출.
+  const sessionIds = [...new Set(rows.map((r) => r.session_id as string).filter(Boolean))]
+  type SessJoin = {
+    id: string
+    room_uuid: string
+    started_at: string
+    ended_at: string | null
+    status: string
+    manager_membership_id: string | null
+    manager_name: string | null
+  }
+  const sessMap = new Map<string, SessJoin>()
+  let roomIds: string[] = []
+  if (sessionIds.length > 0) {
+    const { data: sessRows } = await supabase
+      .from("room_sessions")
+      .select("id, room_uuid, started_at, ended_at, status, manager_membership_id, manager_name")
+      .in("id", sessionIds)
+      .is("deleted_at", null)
+    for (const s of (sessRows ?? []) as SessJoin[]) {
+      sessMap.set(s.id, s)
+    }
+    roomIds = [...new Set(Array.from(sessMap.values()).map((s) => s.room_uuid))]
+  }
+  const roomMap = new Map<string, { room_no: string; room_name: string | null }>()
+  if (roomIds.length > 0) {
+    const { data: roomRows } = await supabase
+      .from("rooms")
+      .select("id, room_no, room_name")
+      .in("id", roomIds)
+      .is("deleted_at", null)
+    for (const r of (roomRows ?? []) as {
+      id: string
+      room_no: string
+      room_name: string | null
+    }[]) {
+      roomMap.set(r.id, { room_no: r.room_no, room_name: r.room_name })
+    }
+  }
 
-  const draftCount = items.filter((r) => (r as { status?: string }).status === "draft").length
+  const items = rows.map((r) => {
+    const sess = sessMap.get(r.session_id as string) ?? null
+    const room = sess ? roomMap.get(sess.room_uuid) ?? null : null
+    return {
+      ...r,
+      hostess_name: hostessNameMap.get(r.hostess_membership_id as string) ?? "",
+      working_store_name: storeNameMap.get(r.working_store_uuid as string) ?? "",
+      origin_store_name: storeNameMap.get(r.origin_store_uuid as string) ?? "",
+      // session SSOT (근무 시간 기준)
+      session_started_at: sess?.started_at ?? null,
+      session_ended_at: sess?.ended_at ?? null,
+      session_status: sess?.status ?? null,
+      session_manager_membership_id: sess?.manager_membership_id ?? null,
+      session_manager_name: sess?.manager_name ?? null,
+      room_no: room?.room_no ?? null,
+      room_name: room?.room_name ?? null,
+    }
+  })
+
+  const pendingCount = items.filter((r) => (r as { status?: string }).status === "pending").length
 
   return NextResponse.json({
     ok: true,
@@ -434,7 +383,7 @@ export async function GET(request: Request) {
     total: count ?? 0,
     summary: {
       total: count ?? items.length,
-      draft_count: draftCount,
+      pending_count: pendingCount,
     },
   })
 }

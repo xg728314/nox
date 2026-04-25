@@ -159,8 +159,11 @@ export default function ParticipantInlineEditor({
       const endMs = base + (participant.time_minutes || 0) * 60000
       setHhmm(toLocalHHMM(new Date(endMs).toISOString()))
     }
+    // 2026-04-24 P1 fix: 이전에는 `[open, mode, participant?.id]` 만 deps.
+    //   같은 참여자의 entered_at / time_minutes 가 서버 동기화로 바뀌어도
+    //   editor 가 stale 값으로 열려 잘못된 값 저장 위험. 관련 필드 포함.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, participant?.id])
+  }, [open, mode, participant?.id, participant?.entered_at, participant?.time_minutes, unitMinutes])
 
   if (!open || !mode || !participant) return null
 

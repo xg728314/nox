@@ -6,6 +6,7 @@ import { parseJsonBody } from "@/lib/session/parseBody"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
+import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { lookupServiceType, lookupCategoryPricing } from "@/lib/session/services/pricingLookup"
 
 const VALID_ROLES = ["manager", "hostess"] as const
@@ -252,6 +253,9 @@ export async function POST(request: Request) {
       action: "participant_registered",
       after: { membership_id, role, category, time_type: resolvedTimeType, time_minutes, price_amount, cha3_amount, banti_amount, status: "active" },
     })
+
+    // R29-perf: monitor 캐시 무효화
+    invalidateCache("monitor")
 
     return NextResponse.json(
       {

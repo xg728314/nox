@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { getMeAccounts } from "@/lib/server/queries/meAccounts"
+import { getMeAccounts } from "@/lib/server/queries/me/accounts"
 
 /**
  * STEP-010: GET/POST /api/me/accounts

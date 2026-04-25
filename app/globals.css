@@ -42,3 +42,50 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ─── R29: Print mode ──────────────────────────────────────────────
+ * 인쇄 시 dark UI → 흰 배경 + 검은 글씨로 변환. 사이드바/모달/플로팅 등
+ * 화면 전용 요소는 .nox-print-hide 또는 .print:hidden 으로 숨김.
+ *
+ * 정산 트리 전체 펼침 모드: body.nox-print-tree-all 일 때 모든 accordion
+ * 컨테이너 강제 표시 (max-height/overflow 해제).
+ */
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .nox-print-hide,
+  .print\:hidden {
+    display: none !important;
+  }
+  /* 카드/박스 배경을 옅게 → 인쇄 잉크 절약 */
+  [class*="bg-"],
+  [class*="bg-["] {
+    background-color: transparent !important;
+  }
+  [class*="text-slate"],
+  [class*="text-cyan"],
+  [class*="text-emerald"],
+  [class*="text-rose"],
+  [class*="text-red"],
+  [class*="text-amber"] {
+    color: #000 !important;
+  }
+  /* 회색 음영은 중간 회색으로 — 받을돈/줄돈 등 강조 색은 굵게로 표현 */
+  [class*="border-"] {
+    border-color: #ccc !important;
+  }
+  /* 정산 트리: 모든 accordion 강제 펼침 */
+  body.nox-print-tree-all [data-accordion="store"],
+  body.nox-print-tree-all [data-accordion="manager"],
+  body.nox-print-tree-all [data-accordion="hostess-table"] {
+    display: block !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  /* 페이지 break 힌트 — 매장 단위로 잘리지 않도록 */
+  body.nox-print-tree-all [data-print-store] {
+    page-break-inside: avoid;
+  }
+}

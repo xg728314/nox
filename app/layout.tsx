@@ -1,4 +1,7 @@
 import "./globals.css"
+import IssueReportButton from "@/components/IssueReportButton"
+import { ToastProvider } from "@/components/Toast"
+import { ConfirmProvider } from "@/components/ConfirmModal"
 
 export const metadata = {
   title: "NOX Counter OS",
@@ -8,6 +11,12 @@ export const metadata = {
   },
 }
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -15,7 +24,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {/* 2026-04-25: 전역 Toast / Confirm Provider. window.alert / confirm 대체. */}
+        <ToastProvider>
+          <ConfirmProvider>
+            {children}
+            {/* 전역 플로팅 버그 신고 버튼. 미로그인 시 내부에서 숨김. */}
+            <IssueReportButton />
+          </ConfirmProvider>
+        </ToastProvider>
+      </body>
     </html>
   )
 }

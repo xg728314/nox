@@ -27,3 +27,9 @@ out/
 
 .vercel
 .env*.local
+
+# Playwright E2E (R23)
+test-results/
+playwright-report/
+playwright/.cache/
+.playwright/

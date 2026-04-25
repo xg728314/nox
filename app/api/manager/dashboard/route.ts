@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getManagerDashboard } from "@/lib/server/queries/managerDashboard"
+import { getManagerDashboard } from "@/lib/server/queries/manager/dashboard"
 
 export async function GET(request: Request) {
   try {

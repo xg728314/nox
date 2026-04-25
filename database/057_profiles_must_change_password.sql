@@ -1,3 +1,8 @@
+-- ⚠️ STATUS: DEFERRED (2026-04-24 Round 3 결정)
+-- `profiles.must_change_password` 컬럼 부재. 기능 미사용 상태.
+-- Round 3 결정: 보류 확정. invite 흐름 (강제 비번 변경) 활성화 시 재검토.
+-- 현재 apply 해도 아무 코드가 읽지 않아 dead column.
+--
 -- ============================================================
 -- 057_profiles_must_change_password.sql
 --

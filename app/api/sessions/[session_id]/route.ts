@@ -110,6 +110,33 @@ export async function PATCH(
         if (!isValidUUID(body.manager_membership_id)) {
           return NextResponse.json({ error: "BAD_REQUEST", message: "manager_membership_id must be a valid UUID." }, { status: 400 })
         }
+        // 2026-04-24 P0 fix: 같은 매장의 승인된 manager 만 허용.
+        //   이전에는 클라가 임의 UUID 를 보내도 DB 에 그대로 저장 → 다른
+        //   매장 실장 명의로 세션 메타 변경 가능.
+        const { data: mgrRow, error: mgrErr } = await supabase
+          .from("store_memberships")
+          .select("id")
+          .eq("id", body.manager_membership_id)
+          .eq("store_uuid", authContext.store_uuid)
+          .eq("role", "manager")
+          .eq("status", "approved")
+          .is("deleted_at", null)
+          .maybeSingle()
+        if (mgrErr) {
+          return NextResponse.json(
+            { error: "MANAGER_VERIFY_FAILED", message: "실장 검증에 실패했습니다." },
+            { status: 500 },
+          )
+        }
+        if (!mgrRow) {
+          return NextResponse.json(
+            {
+              error: "MANAGER_INVALID",
+              message: "지정한 실장이 이 매장 소속의 승인된 실장이 아닙니다.",
+            },
+            { status: 403 },
+          )
+        }
         managerMembershipId = body.manager_membership_id
       } else {
         managerMembershipId = session.manager_membership_id as string | null

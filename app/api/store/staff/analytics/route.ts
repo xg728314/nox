@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
+import { loadAttendanceVisibility } from "@/lib/server/queries/ops/attendanceVisibility"
 
 /**
  * GET /api/store/staff/analytics

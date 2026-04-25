@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { invalidateAuthCacheByUserId } from "@/lib/auth/authCache"
 
 /**
  * POST /api/auth/change-password
@@ -135,6 +136,10 @@ export async function POST(request: Request) {
       { status: 500 },
     )
   }
+
+  // ROUND-CLEANUP-002: authCache 에서 이 user 의 모든 토큰 엔트리 제거.
+  //   다음 request 에서 새 must_change_password=false 값을 즉시 읽도록.
+  invalidateAuthCacheByUserId(auth.user_id)
 
   // ── Audit ────────────────────────────────────────────────────
   try {

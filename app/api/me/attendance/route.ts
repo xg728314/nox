@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 export async function GET(request: Request) {
   try {
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // 오늘 영업일
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
     const { data: bizDay } = await supabase
       .from("store_operating_days")
       .select("id")

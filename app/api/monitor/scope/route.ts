@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { parseScope, resolveMonitorScope } from "@/lib/monitor/scopeResolver"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import {
   mergeSnapshots,
   type StoreRow,
@@ -108,6 +109,9 @@ export async function GET(request: Request) {
   const blePresenceCutoff = new Date(nowMs - 10 * 60 * 1000).toISOString()
   const movementCutoff = new Date(nowMs - 30 * 60 * 1000).toISOString()
 
+  // 2026-04-25: archived_at 컬럼 존재 사전 탐지 (migration 085 미적용 환경 대응).
+  const applyArchivedNull = await archivedAtFilter(supabase)
+
   // ── 5. Phase A — parallel queries ────────────────────────────────
   const [
     storesRes,
@@ -131,12 +135,15 @@ export async function GET(request: Request) {
       .in("store_uuid", storeUuids)
       .is("deleted_at", null),
     // Q3 active room_sessions
-    supabase
-      .from("room_sessions")
-      .select("id, store_uuid, room_uuid, started_at")
-      .in("store_uuid", storeUuids)
-      .eq("status", "active")
-      .is("deleted_at", null),
+    //   2026-04-25: archived_at 필터 — archive 된 세션은 모니터에 안 보임.
+    applyArchivedNull(
+      supabase
+        .from("room_sessions")
+        .select("id, store_uuid, room_uuid, started_at")
+        .in("store_uuid", storeUuids)
+        .eq("status", "active")
+        .is("deleted_at", null)
+    ),
     // Q6 ble_tag_presence (10-minute window)
     supabase
       .from("ble_tag_presence")
@@ -305,12 +312,15 @@ export async function GET(request: Request) {
       const awayStoreUuids = Array.from(new Set(cswrRaw.map(a => a.working_store_uuid)))
 
       // Filter to currently active sessions only (ended sessions drop).
-      const { data: awaySessRows } = await supabase
-        .from("room_sessions")
-        .select("id, room_uuid")
-        .in("id", awaySessionIds)
-        .eq("status", "active")
-        .is("deleted_at", null)
+      // 2026-04-25: archived_at 도 제외 (migration 없으면 no-op).
+      const { data: awaySessRows } = await applyArchivedNull(
+        supabase
+          .from("room_sessions")
+          .select("id, room_uuid")
+          .in("id", awaySessionIds)
+          .eq("status", "active")
+          .is("deleted_at", null)
+      )
       const activeAwaySessions = new Map<string, string | null>()
       for (const s of (awaySessRows ?? []) as Array<{ id: string; room_uuid: string | null }>) {
         activeAwaySessions.set(s.id, s.room_uuid)

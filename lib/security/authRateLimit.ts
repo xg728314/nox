@@ -37,6 +37,7 @@ export type RateLimitAction =
   | "mfa_enable"
   | "mfa_disable"
   | "mfa_verify"
+  | "mfa_recovery_codes_regen"
   | "payout"
   | "payout_cancel"
   | "admin_member_create"

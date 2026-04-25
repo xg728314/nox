@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getStoreStaff } from "@/lib/server/queries/storeStaff"
-import { loadAttendanceVisibility } from "@/lib/server/queries/attendanceVisibility"
+import { getStoreStaff } from "@/lib/server/queries/store/staff"
+import { loadAttendanceVisibility } from "@/lib/server/queries/ops/attendanceVisibility"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 
 export async function GET(request: Request) {

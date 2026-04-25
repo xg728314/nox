@@ -1,6 +1,6 @@
 "use client"
 
-import CreditModal from "./CreditModal"
+import CreditModal from "./modals/CreditModal"
 import type { StaffItem } from "../types"
 import type { CreditFormState } from "../hooks/useCreditFlow"
 

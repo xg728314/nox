@@ -3,11 +3,12 @@ import { resolveAuthContext } from "@/lib/auth/resolveAuthContext"
 import { createServiceClient } from "@/lib/session/createServiceClient"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { isValidUUID } from "@/lib/validation"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
 
 /**
  * GET /api/sessions/bill?session_id=xxx
- * 손님 청구서 — 내부 정산(실장수익/아가씨지급액) 비노출.
- * 구성: 양주(실장판매가) + 아가씨타임 + 웨이터팁 + 카드수수료
+ * 손님 청구서 — 내부 정산(실장수익/스태프지급액) 비노출.
+ * 구성: 양주(실장판매가) + 스태프타임 + 웨이터팁 + 카드수수료
  */
 export async function GET(request: Request) {
   try {
@@ -28,12 +29,16 @@ export async function GET(request: Request) {
     const supabase = svc.supabase
 
     // 1. 세션 확인
-    const { data: session } = await supabase
-      .from("room_sessions")
-      .select("id, store_uuid, room_uuid, started_at, ended_at, status")
-      .eq("id", sessionId)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
+    // 2026-04-25: archived_at 필터 — archive 된 세션은 일반 bill 엔드포인트
+    //   에서 노출 안 함 (migration 085 미적용 DB 에서는 no-op).
+    const applyArchivedNull = await archivedAtFilter(supabase)
+    const { data: session } = await applyArchivedNull(
+      supabase
+        .from("room_sessions")
+        .select("id, store_uuid, room_uuid, started_at, ended_at, status")
+        .eq("id", sessionId)
+        .eq("store_uuid", authContext.store_uuid)
+    ).maybeSingle()
 
     if (!session) {
       return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 })
@@ -79,7 +84,7 @@ export async function GET(request: Request) {
     const liquorTotal = liquorItems.reduce((s, i) => s + i.amount, 0)
     const otherTotal = otherItems.reduce((s, i) => s + i.amount, 0)
 
-    // 4. 아가씨타임 — 참여자 price_amount 합계 (건수 + 총액만 노출, 개별 지급액 비노출)
+    // 4. 스태프타임 — 참여자 price_amount 합계 (건수 + 총액만 노출, 개별 지급액 비노출)
     const { data: participants } = await supabase
       .from("session_participants")
       .select("id, category, time_minutes, price_amount")

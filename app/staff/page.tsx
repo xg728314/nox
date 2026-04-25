@@ -5,38 +5,23 @@ import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
 import WorkLogModal from "./components/WorkLogModal"
+import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
+import VisibilityControl from "./components/VisibilityControl"
+import HostessCard from "./components/HostessCard"
+import {
+  STATUS_STYLES,
+  type StaffStatus,
+  type StaffAnalytics,
+  type Criteria,
+} from "./components/staffTypes"
+import { useAttendance } from "./hooks/useAttendance"
+import {
+  useRecentLogs,
+  type WorkLogRow,
+  type LifecycleAction,
+} from "./hooks/useRecentLogs"
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-type StaffStatus = "양호" | "출근관리 필요" | "갯수관리 필요" | "집중관리"
-type Grade = "S" | "A" | "B" | "C" | null
-
-type StaffAnalytics = {
-  membership_id: string
-  name: string
-  grade: Grade
-  grade_updated_at: string | null
-  manager_membership_id: string | null
-  status: StaffStatus
-  attendance: {
-    days: number
-    rate: number
-    consecutive_absent: number
-  }
-  performance: {
-    total_sessions: number
-    avg_per_day: number
-    threshold: number
-  }
-}
-
-type Criteria = {
-  periodDays: number
-  minDays: number
-  perfUnit: string
-  perfMinCount: number
-  perfThreshold: number
-}
+// ─── Types / style maps moved to components/staffTypes.ts (ROUND-CLEANUP-002) ─
 
 type StaffMember = {
   id: string
@@ -46,7 +31,7 @@ type StaffMember = {
   status: string
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ─── Page-local constants ───────────────────────────────────────────────────
 
 const STATUS_ORDER: Record<StaffStatus, number> = {
   "집중관리": 0,
@@ -55,21 +40,6 @@ const STATUS_ORDER: Record<StaffStatus, number> = {
   "양호": 3,
 }
 
-const STATUS_STYLES: Record<StaffStatus, { bg: string; text: string; border: string }> = {
-  "집중관리": { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/25" },
-  "출근관리 필요": { bg: "bg-amber-500/15", text: "text-amber-400", border: "border-amber-500/25" },
-  "갯수관리 필요": { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/25" },
-  "양호": { bg: "bg-emerald-500/15", text: "text-emerald-400", border: "border-emerald-500/25" },
-}
-
-const GRADE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  S: { bg: "bg-amber-400/20", text: "text-amber-300", border: "border-amber-400/40" },
-  A: { bg: "bg-cyan-500/20", text: "text-cyan-300", border: "border-cyan-500/40" },
-  B: { bg: "bg-slate-400/20", text: "text-slate-400", border: "border-slate-400/40" },
-  C: { bg: "bg-red-500/20", text: "text-red-400", border: "border-red-500/40" },
-}
-
-const GRADES: Grade[] = ["S", "A", "B", "C"]
 const STATUS_FILTERS: (StaffStatus | "전체")[] = ["전체", "집중관리", "출근관리 필요", "갯수관리 필요", "양호"]
 const PERIOD_OPTIONS = [7, 14, 30]
 const PERF_UNIT_OPTIONS = [
@@ -104,38 +74,42 @@ export default function StaffPage() {
   // Filter
   const [statusFilter, setStatusFilter] = useState<StaffStatus | "전체">("전체")
 
-  // Grade editing
-  const [gradeBusy, setGradeBusy] = useState<string | null>(null)
-
   // Phase 1 — work log modal state (1 hostess at a time)
   const [workLogTarget, setWorkLogTarget] = useState<{
     membership_id: string
     name: string
   } | null>(null)
 
-  // Phase 1 — 최근 근무 로그 리스트 (origin scope, started_at desc)
-  // Phase 2 — lifecycle action 을 위해 created_by, manager_membership_id 포함.
-  type WorkLogRow = {
-    id: string
-    started_at: string
-    ended_at: string | null
-    working_store_name: string
-    working_store_room_label: string | null
-    origin_store_uuid?: string | null
-    working_store_uuid?: string | null
-    category: string
-    work_type: string
-    external_amount_hint?: number | null
-    status: string
-    hostess_name: string
-    hostess_membership_id: string
-    manager_membership_id: string | null
-    created_by: string | null
+  // Round 5 (2026-04-24): Phase 1 로그 + lifecycle 을 hook 으로 분리.
+  //   WorkLogRow / LifecycleAction 타입은 hooks/useRecentLogs.ts 로 이관.
+
+  // 담당 실장 없음 로그 접기/펼치기. 기본 숨김.
+  //   key: nox.staff.show_unassigned_logs ("1" | "0")
+  //   localStorage 사용 실패해도 기본값 (false) 으로 동작.
+  const UNASSIGNED_LOGS_PREF_KEY = "nox.staff.show_unassigned_logs"
+  const [showUnassignedLogs, setShowUnassignedLogs] = useState<boolean>(false)
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return
+      const v = window.localStorage.getItem(UNASSIGNED_LOGS_PREF_KEY)
+      if (v === "1") setShowUnassignedLogs(true)
+    } catch {
+      /* ignore (private mode, SSR, 등) */
+    }
+  }, [])
+  const toggleUnassignedLogs = () => {
+    setShowUnassignedLogs((prev) => {
+      const next = !prev
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(UNASSIGNED_LOGS_PREF_KEY, next ? "1" : "0")
+        }
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
   }
-  const [recentLogs, setRecentLogs] = useState<WorkLogRow[]>([])
-  const [recentLogsLoading, setRecentLogsLoading] = useState(false)
-  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null)
-  const [lifecycleToast, setLifecycleToast] = useState<string>("")
 
   // Role — from server-authenticated /api/auth/me (not localStorage)
   const profile = useCurrentProfile()
@@ -145,13 +119,32 @@ export default function StaffPage() {
   const myUserId = profile?.user_id ?? ""
   const myMembershipId = profile?.membership_id ?? ""
 
-  // ROUND-STAFF-1: 오늘 출근 상태 — membership_id → attendance_id (ON) | null (OFF)
-  const [attendanceMap, setAttendanceMap] = useState<Map<string, string>>(new Map())
-  const [attendanceBusyId, setAttendanceBusyId] = useState<string | null>(null)
-  const [attendanceToast, setAttendanceToast] = useState<string>("")
-  // ROUND-STAFF-3: BLE live presence (최근 10분 내 감지된 membership_id).
-  //   attendance state 와는 별개의 "참고 배지" — 로직에 관여 안 함.
-  const [bleLiveIds, setBleLiveIds] = useState<Set<string>>(new Set())
+  // ROUND-STAFF-1/3: 출근 상태 + BLE live presence.
+  //   Round 5 (2026-04-24): useAttendance 훅으로 분리. 로직 불변.
+  const {
+    attendanceMap,
+    bleLiveIds,
+    attendanceBusyId,
+    attendanceToast,
+    load: loadAttendance,
+    toggle: toggleAttendance,
+  } = useAttendance()
+
+  // Round 5: 최근 근무 로그 + lifecycle 액션 훅. 로직 불변.
+  const {
+    recentLogs,
+    recentLogsLoading,
+    lifecycleBusyId,
+    lifecycleToast,
+    reasonModal,
+    reasonInput,
+    setReasonInput,
+    load: loadRecentLogs,
+    start: startLifecycle,
+    cancelReason: cancelReasonModal,
+    submitReason: submitReasonModal,
+    availableActions,
+  } = useRecentLogs(userRole)
 
   // ROUND-STAFF-2: 출근 조회 가시성 모드
   type VisibilityMode = "mine_only" | "store_shared"
@@ -195,49 +188,7 @@ export default function StaffPage() {
     }
   }
 
-  async function loadAttendance() {
-    try {
-      const res = await apiFetch("/api/attendance")
-      if (!res.ok) return
-      const data = await res.json()
-      type A = { id: string; membership_id: string; checked_out_at: string | null }
-      const items = (data?.attendance ?? []) as A[]
-      const map = new Map<string, string>()
-      for (const a of items) {
-        if (!a.checked_out_at) map.set(a.membership_id, a.id)
-      }
-      setAttendanceMap(map)
-      // ROUND-STAFF-3: BLE live presence ids 저장
-      const ble = Array.isArray(data?.ble_live_ids) ? (data.ble_live_ids as string[]) : []
-      setBleLiveIds(new Set(ble))
-    } catch { /* ignore */ }
-  }
-
-  async function toggleAttendance(membershipId: string, currentlyOn: boolean) {
-    setAttendanceBusyId(membershipId)
-    setAttendanceToast("")
-    try {
-      const res = await apiFetch("/api/attendance", {
-        method: "POST",
-        body: JSON.stringify({
-          membership_id: membershipId,
-          action: currentlyOn ? "checkout" : "checkin",
-        }),
-      })
-      const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
-      if (!res.ok) {
-        setAttendanceToast(body.message || body.error || "처리 실패")
-      } else {
-        setAttendanceToast(currentlyOn ? "퇴근 완료" : "출근 완료")
-        await loadAttendance()
-      }
-    } catch {
-      setAttendanceToast("서버 오류")
-    } finally {
-      setAttendanceBusyId(null)
-      setTimeout(() => setAttendanceToast(""), 2500)
-    }
-  }
+  // Round 5: loadAttendance / toggleAttendance 는 useAttendance 훅으로 이관됨.
 
   // ── Load data ──
 
@@ -256,116 +207,10 @@ export default function StaffPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodDays, minDays, perfUnit, perfMinCount])
 
-  async function loadRecentLogs() {
-    setRecentLogsLoading(true)
-    try {
-      const res = await apiFetch("/api/staff-work-logs?limit=10")
-      if (res.ok) {
-        const data = await res.json()
-        setRecentLogs((data.items ?? []) as WorkLogRow[])
-      }
-    } catch { /* ignore */ }
-    finally { setRecentLogsLoading(false) }
-  }
+  // Round 5: sendLifecycle / startLifecycle / cancelReasonModal / submitReasonModal
+  //   / availableActions / reasonModal state — 전부 useRecentLogs 훅으로 이관됨.
+  //   (WorkLogRow / LifecycleAction 타입은 export 되어 있어 재사용 가능)
 
-  // Phase 2/3-A lifecycle actions.
-  //   confirm: body 없음 (draft → confirmed)
-  //   void:    reason modal 필수
-  //   dispute: reason modal 필수
-  //   resolve: disputed → confirmed (owner/super_admin); reason 선택
-  type LifecycleAction = "confirm" | "void" | "dispute" | "resolve"
-  const [reasonModal, setReasonModal] = useState<{
-    logId: string
-    action: Exclude<LifecycleAction, "confirm">
-  } | null>(null)
-  const [reasonInput, setReasonInput] = useState("")
-
-  async function sendLifecycle(
-    logId: string,
-    action: LifecycleAction,
-    body?: Record<string, unknown>,
-  ) {
-    setLifecycleBusyId(logId)
-    try {
-      const res = await apiFetch(`/api/staff-work-logs/${logId}/${action}`, {
-        method: "POST",
-        body: body ? JSON.stringify(body) : undefined,
-      })
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean; status?: string; message?: string; error?: string
-      }
-      if (res.ok) {
-        setLifecycleToast(
-          action === "confirm" ? "확정 완료"
-          : action === "void" ? "무효화 완료"
-          : action === "resolve" ? "해결 완료"
-          : "이의 제기됨",
-        )
-        loadRecentLogs()
-      } else {
-        setLifecycleToast(data.message || data.error || "처리 실패")
-      }
-    } catch {
-      setLifecycleToast("서버 오류")
-    } finally {
-      setLifecycleBusyId(null)
-      setTimeout(() => setLifecycleToast(""), 2500)
-    }
-  }
-
-  function startLifecycle(logId: string, action: LifecycleAction) {
-    if (action === "confirm") {
-      sendLifecycle(logId, "confirm")
-      return
-    }
-    // void / dispute / resolve → reason modal
-    //   void, dispute 는 reason 필수; resolve 는 선택 (빈 값 허용).
-    setReasonInput("")
-    setReasonModal({ logId, action })
-  }
-
-  function cancelReasonModal() {
-    setReasonModal(null)
-    setReasonInput("")
-  }
-
-  async function submitReasonModal() {
-    if (!reasonModal) return
-    const r = reasonInput.trim()
-    // resolve 는 reason 선택. void/dispute 는 필수.
-    if (!r && reasonModal.action !== "resolve") return
-    await sendLifecycle(
-      reasonModal.logId,
-      reasonModal.action,
-      r ? { reason: r } : undefined,
-    )
-    cancelReasonModal()
-  }
-
-  // UI-level action 가용성 (Phase 2 스펙):
-  //   draft:      [확정](owner), [무효](manager + owner)
-  //   confirmed:  [분쟁](all 3), [무효](owner)
-  //   disputed:   [확정](owner), [무효](owner)
-  //   voided/settled: 없음
-  // 서버가 최종 게이트. 여기서는 표시 편의만 판단.
-  function availableActions(log: WorkLogRow): LifecycleAction[] {
-    const isOwnerRole = userRole === "owner"
-    const isManagerRole = userRole === "manager"
-    const acts: LifecycleAction[] = []
-    if (log.status === "settled" || log.status === "voided") return []
-    if (log.status === "draft") {
-      if (isOwnerRole) acts.push("confirm", "void")
-      else if (isManagerRole) acts.push("void")
-    } else if (log.status === "confirmed") {
-      if (isOwnerRole) acts.push("dispute", "void")
-      else if (isManagerRole) acts.push("dispute")
-    } else if (log.status === "disputed") {
-      // Phase 3-A: disputed → confirmed 는 /resolve 경로로 이동. 버튼
-      // 라벨은 "해결" 로 표시하고 서버 action=resolve 호출.
-      if (isOwnerRole) acts.push("resolve", "void")
-    }
-    return acts
-  }
   // suppress unused var warning (snapshot comparisons no longer needed)
   void myUserId
   void myMembershipId
@@ -448,30 +293,6 @@ export default function StaffPage() {
     }
   }
 
-  // ── Grade change ──
-
-  async function handleGradeChange(membershipId: string, newGrade: Grade) {
-    setGradeBusy(membershipId)
-    try {
-      const res = await apiFetch("/api/store/staff/grade", {
-        method: "PATCH",
-        body: JSON.stringify({ membership_id: membershipId, grade: newGrade }),
-      })
-      if (res.ok) {
-        setAnalytics(prev =>
-          prev.map(a => a.membership_id === membershipId ? { ...a, grade: newGrade } : a)
-        )
-      } else {
-        const data = await res.json()
-        setError(data.message || "등급 변경 실패")
-      }
-    } catch {
-      setError("등급 변경 실패")
-    } finally {
-      setGradeBusy(null)
-    }
-  }
-
   // ── Derived data ──
 
   const [searchQuery, setSearchQuery] = useState("")
@@ -490,7 +311,8 @@ export default function StaffPage() {
     return acc
   }, {} as Record<StaffStatus, number>)
 
-  const canEditGrade = userRole === "owner" || userRole === "manager"
+  // 출근/근무기록 등 스태프 조작 권한 (등급 UI 는 제거됨).
+  const canManageStaff = userRole === "owner" || userRole === "manager"
   const perfUnitLabel = PERF_UNIT_OPTIONS.find(o => o.value === perfUnit)?.label ?? perfUnit
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -511,7 +333,10 @@ export default function StaffPage() {
       <div className="relative z-10">
         {/* ─── Header ─── */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">&larr; 카운터</button>
+          <button
+            onClick={() => router.push("/counter")}
+            className="text-cyan-400 text-sm"
+          >&larr; 뒤로</button>
           <span className="font-semibold">스태프 관리</span>
           <button
             onClick={() => setSettingsOpen(v => !v)}
@@ -675,41 +500,16 @@ export default function StaffPage() {
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="아가씨 이름 검색..."
+              placeholder="스태프 이름 검색..."
               className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-white/25"
             />
-            {/* ROUND-STAFF-2: visibility toggle — manager 에게만 노출.
-                owner / super_admin 은 항상 전체 조회라 UI 불필요. */}
-            {userRole === "manager" && (
-              <div className="flex items-center gap-1 text-[11px]">
-                <span className="text-slate-500">조회 범위:</span>
-                <button
-                  onClick={() => setVisibilityPreference("mine_only")}
-                  disabled={visibilityBusy}
-                  className={`px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50 ${
-                    visibilityMode === "mine_only"
-                      ? "bg-pink-500/20 text-pink-200 border-pink-500/30"
-                      : "bg-white/[0.03] text-slate-400 border-white/10 hover:bg-white/[0.08]"
-                  }`}
-                >
-                  내 아가씨만
-                </button>
-                <button
-                  onClick={() => setVisibilityPreference("store_shared")}
-                  disabled={visibilityBusy}
-                  className={`px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50 ${
-                    visibilityMode === "store_shared"
-                      ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
-                      : "bg-white/[0.03] text-slate-400 border-white/10 hover:bg-white/[0.08]"
-                  }`}
-                >
-                  같은 매장 전체
-                </button>
-                <span className="text-[10px] text-slate-600 ml-auto">
-                  조작은 자기 담당만
-                </span>
-              </div>
-            )}
+            {/* ROUND-STAFF-2 + ROUND-CLEANUP-002: 분리된 VisibilityControl */}
+            <VisibilityControl
+              userRole={userRole}
+              mode={visibilityMode}
+              busy={visibilityBusy}
+              onChange={setVisibilityPreference}
+            />
             {attendanceToast && (
               <div className="text-[11px] text-emerald-300 px-1">{attendanceToast}</div>
             )}
@@ -764,150 +564,24 @@ export default function StaffPage() {
               </div>
             )}
 
-            {filteredAnalytics.map(a => {
-              const stStyle = STATUS_STYLES[a.status]
-              const gStyle = a.grade ? GRADE_STYLES[a.grade] : null
-
-              return (
-                <div
-                  key={a.membership_id}
-                  className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 hover:bg-white/[0.05] transition-all"
-                >
-                  {/* Row 1: Name + grade + status */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {/* Grade badge */}
-                      {gStyle && a.grade && (
-                        <span className={`text-[11px] font-bold w-6 h-6 rounded-md flex items-center justify-center border ${gStyle.bg} ${gStyle.text} ${gStyle.border}`}>
-                          {a.grade}
-                        </span>
-                      )}
-                      {!a.grade && (
-                        <span className="text-[11px] w-6 h-6 rounded-md flex items-center justify-center border border-white/[0.06] bg-white/[0.02] text-slate-600">
-                          -
-                        </span>
-                      )}
-                      <span className="text-sm font-medium text-white">{a.name}</span>
-                    </div>
-
-                    {/* Status badge */}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${stStyle.bg} ${stStyle.text} ${stStyle.border}`}>
-                      {a.status}
-                    </span>
-                  </div>
-
-                  {/* Row 2: Mini stats */}
-                  <div className="flex gap-3 mb-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-slate-600">출근:</span>
-                      <span className={`text-[11px] font-medium ${
-                        a.attendance.days < (criteria?.minDays ?? 3) ? "text-amber-400" : "text-slate-300"
-                      }`}>
-                        {a.attendance.days}일
-                      </span>
-                      <span className="text-[10px] text-slate-600">({a.attendance.rate}%)</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-slate-600">갯수:</span>
-                      <span className={`text-[11px] font-medium ${
-                        a.performance.total_sessions < (criteria?.perfThreshold ?? 5) ? "text-orange-400" : "text-slate-300"
-                      }`}>
-                        {a.performance.total_sessions}건
-                      </span>
-                    </div>
-                    {a.attendance.consecutive_absent > 0 && (
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-slate-600">연속결근:</span>
-                        <span className={`text-[11px] font-medium ${
-                          a.attendance.consecutive_absent >= 3 ? "text-red-400" : "text-slate-400"
-                        }`}>
-                          {a.attendance.consecutive_absent}일
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Row 3: Grade buttons (manager/owner only) */}
-                  {canEditGrade && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-slate-600 mr-1">등급:</span>
-                      {GRADES.map(g => {
-                        const gs = GRADE_STYLES[g!]
-                        const isActive = a.grade === g
-                        return (
-                          <button
-                            key={g}
-                            onClick={() => handleGradeChange(a.membership_id, isActive ? null : g)}
-                            disabled={gradeBusy === a.membership_id}
-                            className={`text-[10px] font-bold w-7 h-6 rounded border transition-all disabled:opacity-50 ${
-                              isActive
-                                ? `${gs.bg} ${gs.text} ${gs.border}`
-                                : "bg-white/[0.03] text-slate-600 border-white/[0.06] hover:bg-white/[0.06]"
-                            }`}
-                          >
-                            {g}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {/* Row 4: 출근 토글 + 근무 기록 — manager/owner 만.
-                      ROUND-STAFF-1: 출근 ON/OFF 를 /api/attendance POST 로 호출.
-                        manager 가 자기 담당 아닌 아가씨 누르면 서버 403.
-                      근무 기록 은 기존. */}
-                  {canEditGrade && (() => {
-                    const attendanceOn = attendanceMap.has(a.membership_id)
-                    const busy = attendanceBusyId === a.membership_id
-                    // ROUND-STAFF-2: 조회는 store_shared 로 볼 수 있지만
-                    //   조작은 manager_membership_id 자기 담당만. 서버가 403 을
-                    //   반환하므로 UI 도 동일 규칙으로 disable — spam 방지.
-                    //   (super_admin 은 백엔드에서 bypass; 클라이언트 userRole
-                    //   기준은 owner / manager 만.)
-                    const canOperate =
-                      userRole === "owner" ||
-                      (userRole === "manager" && a.manager_membership_id === myMembershipId)
-                    const bleLive = bleLiveIds.has(a.membership_id)
-                    return (
-                      <div className="mt-2 flex items-center justify-end gap-1.5">
-                        {bleLive && (
-                          <span
-                            title="최근 10분 내 BLE 감지 (참고)"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20"
-                          >
-                            근무중 (BLE)
-                          </span>
-                        )}
-                        <button
-                          onClick={() => toggleAttendance(a.membership_id, attendanceOn)}
-                          disabled={busy || !canOperate}
-                          title={
-                            !canOperate
-                              ? "본인 담당 아가씨만 출근/퇴근 처리할 수 있습니다."
-                              : attendanceOn
-                              ? "퇴근 처리"
-                              : "출근 처리"
-                          }
-                          className={`text-[11px] px-3 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                            attendanceOn
-                              ? "bg-emerald-500/15 text-emerald-200 border-emerald-500/25 hover:bg-emerald-500/25"
-                              : "bg-white/[0.03] text-slate-400 border-white/10 hover:bg-white/[0.08] hover:text-slate-200"
-                          }`}
-                        >
-                          {busy ? "..." : attendanceOn ? "출근 중 · OFF" : "출근 ON"}
-                        </button>
-                        <button
-                          onClick={() => setWorkLogTarget({ membership_id: a.membership_id, name: a.name })}
-                          className="text-[11px] px-3 py-1 rounded-lg bg-pink-500/15 text-pink-200 border border-pink-500/25 hover:bg-pink-500/25"
-                        >
-                          근무 기록 +
-                        </button>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )
-            })}
+            {/* ROUND-CLEANUP-002: HostessCard 로 분리. 로직 동일. */}
+            {filteredAnalytics.map((a) => (
+              <HostessCard
+                key={a.membership_id}
+                a={a}
+                criteria={criteria}
+                canManageStaff={canManageStaff}
+                attendanceOn={attendanceMap.has(a.membership_id)}
+                attendanceBusy={attendanceBusyId === a.membership_id}
+                bleLive={bleLiveIds.has(a.membership_id)}
+                userRole={userRole}
+                myMembershipId={myMembershipId}
+                onToggleAttendance={toggleAttendance}
+                onOpenWorkLog={(membership_id, name) =>
+                  setWorkLogTarget({ membership_id, name })
+                }
+              />
+            ))}
           </div>
         )}
 
@@ -991,26 +665,65 @@ export default function StaffPage() {
               <p className="text-xs text-slate-500">기록된 근무 로그가 없습니다.</p>
             </div>
           )}
-          {recentLogs.length > 0 && (
+          {/* ── 담당 실장 없음 로그 접기/펼치기 (기본 숨김) ──
+              현재 /api/staff-work-logs 응답은 cross_store_work_records
+              기반 이라 manager_membership_id 가 항상 null → 모든 로그가
+              이 분기에 잡힘. 운영 화면 혼잡도 해소용 토글. */}
+          {(() => {
+            const unassignedCount = recentLogs.filter((l) => !l.session_manager_membership_id).length
+            if (unassignedCount === 0) return null
+            return (
+              <div className="mb-2 flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">
+                  {showUnassignedLogs
+                    ? `담당 실장 없음 ${unassignedCount}건 표시됨`
+                    : `담당 실장 없음 ${unassignedCount}건 숨김`}
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleUnassignedLogs}
+                  className="text-cyan-300 hover:text-cyan-200 font-medium"
+                >
+                  {showUnassignedLogs
+                    ? "담당 실장 없음 로그 숨기기"
+                    : "담당 실장 없음 로그 보기"}
+                </button>
+              </div>
+            )
+          })()}
+          {(() => {
+            const visibleRecentLogs = showUnassignedLogs
+              ? recentLogs
+              : recentLogs.filter((l) => !!l.session_manager_membership_id)
+            if (recentLogs.length > 0 && visibleRecentLogs.length === 0) {
+              return (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+                  <p className="text-xs text-slate-500">
+                    표시할 로그가 없습니다. 모든 항목이 담당 실장 미지정 상태입니다.
+                  </p>
+                </div>
+              )
+            }
+            if (visibleRecentLogs.length === 0) return null
+            return (
             <div className="space-y-1.5">
-              {recentLogs.map((log) => {
-                const d = new Date(log.started_at)
-                const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-                const catLabel =
-                  log.category === "public" ? "퍼블릭"
-                  : log.category === "shirt" ? "셔츠"
-                  : log.category === "hyper" ? "하이퍼"
-                  : log.category === "etc" ? "기타"
-                  : log.category
-                const wtLabel =
-                  log.work_type === "full" ? "완티"
-                  : log.work_type === "half" ? "반티"
-                  : log.work_type === "cha3" ? "차3"
-                  : log.work_type === "half_cha3" ? "반차3"
-                  : log.work_type
-                // 한글 상태 라벨. settled/voided 는 종착 상태.
+              {visibleRecentLogs.map((log) => {
+                // Phase 10 P1 (2026-04-24): 시간 SSOT = room_sessions.started_at
+                //   (방 담당실장 기준). log.created_at 은 origin 등록 시각 (참고).
+                const ssot = log.session_started_at
+                const regIso = log.created_at
+                const fmtHHMM = (iso: string | null) => {
+                  if (!iso) return "--:--"
+                  const d = new Date(iso)
+                  return Number.isNaN(d.getTime())
+                    ? "--:--"
+                    : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+                }
+                const workHHMM = fmtHHMM(ssot)
+                const regHHMM = fmtHHMM(regIso)
+                const showRegDiff = ssot && regIso && ssot !== regIso
                 const statusLabel =
-                  log.status === "draft" ? "미확정"
+                  (log.status === "pending" || log.status === "draft") ? "미확정"
                   : log.status === "confirmed" ? "확정"
                   : log.status === "disputed" ? "이의"
                   : log.status === "voided" ? "무효"
@@ -1021,10 +734,8 @@ export default function StaffPage() {
                   !!log.origin_store_uuid &&
                   !!log.working_store_uuid &&
                   log.origin_store_uuid === log.working_store_uuid
-                const hasHint =
-                  log.external_amount_hint != null && Number(log.external_amount_hint) > 0
-                const hasNoManager = !log.manager_membership_id
-                const isEtc = log.category === "etc"
+                const hasNoManager = !log.session_manager_membership_id
+                const hasNoSessionLink = !log.session_started_at
                 return (
                   <div
                     key={log.id}
@@ -1035,20 +746,33 @@ export default function StaffPage() {
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-cyan-300 font-mono text-[11px]">{hhmm}</span>
+                      <span
+                        title="근무 시작시간 (방 담당실장 기준)"
+                        className="text-cyan-300 font-mono text-[11px]"
+                      >
+                        {workHHMM}
+                      </span>
                       <span className={`font-medium truncate min-w-0 ${log.status === "voided" ? "text-slate-500 line-through" : "text-slate-100"}`}>
                         {log.hostess_name || "?"}
                       </span>
                       <span className="text-slate-500">→</span>
                       <span className="text-slate-300 truncate min-w-0">
                         {log.working_store_name || "?"}
-                        {log.working_store_room_label ? ` / ${log.working_store_room_label}` : ""}
+                        {log.room_no ? ` / ${log.room_no}번방` : ""}
                       </span>
-                      <span className="text-slate-500">·</span>
-                      <span className="text-pink-300">{catLabel}</span>
-                      <span className="text-purple-300">{wtLabel}</span>
+                      {log.session_manager_name && (
+                        <>
+                          <span className="text-slate-500">·</span>
+                          <span
+                            title="방 담당실장 (근무시간 SSOT)"
+                            className="text-purple-300 text-[11px] truncate"
+                          >
+                            {log.session_manager_name}
+                          </span>
+                        </>
+                      )}
                       <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${
-                        log.status === "draft" ? "bg-slate-500/15 text-slate-400 border-slate-500/20"
+                        (log.status === "pending" || log.status === "draft") ? "bg-slate-500/15 text-slate-400 border-slate-500/20"
                         : log.status === "confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
                         : log.status === "disputed" ? "bg-amber-500/15 text-amber-300 border-amber-500/25"
                         : log.status === "voided" ? "bg-red-500/10 text-red-400 border-red-500/20"
@@ -1059,8 +783,14 @@ export default function StaffPage() {
                         {isTerminal && <span className="ml-1 opacity-60">· 종착</span>}
                       </span>
                     </div>
-                    {/* 경고/메타 배지 라인 — 정산 편입 여부를 운영자가 즉시 인지 */}
-                    {(isSameStore || hasNoManager || isEtc || hasHint) && !isTerminal && (
+                    {/* 등록시각 (SSOT 와 다를 때만 표시) */}
+                    {showRegDiff && (
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        등록시각 {regHHMM} · 근무시간 {workHHMM} (방 담당실장 기준)
+                      </div>
+                    )}
+                    {/* 경고 배지 */}
+                    {(isSameStore || hasNoManager || hasNoSessionLink) && !isTerminal && (
                       <div className="flex flex-wrap items-center gap-1 mt-1">
                         {isSameStore && (
                           <span
@@ -1070,28 +800,20 @@ export default function StaffPage() {
                             ⚠ 본 매장 (정산 제외)
                           </span>
                         )}
-                        {hasNoManager && (
+                        {hasNoSessionLink && (
                           <span
-                            title="담당 실장 미지정 — confirm 시 MANAGER_REQUIRED"
+                            title="room_sessions 조인 실패 — session 이 삭제되었을 수 있음"
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20"
+                          >
+                            ⚠ 세션 링크 없음
+                          </span>
+                        )}
+                        {hasNoManager && !hasNoSessionLink && (
+                          <span
+                            title="방 담당실장 미지정 — confirm 시 MANAGER_REQUIRED"
                             className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20"
                           >
                             ⚠ 담당 실장 없음
-                          </span>
-                        )}
-                        {isEtc && (
-                          <span
-                            title="'기타' 종목 — 단가표 매핑 없음. hint 가 있어야 편입."
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-300 border border-slate-500/20"
-                          >
-                            기타 (단가 매핑 없음)
-                          </span>
-                        )}
-                        {hasHint && (
-                          <span
-                            title="external_amount_hint 지정됨 — 서버 단가와 일치해야 편입"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20"
-                          >
-                            힌트 {Number(log.external_amount_hint).toLocaleString("ko-KR")}원
                           </span>
                         )}
                       </div>
@@ -1146,7 +868,8 @@ export default function StaffPage() {
                 )
               })}
             </div>
-          )}
+            )
+          })()}
         </div>
       </div>
 
@@ -1218,6 +941,9 @@ export default function StaffPage() {
           </div>
         )
       })()}
+
+      {/* ROUND-OPS-2: 하루 1회 운영 체크 강제 모달 */}
+      <DailyOpsCheckGate />
     </div>
   )
 }

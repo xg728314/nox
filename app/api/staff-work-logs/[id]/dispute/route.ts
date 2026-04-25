@@ -6,22 +6,25 @@ import {
   checkDisputeScopeGate,
   errResp,
   getServiceClient,
-} from "@/lib/server/queries/staffWorkLogLifecycle"
+} from "@/lib/server/queries/staff/workLogLifecycle"
 import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/dispute
  *
- * confirmed → disputed 전이. **양쪽 매장 (origin / working)** caller 허용.
- * 전이 규칙 (Phase 2 스펙):
- *   - owner (origin store OR working store)
- *   - manager (양쪽 매장 중 하나 — store_uuid 일치)
- *   - super_admin (임의)
- *   - confirmed 외 상태 → INVALID_STATE_TRANSITION
- *   - settled / voided → SETTLED_LOCKED / INVALID_STATE_TRANSITION
+ * confirmed → disputed (cross_store_work_records).
+ * 양쪽 매장 (origin / working) caller 허용.
  *
- * Body: { reason: string } — 필수. 이번 라운드는 DB 에 별도 컬럼 없이
- *   audit_events.reason + metadata 에만 저장 (DB 대수술 금지 제약).
+ * ⚠️ 2026-04-24 수정:
+ *   실 테이블 cross_store_work_records 에는 manager_membership_id 컬럼 없음.
+ *   기존 "manager_membership_id === auth.membership_id" 검증 제거.
+ *   manager 경로 권한은 다음으로 재정의:
+ *     - store scope: origin_store_uuid OR working_store_uuid === auth.store_uuid
+ *     - AND requested_by === auth.membership_id (자기 요청 건만)
+ *   owner / super_admin 은 store scope 만 통과하면 허용.
+ *
+ * Body: { reason: string } — 필수. DB 에 reason 컬럼이 없으므로
+ *   audit_events 에만 저장.
  */
 export async function POST(
   request: Request,
@@ -49,7 +52,6 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     reason?: unknown; memo?: unknown
   }
-  // 스펙: reason 또는 memo 둘 중 하나 필수. reason 우선.
   const reason =
     (typeof body.reason === "string" ? body.reason.trim() : "") ||
     (typeof body.memo === "string" ? body.memo.trim() : "")
@@ -74,7 +76,6 @@ export async function POST(
   if (loadErr) return errResp(loadErr)
   if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
 
-  // 매장 scope: origin 또는 working 모두 허용 (양쪽 매장 이의 제기 가능).
   const scopeErr = checkDisputeScopeGate(row, auth)
   if (scopeErr) return errResp(scopeErr)
 
@@ -88,26 +89,24 @@ export async function POST(
     )
   }
 
-  // Phase 4 감사 라운드: manager 는 **자기 담당 로그만** dispute 가능.
-  //   row.manager_membership_id === auth.membership_id 강제.
-  //   owner / super_admin 은 매장 scope 만 통과하면 가능 (기존 로직).
+  // manager 의 경우: store scope 통과 + 자기 요청 건만.
+  //   manager_membership_id 컬럼 제거 대체로 requested_by 기준.
   if (isManager && !isOwner && !isSuperAdmin) {
-    if (row.manager_membership_id !== auth.membership_id) {
+    if (row.requested_by !== auth.membership_id) {
       return NextResponse.json(
         {
           error: "ASSIGNMENT_FORBIDDEN",
-          message: "자기 담당 아가씨 로그만 이의 제기할 수 있습니다.",
+          message: "자기가 요청한 로그만 이의 제기할 수 있습니다.",
         },
         { status: 403 },
       )
     }
   }
-  void isOwner
 
   const supabase = getServiceClient()
   const nowIso = new Date().toISOString()
   const { error: updateErr } = await supabase
-    .from("staff_work_logs")
+    .from("cross_store_work_records")
     .update({
       status: "disputed",
       updated_at: nowIso,
@@ -116,7 +115,7 @@ export async function POST(
 
   if (updateErr) {
     return NextResponse.json(
-      { error: "UPDATE_FAILED", message: "이의 처리 실패" },
+      { error: "UPDATE_FAILED", message: `이의 처리 실패: ${updateErr.message}` },
       { status: 500 },
     )
   }
@@ -132,7 +131,8 @@ export async function POST(
       work_log_id: id,
       from_status: row.status,
       to_status: "disputed",
-      manager_membership_id: row.manager_membership_id,
+      requested_by: row.requested_by,
+      approved_by: row.approved_by,
     },
   })
   if (auditFail) return auditFail

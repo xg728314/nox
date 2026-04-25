@@ -61,7 +61,33 @@ A user can have multiple memberships (cross-store). Only `is_primary=true` and `
 
 ### Database (`database/002_actual_schema.sql`)
 
-Source of truth for DB schema (extracted from live Supabase). RLS is disabled for MVP. Key tables: `profiles`, `stores`, `store_memberships`, `store_operating_days`, `rooms`, `room_sessions`, `session_participants`, `hostesses`, `managers`, `menu_items`, `orders`, `receipts`, `receipt_snapshots`, `store_settings`, `transfer_requests`, `audit_events`, `closing_reports`.
+Source of truth for DB schema (extracted from live Supabase). Key tables: `profiles`, `stores`, `store_memberships`, `store_operating_days`, `rooms`, `room_sessions`, `session_participants`, `hostesses`, `managers`, `menu_items`, `orders`, `receipts`, `receipt_snapshots`, `store_settings`, `transfer_requests`, `audit_events`, `closing_reports`.
+
+**RLS 상태 (2026-04-24 실사)**:
+- RLS **활성 테이블 24개** (migration 064~070 이 실 DB 에 적용됨).
+- 활성 테이블: `audit_events, ble_*, closing_reports, cross_store_work_records, hostesses, location_correction_logs, managers, orders, participant_time_segments, profiles, receipt_snapshots, receipts, room_sessions, rooms, session_participants, store_memberships, store_operating_days, store_settings, stores, transfer_requests` 등.
+- 실 운영 영향: 앱 route 는 **service-role key** 로 Supabase 클라이언트를 생성 → RLS 우회. 따라서 app 레벨 동작 차이 없음.
+- 주의: 일반 user JWT 클라이언트로 직접 쿼리하면 정책 제약 적용됨 (개발 중 Supabase Dashboard 쿼리 등).
+
+**`cross_store_work_records` vs `staff_work_logs`**:
+- `staff_work_logs` 테이블은 **live DB 에 존재하지 않음**.
+- `/api/staff-work-logs` route 는 `cross_store_work_records` 테이블 기준으로 재작성됨 (2026-04-24).
+- migration `059_staff_work_logs.sql` 은 **내용상 `cross_store_work_records` 테이블 생성에 대응** (파일명 오해 주의).
+- migration `060_cross_store_items_work_log_link.sql` 은 **미적용** (staff_work_log_id / hostess_membership_id / category / work_type 컬럼 부재).
+
+**파일명 alias (실 apply 이름 ↔ 로컬 파일명)**:
+| Supabase history | 로컬 파일 |
+|---|---|
+| `step_011d_payout_and_cross_store_normalization` | `036_payout_and_cross_store_normalization.sql` |
+| `step_011e_settlement_payout_hardening` | `037_settlement_payout_hardening.sql` |
+| `step_011f_cross_store_legacy_drop` | `038_cross_store_legacy_drop.sql` |
+| `chat_rooms_close_fields` | `028_chat_rooms_close_fields.sql` |
+| `chat_participants_pinned_at` | `029_chat_participants_pinned_at.sql` |
+| `044_auth_rate_limits_and_security_logs` | `052_auth_rate_limits.sql` |
+| **`080_manager_prepayments`** | **`043_manager_prepayments.sql`** ← 043 slot 충돌로 80 으로 apply |
+| `043_super_admin_global_roles` | (로컬 파일 없음 — SQL 에디터 직접 생성) |
+
+상세 관리 가이드: `database/README.md` 참조.
 
 Note: `database/001_initial_schema.sql` is DEPRECATED. `database/20260411_foxpro_checkout.sql` was NEVER applied to DB.
 
@@ -177,6 +203,74 @@ These areas must not be modified without explicit task authorization:
 ## Orchestration
 
 Development is managed through an orchestration system (`orchestration/`). Tasks are defined as rounds in `orchestration/tasks/`. The orchestrator (ChatGPT) defines tasks; Claude Code executes single-file changes. Default mode: `controlled_auto_stop_on_fail`.
+
+## Floor Expansion Status (2026-04-24)
+
+- **5F 전체 완료 · 검증됨** (2026-04-12 기준, 아래 LOCKED 항목 참조).
+- **6·7·8F 확장 준비 완료** (2026-04-24):
+  - 층 범위 단일 원본: `lib/building/floors.ts` (`BUILDING_FLOORS = [5,6,7,8]`). 향후 층 변경 시 이 한 파일만 수정.
+  - `rooms.floor_no` CHECK 제약 (migration 083) — 5~8 범위 강제.
+  - scopeResolver / zones 전부 `BUILDING_FLOORS` 파생.
+  - 신규 매장 추가 절차: stores row INSERT → rooms row INSERT (floor_no 5~8) → `store_service_types` 전체 종목 단가 등록 (필수 — 없으면 체크인 실패).
+
+## Known Gaps (R28, 향후 라운드 후보)
+
+코드 실사로 확인된 "조용한 실패" 가능 지점. 우선순위 순.
+
+1. ~~**MFA backup_codes 미사용**~~ — **R25 완료**.
+2. ~~**audit_events 무한 성장**~~ — **R26 완료**.
+3. ~~**MFA setup UI 부재**~~ — **R26 완료**.
+4. ~~**외상 PII 열람 감사 부재**~~ — **R28 완료**. credits/customers GET 응답 시 audit log.
+5. ~~**Sentry 통합**~~ — **R28 완료**. `@sentry/nextjs` + instrumentation. `SENTRY_DSN` env 미설정 시 silent.
+6. ~~**checkin race condition**~~ — **R28 완료**. migration 093 partial UNIQUE index.
+7. ~~**business_date UTC 버그**~~ — **R28 완료**. `lib/time/businessDate.ts` (KST 헬퍼). 18 파일 sweep.
+8. ~~**owner 응답에 manager/hostess payout 개별 노출**~~ — **R28 완료**. per-manager visibility 토글 + per-row 마스킹.
+9. ~~**pre-settlement idempotency**~~ — **R28 완료**. 60초 윈도우 중복 차단.
+10. ~~**CSP 헤더 부재**~~ — **R28 완료**. next.config.ts.
+11. **DB backup 복원 시연 미실시** — 절차성. 운영 작업.
+12. **카운터 PC 시계 어긋남** — server timestamps 위주, 일부 UI 만 client clock. 전수 점검 필요.
+13. **Phase B 큰 파일 분할** — `CounterPageV2.tsx` (1328줄), `monitor/route.ts` (1076줄) 등. 각 1라운드씩.
+
+## Paper Ledger Reconciliation (R27~R30, 2026-04-25)
+
+종이장부 사진 ↔ NOX 온라인 장부 자동 대조 시스템.
+
+**폴더 분배**:
+- `database/092_paper_ledger.sql` — 4 테이블 + RLS
+- `lib/reconcile/types.ts | symbols.ts | prompts.ts | extract.ts | paperTotals.ts | dbAggregate.ts | match.ts` — 도메인 로직
+- `lib/storage/paperLedgerBucket.ts` — Supabase Storage 헬퍼 (재사용 위치)
+- `app/api/reconcile/upload | list | [id] | [id]/extract | [id]/diff | [id]/review | format` — REST
+- `app/reconcile/page.tsx | [id]/page.tsx | setup/page.tsx` — UI
+
+**핵심 전략 (사용자 인사이트)**: SUM-anchored Reconciliation. 셀 단위 OCR 정확도에 의존하지 않고 **줄돈/받돈 합계** 가 일치하는지 본다. 합계 일치 = 그날 OK.
+
+**도메인 어휘 (모든 매장 공통 default — `lib/reconcile/symbols.ts`)**:
+- ★ = 셔츠, 빨간 동그라미 = 차3, 동그라미 2겹 = 반차3
+- (완) = 완티, (반) = 반티, (반차3)/(빵3) = 반차3
+- 한자 一/ㅡ = 1, 二/ㅜ = 2 (룸티 또는 타임 카운트)
+- 시간 뒤 S = 셔츠
+- "이름·매장" → hostess_name + origin_store
+- 모르는 심볼 = `unknown_tokens` 배열에 적재 → owner 가 `/reconcile/setup` 에서 등록
+
+**환경 변수**: `ANTHROPIC_API_KEY` 필요 (Claude Vision). 미설정 시 자동 추출만 비활성, 사진 보관/수동 리뷰는 동작.
+
+**비용**: 페이지당 ~$0.003. 14매장 × 2장 × 30일 ≈ $2.5/월.
+
+## Operational Hardening (2026-04-24 추가)
+
+- **archive-on-print** (migration 085): 정산 finalize + 인쇄 완료 시 `archived_at` 스탬프. 모든 active UI 쿼리는 `archived_at IS NULL` 필터. hard delete 아님 (세법 5년 보관 + 분쟁 증빙 유지).
+- **cron heartbeat** (migration 090, R24): 4개 Vercel cron 이 시작 시 `cron_heartbeats` 테이블에 stamp. `/ops/watchdog` 이 stale 자동 검출. 사일런트 cron 실패 가시화.
+- **에러 경계** (`app/error.tsx`, `app/global-error.tsx`): 한 페이지 크래시가 전체 죽이지 않음.
+- **세션 타임아웃** (`lib/security/useIdleLogout.ts`): 30분 무조작 시 자동 로그아웃. 카운터 PC 방치 대응.
+- **에러 메시지 사전** (`lib/errors/messages.ts`): API error code → 한국어 사용자 문구 매핑.
+- **정산 계산 단위 테스트** (`lib/settlement/services/__tests__/`): 14 시나리오 고정. `npm test`.
+- **부하 테스트 스크립트** (`scripts/load-test/`): k6 기반 read-path baseline.
+
+## Protected Calculation Invariants (절대 훼손 금지)
+
+- `lib/session/services/pricingLookup.ts` — DB 미조회 시 **PricingLookupError** 를 던진다. fallback 금액(3만/0 등) 복구 금지.
+- `lib/settlement/services/calculateSettlement.ts` — `toNum()` 가드로 NUMERIC string/null/NaN 안전 처리. 이 가드 제거 금지.
+- `app/api/sessions/checkin/route.ts` + `app/api/sessions/[session_id]/route.ts` — `manager_membership_id` 를 `store_memberships` 에서 (same store + approved + not-deleted + role=manager) 검증. 이 체크 제거 금지.
 
 ## LOCKED - 5층 전체 완료 (2026-04-12)
 

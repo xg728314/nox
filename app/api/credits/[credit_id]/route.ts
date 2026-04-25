@@ -3,6 +3,7 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
 import { auditOr500 } from "@/lib/audit/logEvent"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
 
 /**
  * GET   /api/credits/[credit_id] — 외상 상세 조회
@@ -42,13 +43,16 @@ export async function GET(
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    const { data: credit, error: queryError } = await supabase
-      .from("credits")
-      .select("*")
-      .eq("id", credit_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .maybeSingle()
+    // 2026-04-25: archived 된 외상은 상세 조회에서도 숨김.
+    const applyArchivedNull = await archivedAtFilter(supabase, "credits")
+    const { data: credit, error: queryError } = await applyArchivedNull(
+      supabase
+        .from("credits")
+        .select("*")
+        .eq("id", credit_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+    ).maybeSingle()
 
     if (queryError || !credit) {
       return NextResponse.json(
@@ -240,18 +244,42 @@ export async function PATCH(
     // (line 176). The `.eq("status", "pending")` filter here ensures only one
     // transitions the row; the loser receives 0 rows affected and a 409
     // instead of double-writing collected_at / collected_by / audit entries.
-    const { data: updated, error: updateError } = await supabase
-      .from("credits")
-      .update(updateData)
-      .eq("id", credit_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("status", "pending")
-      .select("id, status, amount, customer_name, collected_at, collected_by, linked_account_id, updated_at")
-      .maybeSingle()
+    //
+    // 2026-04-25 hotfix: migration 025 미적용 DB 에서는 linked_account_id
+    //   컬럼 자체가 없음. select 절에 포함하면 42703 으로 전체 UPDATE 실패.
+    //   updateData 에 linked_account_id 가 들어있으면 먼저 제거 시도, 그래도
+    //   select 가 실패하면 축약된 select 로 재시도.
+    const BASE_SELECT = "id, status, amount, customer_name, collected_at, collected_by, updated_at"
+    const FULL_SELECT = `${BASE_SELECT}, linked_account_id`
+
+    async function runUpdate(selectCols: string, payload: Record<string, unknown>) {
+      return await supabase
+        .from("credits")
+        .update(payload)
+        .eq("id", credit_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("status", "pending")
+        .select(selectCols)
+        .maybeSingle()
+    }
+
+    let { data: updated, error: updateError } = await runUpdate(FULL_SELECT, updateData)
+    if (updateError && updateError.code === "42703") {
+      console.warn(
+        "[credits PATCH] linked_account_id column missing — migration 025 미적용. 필드 제외 후 재시도.",
+      )
+      // linked_account_id 를 업데이트에서도 제거 (컬럼이 없으니 쓸 수 없음)
+      const safePayload = { ...updateData }
+      delete safePayload.linked_account_id
+      const retry = await runUpdate(BASE_SELECT, safePayload)
+      updated = retry.data
+      updateError = retry.error
+    }
 
     if (updateError) {
+      console.error("[credits PATCH] updateError:", updateError)
       return NextResponse.json(
-        { error: "UPDATE_FAILED", message: "Failed to update credit." },
+        { error: "UPDATE_FAILED" },
         { status: 500 }
       )
     }

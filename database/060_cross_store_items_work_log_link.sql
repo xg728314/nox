@@ -1,3 +1,13 @@
+-- ⚠️ STATUS: DEFERRED (2026-04-24 Round 3 결정)
+-- `staff_work_log_id`, `hostess_membership_id`, `category`, `work_type` 4개 컬럼
+-- 모두 items 에 부재. 본 migration 은 `staff_work_logs` 테이블 존재 전제인데
+-- 해당 테이블은 live DB 에 없음 (059 가 실제로는 cross_store_work_records 를 만듦).
+-- Round 3 결정: **보류 확정**.
+--   - FK 대상 `staff_work_logs` 부재 → 본 파일 그대로 apply 불가
+--   - 대체 경로 075 (`cross_store_work_record_id`) 이미 운영 중
+--   - `hostess_membership_id / category / work_type` 을 items 에 직접 저장할지는
+--     별도 설계 결정 (session_participants 경유 조회로 현재 충분).
+--
 -- ============================================================
 -- 060_cross_store_items_work_log_link.sql
 -- Phase 3/4 — staff_work_logs → cross_store_settlement_items 편입.

@@ -83,7 +83,7 @@ export default function PayoutsOverviewPage() {
             <section className="grid grid-cols-3 gap-3">
               {(["hostess", "manager", "store"] as const).map(k => {
                 const r = data.rollup[k]
-                const label = k === "hostess" ? "아가씨" : k === "manager" ? "실장" : "매장"
+                const label = k === "hostess" ? "스태프" : k === "manager" ? "실장" : "매장"
                 return (
                   <div key={k} className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
                     <p className="text-xs text-slate-400">{label}</p>
@@ -110,7 +110,7 @@ export default function PayoutsOverviewPage() {
                 <p className="mt-1 text-[11px] text-slate-500">{won(data.rollup.manager.remaining)} 미지급</p>
               </button>
               <button onClick={() => router.push("/payouts/hostesses")} className="rounded-lg border border-white/10 bg-white/[0.04] p-4 text-left hover:bg-white/[0.08]">
-                <p className="text-sm font-medium">아가씨 지급</p>
+                <p className="text-sm font-medium">스태프 지급</p>
                 <p className="mt-1 text-[11px] text-slate-500">{won(data.rollup.hostess.remaining)} 미지급</p>
               </button>
               <button onClick={() => router.push("/payouts/cross-store")} className="col-span-2 rounded-lg border border-white/10 bg-white/[0.04] p-4 text-left hover:bg-white/[0.08]">

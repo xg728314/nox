@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 import { useRouter } from "next/navigation"
-import { createClient as createSupabaseClient } from "@supabase/supabase-js"
+import { createAuthedClient } from "@/lib/supabaseClient"
 import { apiFetch } from "@/lib/apiFetch"
 import type { Room, DailySummary } from "../types"
 
@@ -165,17 +165,104 @@ export function useRooms(): UseRoomsReturn {
     return () => clearInterval(iv)
   }, [])
 
-  // Realtime subscription — resubscribe only when store_uuid changes.
+  // ─── Realtime token state (authed transition prep) ──────────────
   //
-  // P1 준비: 이벤트를 직접 refreshRooms 에 바로 꽂는 대신 scheduleRefresh
-  // 를 통과시켜 150ms 내 중복을 하나로 합친다. onRealtimeEvent 콜백은
-  // 이벤트마다 호출되며 legacy `(table)` 시그니처와 새 `(event)` 시그니처
-  // 모두 지원. BLE ingest 가 session_participants 에 초당 수십 건을 쓰는
-  // 시나리오에서 refetch 폭증을 구조적으로 막는다.
+  // 변경 배경 (이번 라운드):
+  //   room_sessions / session_participants / orders 에 RLS 가 켜지기 전에,
+  //   realtime client 를 anon → authed 로 전환한다. anon 은 향후 RLS 정책
+  //   (068/069/070 동형) 하에 0 이벤트로 degrade 되므로 fail-closed 설계가
+  //   기본. token 이 없으면 구독을 열지 않는다.
+  //
+  // 토큰 소스:
+  //   /api/auth/realtime-token  — 서버가 HttpOnly 쿠키(nox_access_token)
+  //                               를 읽고 { access_token, expires_at } 반환.
+  //                               401 → fail-closed (구독 X).
+  //
+  // 갱신:
+  //   exp - 60 초 시점에 재요청해서 새 토큰으로 resubscribe. 실패 시
+  //   기존 channel 은 즉시 해제하고 구독 없음 상태로 전환 (anon fallback
+  //   금지 규칙).
+  const [realtimeToken, setRealtimeToken] = useState<string | null>(null)
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    if (!url || !key || !currentStoreUuid) return
+    let cancelled = false
+
+    async function fetchToken(): Promise<void> {
+      try {
+        const res = await apiFetch("/api/auth/realtime-token")
+        if (cancelled) return
+        if (!res.ok) {
+          // fail-closed: 401/403/429/그 외 모두 token 비우기 → 구독 effect 가 열지 않음.
+          // 조용히 죽지는 않게 한 줄 warn 로그 — Vercel logs / DevTools 에서
+          // realtime 구독 미활성 원인을 추적할 단서를 남긴다. 토큰 자체는
+          // 절대 로그에 남기지 않음 (상태 코드 + 에러 코드만).
+          let code = "NO_BODY"
+          try {
+            const body = (await res.json()) as { error?: string }
+            if (typeof body.error === "string") code = body.error
+          } catch { /* ignore */ }
+          // eslint-disable-next-line no-console
+          console.warn(`[useRooms] realtime-token ${res.status} ${code} — realtime subscription disabled`)
+          setRealtimeToken(null)
+          // 429 는 짧은 backoff 로 재시도, 그 외 장애는 다음 mount 까지 대기.
+          if (res.status === 429) {
+            const retryAfter = Number(res.headers.get("Retry-After") ?? "") || 30
+            if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current)
+            tokenRefreshTimerRef.current = setTimeout(() => { void fetchToken() }, retryAfter * 1000)
+          }
+          return
+        }
+        const body = (await res.json()) as { access_token?: string; expires_at?: number }
+        const tok = typeof body.access_token === "string" ? body.access_token : ""
+        const exp = typeof body.expires_at === "number" ? body.expires_at : 0
+        if (!tok || !exp) {
+          // eslint-disable-next-line no-console
+          console.warn("[useRooms] realtime-token 200 but payload invalid — realtime disabled")
+          setRealtimeToken(null)
+          return
+        }
+        setRealtimeToken(tok)
+        // schedule refresh 60 s before exp. exp 이 이미 60 s 내면 30 s 후 재시도.
+        const msUntilRefresh = Math.max(30_000, exp * 1000 - Date.now() - 60_000)
+        if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current)
+        tokenRefreshTimerRef.current = setTimeout(() => { void fetchToken() }, msUntilRefresh)
+      } catch (err) {
+        if (cancelled) return
+        const msg = err instanceof Error ? err.message : String(err)
+        // eslint-disable-next-line no-console
+        console.warn(`[useRooms] realtime-token fetch failed: ${msg} — realtime disabled`)
+        setRealtimeToken(null)
+      }
+    }
+
+    void fetchToken()
+
+    return () => {
+      cancelled = true
+      if (tokenRefreshTimerRef.current) {
+        clearTimeout(tokenRefreshTimerRef.current)
+        tokenRefreshTimerRef.current = null
+      }
+    }
+  }, [])
+
+  // ─── Realtime subscription ──────────────────────────────────────
+  //
+  // 구독 lifecycle:
+  //   - realtimeToken / currentStoreUuid 가 모두 준비된 경우에만 channel open.
+  //     둘 중 하나라도 없으면 기존 channel 이 있으면 teardown 후 구독 없음.
+  //   - token 이 바뀌면 (refresh 성공 or 로그아웃 후 재로그인) dependency 가
+  //     재평가되어 이전 channel 은 cleanup 으로 removeChannel, 새 token 으로
+  //     재구독.
+  //   - fail-closed: anon fallback 없음. token 부재 = 구독 없음.
+  //
+  // coalesce 동작 (기존):
+  //   150ms 내 이벤트 1회 refreshRooms. onRealtimeEvent 콜백은 개별 이벤트로
+  //   유지. refetchRooms 흐름 불변.
+  useEffect(() => {
+    if (!currentStoreUuid) return
+    if (!realtimeToken) return // fail-closed
 
     type CdcEventType = "INSERT" | "UPDATE" | "DELETE"
     function dispatchEvent(
@@ -187,10 +274,6 @@ export function useRooms(): UseRoomsReturn {
       pendingEventsRef.current.add(table)
       const sink = onRealtimeEvent
       if (sink) {
-        // Legacy `(table: RealtimeTable) => void` callers keep receiving the
-        // original string. New `(ev: RealtimeEvent) => void` callers now get
-        // the full CDC payload and can apply an in-memory patch instead of
-        // triggering a full refetch.
         const legacyLen = (sink as { length: number }).length
         if (legacyLen <= 1) {
           try { (sink as (t: RealtimeTable) => void)(table) } catch { /* ignore */ }
@@ -207,21 +290,23 @@ export function useRooms(): UseRoomsReturn {
           try { (sink as (e: RealtimeEvent) => void)(ev) } catch { /* ignore */ }
         }
       }
-      // orders 는 rooms 리스트 자체에 반영 안 되므로 refresh 스케줄 생략 —
-      // 기존 동작과 동일 (orders 이벤트는 onRealtimeEvent 로만 전파).
       if (table !== "orders") scheduleRefreshRef.current?.()
     }
 
     function extractEventType(p: unknown): CdcEventType {
       const t = (p as { eventType?: string })?.eventType
       if (t === "INSERT" || t === "UPDATE" || t === "DELETE") return t
-      return "UPDATE" // safe default: patch logic handles update-shape
+      return "UPDATE"
     }
 
-    const client = createSupabaseClient(url, key)
+    // 2026-04-24 P2 fix: store_uuid 필터를 서버(Realtime)에서 적용해서
+    //   6~8층 확장 후 메시지량 폭증 방지. 이전에는 전체 매장 이벤트를
+    //   client 가 받아 필터링 → 불필요한 트래픽/배터리 소모.
+    const storeFilter = `store_uuid=eq.${currentStoreUuid}`
+    const client = createAuthedClient(realtimeToken)
     const channel = client
-      .channel("counter-v2-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "room_sessions" }, (p) => {
+      .channel(`counter-v2-rt-${currentStoreUuid}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_sessions", filter: storeFilter }, (p) => {
         dispatchEvent(
           "room_sessions",
           extractEventType(p),
@@ -229,7 +314,7 @@ export function useRooms(): UseRoomsReturn {
           (p?.old as Record<string, unknown>) ?? null,
         )
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "session_participants" }, (p) => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "session_participants", filter: storeFilter }, (p) => {
         dispatchEvent(
           "session_participants",
           extractEventType(p),
@@ -237,7 +322,7 @@ export function useRooms(): UseRoomsReturn {
           (p?.old as Record<string, unknown>) ?? null,
         )
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (p) => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: storeFilter }, (p) => {
         dispatchEvent(
           "orders",
           extractEventType(p),
@@ -254,7 +339,7 @@ export function useRooms(): UseRoomsReturn {
       client.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStoreUuid, onRealtimeEvent])
+  }, [currentStoreUuid, realtimeToken, onRealtimeEvent])
 
   return {
     rooms,

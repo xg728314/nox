@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { escapeLikeValue } from "@/lib/security/postgrestEscape"
+import { logAuditEvent } from "@/lib/audit/logEvent"
 
 /**
  * GET  /api/customers?q=xxx&scope=mine|all — 손님 검색 (store_uuid 기준)
@@ -66,8 +67,8 @@ export async function GET(request: Request) {
     const { data: customers, error: queryError } = await query
 
     if (queryError) {
-      console.error("[customers GET] query failed:", queryError.message, queryError.details)
-      return NextResponse.json({ error: "QUERY_FAILED", message: queryError.message }, { status: 500 })
+      console.error("[customers GET] query failed:", queryError)
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
 
     // Enrich with visit stats from room_sessions
@@ -130,6 +131,23 @@ export async function GET(request: Request) {
         last_visit: stats?.last_visit ?? null,
       }
     })
+
+    // R28-PII: 손님 이름/전화 응답 시 audit log (개인정보보호법 대응).
+    if (enriched.length > 0) {
+      logAuditEvent(supabase, {
+        auth: authContext,
+        action: "customers_viewed",
+        entity_table: "credits", // 가까운 entity_table — customers 가 audit type 에 없으므로 reuse
+        entity_id: authContext.store_uuid,
+        status: "success",
+        metadata: {
+          row_count: enriched.length,
+          search_query: q ? "yes" : "no",
+          scope,
+          contains_phone: enriched.some(c => c.phone),
+        },
+      }).catch(() => { /* silent */ })
+    }
 
     return NextResponse.json({ customers: enriched })
   } catch (error) {
@@ -200,8 +218,8 @@ export async function POST(request: Request) {
       .single()
 
     if (insertError || !customer) {
-      console.error("[customers POST] insert failed:", insertError?.message, insertError?.details)
-      return NextResponse.json({ error: "CREATE_FAILED", message: insertError?.message ?? "손님 등록에 실패했습니다." }, { status: 500 })
+      console.error("[customers POST] insert failed:", insertError)
+      return NextResponse.json({ error: "CREATE_FAILED", message: "손님 등록에 실패했습니다." }, { status: 500 })
     }
 
     // Audit

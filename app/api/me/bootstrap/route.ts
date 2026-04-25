@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getMeAccounts } from "@/lib/server/queries/meAccounts"
-import { getMePayees } from "@/lib/server/queries/mePayees"
+import { getMeAccounts } from "@/lib/server/queries/me/accounts"
+import { getMePayees } from "@/lib/server/queries/me/payees"
 
 async function slot<T>(
   routeTag: string,

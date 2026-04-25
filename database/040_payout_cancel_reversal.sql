@@ -110,9 +110,12 @@ BEGIN
   END IF;
   v_new_item_status := CASE WHEN v_new_item_remaining = 0 THEN 'completed' ELSE 'partial' END;
 
+  -- Phase 10 (2026-04-24) schema-drift fix:
+  --   items.prepaid_amount was DROPPED in 038_cross_store_legacy_drop.sql.
+  --   paid_amount is SSOT for items after 038. Header (cross_store_settlements)
+  --   still retains prepaid_amount — that UPDATE below is intentionally kept.
   UPDATE cross_store_settlement_items
   SET paid_amount = v_new_item_paid,
-      prepaid_amount = v_new_item_paid,
       remaining_amount = v_new_item_remaining,
       status = v_new_item_status,
       updated_at = now()
@@ -419,9 +422,12 @@ BEGIN
     ELSE 'partial'
   END;
 
+  -- Phase 10 (2026-04-24) schema-drift fix:
+  --   items.prepaid_amount was DROPPED in 038_cross_store_legacy_drop.sql.
+  --   paid_amount is SSOT for items after 038. Header (cross_store_settlements)
+  --   still retains prepaid_amount — that UPDATE below is intentionally kept.
   UPDATE cross_store_settlement_items
   SET paid_amount = v_new_item_paid,
-      prepaid_amount = v_new_item_paid,
       remaining_amount = v_new_item_remaining,
       status = v_new_item_status,
       updated_at = now()

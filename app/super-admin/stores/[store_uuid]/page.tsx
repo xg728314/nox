@@ -645,11 +645,11 @@ export default function SuperAdminStorePage({
                   <thead>
                     <tr className="text-left text-slate-500 border-b border-white/5">
                       <th className="px-3 py-2">실장</th>
-                      <th className="px-3 py-2 text-right">담당 아가씨</th>
+                      <th className="px-3 py-2 text-right">담당 스태프</th>
                       <th className="px-3 py-2 text-right">참여 세션</th>
                       <th className="px-3 py-2 text-right">총매출</th>
                       <th className="px-3 py-2 text-right">실장 합계</th>
-                      <th className="px-3 py-2 text-right">아가씨 합계</th>
+                      <th className="px-3 py-2 text-right">스태프 합계</th>
                       <th className="px-3 py-2">상태</th>
                     </tr>
                   </thead>

@@ -12,6 +12,18 @@
     {
       "path": "/api/cron/ops-alerts-scan",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/ble-session-inference",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/audit-archive",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/settlement-tree-advance",
+      "schedule": "0 8 * * *"
     }
   ]
 }

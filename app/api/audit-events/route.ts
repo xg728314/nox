@@ -102,7 +102,8 @@ export async function GET(request: Request) {
 
     const { data: rows, error, count } = await query
     if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
+      console.error("[audit-events] query failed:", error)
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
 
     // Resolve actor display name.

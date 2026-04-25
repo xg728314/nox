@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
-import { getStoreProfile } from "@/lib/server/queries/storeProfile"
-import { getStoreStaff } from "@/lib/server/queries/storeStaff"
-import { getStoreSettlementOverview } from "@/lib/server/queries/storeSettlementOverview"
+import { getStoreProfile } from "@/lib/server/queries/store/profile"
+import { getStoreStaff } from "@/lib/server/queries/store/staff"
+import { getStoreSettlementOverview } from "@/lib/server/queries/store/settlementOverview"
 import { getChatUnread } from "@/lib/server/queries/chatUnread"
 
 type MembershipShape = {

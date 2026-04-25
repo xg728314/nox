@@ -6,6 +6,7 @@ import { decryptSecret } from "@/lib/security/crypto"
 import { logAuditEvent } from "@/lib/audit/logEvent"
 import { rateLimit } from "@/lib/security/guards"
 import { rateLimitDurable } from "@/lib/security/rateLimitDurable"
+import { generateBackupCodes } from "@/lib/security/backupCodes"
 
 /**
  * STEP-013D: POST /api/auth/mfa/enable
@@ -97,9 +98,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "INVALID_CODE" }, { status: 401 })
     }
 
+    // R25: enable 시 백업 코드 8개 발급. 평문은 응답에 1회 노출 후 폐기.
+    //   서버는 SHA-256 해시만 저장. 사용자가 못 받아도 곧 regenerate 가능.
+    const { plain: backupCodesPlain, hashed: backupCodesHashed } = generateBackupCodes()
+
     await supabase
       .from("user_mfa_settings")
-      .update({ is_enabled: true, enabled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        is_enabled: true,
+        enabled_at: new Date().toISOString(),
+        backup_codes_hashed: backupCodesHashed,
+        updated_at: new Date().toISOString(),
+      })
       .eq("user_id", auth.user_id)
 
     await logAuditEvent(supabase, {
@@ -108,9 +118,15 @@ export async function POST(request: Request) {
       entity_table: "profiles",
       entity_id: auth.user_id,
       status: "success",
+      metadata: { backup_codes_issued: backupCodesPlain.length },
     })
 
-    return NextResponse.json({ enabled: true })
+    return NextResponse.json({
+      enabled: true,
+      backup_codes: backupCodesPlain,
+      backup_codes_warning:
+        "이 코드는 지금 한 번만 표시됩니다. 안전한 곳에 저장하세요. 폰을 분실해도 로그인할 수 있는 유일한 방법입니다.",
+    })
   } catch (e) {
     if (e instanceof AuthError) {
       const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403

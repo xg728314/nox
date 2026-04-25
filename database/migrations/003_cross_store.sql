@@ -1,3 +1,11 @@
+-- ⚠️ STATUS: LEGACY DRAFT — NOT APPLIED AS-IS  (2026-04-24 Round 1 실사)
+-- 본 파일은 2026-04-11 초기 draft. 언급된 3개 테이블 중:
+--   - store_service_types    : 20260411_store_service_types.sql 로 apply 됨
+--   - cross_store_work_records : 059 (이름 오해) 로 apply 됨
+--   - inter_store_ledger      : live DB 에 없음 — 설계 폐기됨
+-- 참조용으로만 보존. 신규 환경에서는 apply 금지.
+-- 상세: database/README.md
+--
 -- ============================================================
 -- 003_cross_store.sql
 -- Round-073: Cross-store 기반 구축

@@ -9,7 +9,7 @@
  *   - hostess / public 은 middleware 가 차단 (/admin = OWNER_ONLY tree).
  *   - 이 페이지로는 **실장(manager) / 스태프(staff)** 만 생성 가능.
  *     owner 는 여기서 생성 불가 (서버가 403). super_admin 만 별도 경로.
- *   - 아가씨(hostess) 는 공개 signup + 승인 흐름 별도.
+ *   - 스태프(hostess) 는 공개 signup + 승인 흐름 별도.
  *
  * 서버측 엔드포인트:
  *   POST /api/admin/members/create
@@ -217,14 +217,14 @@ export default function MemberCreatePage() {
           <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-[13px] text-amber-100/90">
             <div className="font-medium">회원 생성 권한</div>
             <p className="mt-1 text-amber-100/70">
-              이 페이지는 <b>사장 · 실장 · 스테프 · 아가씨</b> 계정을 내부에서 직접
-              생성합니다. <b>아가씨</b>는 공개 회원가입 경로에서 금지되어 있으며,
+              이 페이지는 <b>사장 · 실장 · 스태프 · 스태프</b> 계정을 내부에서 직접
+              생성합니다. <b>스태프</b>는 공개 회원가입 경로에서 금지되어 있으며,
               실장 또는 사장만 이 페이지로 생성할 수 있습니다.
             </p>
             <p className="mt-2 text-amber-100/60 text-[12px]">
               사장(owner) 계정은 <b>운영자(super_admin)</b>만 생성할 수 있습니다.
-              실장(manager)은 본인 매장의 <b>아가씨</b>만 생성할 수 있습니다.
-              사장은 본인 매장에서 실장 · 스테프 · 아가씨를 생성할 수 있습니다.
+              실장(manager)은 본인 매장의 <b>스태프</b>만 생성할 수 있습니다.
+              사장은 본인 매장에서 실장 · 스태프 · 스태프를 생성할 수 있습니다.
             </p>
           </div>
 
@@ -302,8 +302,8 @@ export default function MemberCreatePage() {
                     <option key={r} value={r}>
                       {r === "owner" ? "사장 (owner)"
                         : r === "manager" ? "실장 (manager)"
-                        : r === "staff" ? "스테프 (staff)"
-                        : "아가씨 (hostess)"}
+                        : r === "staff" ? "스태프 (staff)"
+                        : "스태프 (hostess)"}
                     </option>
                   ))}
                 </select>

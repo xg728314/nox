@@ -38,7 +38,10 @@ export async function GET(
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Verify self-participation and get session detail
+    // Verify self-participation and get session detail.
+    //   select: "session_id, status, room_sessions!inner(status)"
+    //   → room_sessions 는 !inner join 이지만 Supabase 는 object 또는 array
+    //     로 반환할 수 있음. runtime type guard 로 좁힌다.
     const { data: participation, error: participationError } = await supabase
       .from("session_participants")
       .select("session_id, status, room_sessions!inner(status)")
@@ -54,13 +57,37 @@ export async function GET(
       )
     }
 
+    type SessionShape = { status: string | null }
+    type ParticipationJoinRow = {
+      session_id: string
+      status: string | null
+      room_sessions: SessionShape | SessionShape[] | null
+    }
+
+    function isParticipationJoinRow(x: unknown): x is ParticipationJoinRow {
+      if (!x || typeof x !== "object") return false
+      const r = x as Record<string, unknown>
+      return "session_id" in r && "room_sessions" in r
+    }
+
+    if (!isParticipationJoinRow(participation)) {
+      return NextResponse.json(
+        { error: "SHAPE_MISMATCH", message: "Unexpected participation row shape." },
+        { status: 500 }
+      )
+    }
+
+    const session = Array.isArray(participation.room_sessions)
+      ? participation.room_sessions[0] ?? null
+      : participation.room_sessions
+
     return NextResponse.json({
       store_uuid: authContext.store_uuid,
       role: authContext.role,
       session: {
         session_id: participation.session_id,
         participant_status: participation.status,
-        session_status: (participation as any).room_sessions.status,
+        session_status: session?.status ?? null,
       },
     })
   } catch (error) {

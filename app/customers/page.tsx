@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import CustomerCreditTabs from "./CustomerCreditTabs"
 
 type Customer = {
   id: string
@@ -84,8 +85,11 @@ export default function CustomersPage() {
       <div className="sticky top-0 z-20 bg-[#0a0c14]/95 backdrop-blur border-b border-white/[0.07]">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push("/counter")} className="text-slate-400 hover:text-white text-lg">&larr;</button>
-            <span className="text-base font-bold">고객관리</span>
+            <button
+              onClick={() => router.push("/counter")}
+              className="text-slate-400 hover:text-white text-lg"
+            >&larr;</button>
+            <span className="text-base font-bold">고객·외상</span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
               {customers.length}명
             </span>
@@ -97,6 +101,9 @@ export default function CustomersPage() {
             + 신규
           </button>
         </div>
+
+        {/* 2026-04-25: 고객·외상 통합 탭 네비게이션. */}
+        <CustomerCreditTabs active="customers" />
 
         {/* Search + scope */}
         <div className="px-4 pb-3 flex gap-2">

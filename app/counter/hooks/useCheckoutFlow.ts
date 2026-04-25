@@ -61,6 +61,41 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
       setError(`스태프 ${unresolved.length}명의 종목을 확정한 후 체크아웃하세요.`)
       return
     }
+
+    // 2026-04-25: 연장 누락 감지. time_minutes 초과해서 일한 참여자 있으면
+    //   체크아웃 전에 경고 → 연장 처리 유도. 5분 이상 초과만 경고
+    //   (1~4분은 자연스러운 마감 시간 오차로 간주).
+    const now = Date.now()
+    const overtime: { name: string; overMin: number; participantId: string }[] = []
+    for (const p of focusData.participants) {
+      if (p.role !== "hostess" || p.status !== "active") continue
+      if (!p.entered_at || !p.time_minutes || p.time_minutes <= 0) continue
+      const startMs = new Date(p.entered_at).getTime()
+      if (!Number.isFinite(startMs)) continue
+      const end = startMs + p.time_minutes * 60000
+      const overMs = now - end
+      if (overMs > 5 * 60000) {
+        overtime.push({
+          name: (p.external_name || p.name || "스태프").slice(0, 10),
+          overMin: Math.ceil(overMs / 60000),
+          participantId: p.id,
+        })
+      }
+    }
+    if (overtime.length > 0) {
+      const lines = overtime
+        .map(o => `  · ${o.name}: +${o.overMin}분 초과`)
+        .join("\n")
+      const proceed = window.confirm(
+        "⚠️ 연장 처리 누락 경고\n\n" +
+        `다음 스태프는 약속 시간을 초과했는데 연장 처리가 안 됐습니다:\n${lines}\n\n` +
+        "초과분이 매출에 반영되지 않습니다.\n\n" +
+        "  [확인] 그대로 체크아웃 (초과분 포기)\n" +
+        "  [취소] 다시 확인 후 연장 처리 → 재시도",
+      )
+      if (!proceed) return
+    }
+
     if (!confirm("체크아웃 하시겠습니까?")) return
     setBusy(true); setError("")
     try {

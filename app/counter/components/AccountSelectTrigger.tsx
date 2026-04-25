@@ -1,6 +1,6 @@
 "use client"
 
-import AccountSelectModal from "./AccountSelectModal"
+import AccountSelectModal from "./modals/AccountSelectModal"
 import type { BankAccount } from "../types"
 import type { AccountMode } from "../hooks/useAccountSelectionFlow"
 

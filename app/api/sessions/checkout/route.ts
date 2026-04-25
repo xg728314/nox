@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/session/createServiceClient"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
+import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 /**
  * STEP-4C: Cutover to close_session_atomic RPC.
@@ -44,6 +45,32 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
+    // 2026-04-25 보안: 서버 레벨에서 실장 지정 여부 + 참여자 종목 확인.
+    //   UI 는 이미 차단하지만 API 직접 호출 (스크립트 / 악의적 요청) 에
+    //   대비해 서버에서도 명시적 차단.
+    const { data: sessionCheck } = await supabase
+      .from("room_sessions")
+      .select("id, manager_name, manager_membership_id, is_external_manager")
+      .eq("id", session_id)
+      .eq("store_uuid", authContext.store_uuid)
+      .maybeSingle()
+    if (sessionCheck) {
+      const hasManager = !!(
+        sessionCheck.manager_name ||
+        sessionCheck.manager_membership_id ||
+        sessionCheck.is_external_manager
+      )
+      if (!hasManager) {
+        return NextResponse.json(
+          {
+            error: "MANAGER_REQUIRED",
+            message: "실장이 지정되지 않은 세션은 체크아웃할 수 없습니다. 실장 배정 후 다시 시도하세요.",
+          },
+          { status: 409 },
+        )
+      }
+    }
+
     // ── STEP-4C: atomic close via DB RPC ────────────────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc("close_session_atomic", {
       p_session_id: session_id,
@@ -82,7 +109,7 @@ export async function POST(request: Request) {
           {
             success: false,
             code: "UNRESOLVED_PARTICIPANTS",
-            message: `미확정 아가씨가 ${ids.length}명 있습니다. 종목을 확정한 후 체크아웃하세요.`,
+            message: `미확정 스태프가 ${ids.length}명 있습니다. 종목을 확정한 후 체크아웃하세요.`,
             unresolved_ids: ids,
           },
           { status: 400 }
@@ -188,6 +215,10 @@ export async function POST(request: Request) {
         },
       })
     }
+
+    // R29-perf: monitor/rooms 캐시 무효화
+    invalidateCache("rooms")
+    invalidateCache("monitor")
 
     return NextResponse.json(
       {

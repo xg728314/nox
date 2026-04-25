@@ -80,14 +80,14 @@ export default function ChatListPage() {
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
           {/*
-            Back button target is a fixed, always-valid destination.
-            History: STEP-009-nav-loop replaced router.back() with router.push("/")
-            to escape a /chat↔/chat/[id] loop. "/" then 404'd because the app
-            has no root landing page, so the target is pinned to /counter —
-            every authenticated chat user reaches /chat from /counter, so
-            /counter is the canonical "back" for the chat surface.
+            2026-04-26: 메뉴 루트 페이지 — 뒤로 = /counter 로 직행 (history 의존 X).
+            서브 페이지 (/chat/[id]) 의 뒤로는 router.back() 으로 /chat 으로 와서,
+            /chat 의 이 버튼이 다시 /counter 로 보냄. 두 번 누르면 카운터.
           */}
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 뒤로</button>
+          <button
+            onClick={() => router.push("/counter")}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
           <div className="flex items-center gap-2">
             <span className="font-semibold">채팅</span>
             <ChatUnreadBadge count={totalUnread} />

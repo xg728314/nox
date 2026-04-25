@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { formatRoomLabel } from "@/lib/rooms/formatRoomLabel"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/admin/dashboard
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
     }))
 
     // 3. 오늘 영업일
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
     let { data: bizDay } = await supabase
       .from("store_operating_days")
       .select("id, business_date, status")

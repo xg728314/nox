@@ -3,63 +3,52 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { auditOr500 } from "@/lib/audit/logEvent"
 import {
-  resolveAmount as resolveAmountPure,
-  type AmountResolution,
-} from "@/lib/server/queries/staffWorkLogsAggregate"
+  resolveAmountFromParticipants,
+  buildManagerMap,
+  type ParticipantForResolve,
+  type WorkRecordForResolve,
+} from "@/lib/server/queries/staff/workLogsAggregate"
 
 /**
  * POST /api/settlements/staff-work-logs/aggregate
  *
- * Phase 4 — staff_work_logs(confirmed) → cross_store_settlement_items 편입.
+ * cross_store_work_records(status='confirmed') → cross_store_settlement_items
+ * 편입.
  *
- * 정책 (스펙 literal):
- *   1) 대상: status='confirmed' AND cross_store_settlement_id IS NULL
- *   2) 타매장 근무만: origin_store_uuid !== working_store_uuid
- *   3) 그룹핑 키: (origin_store_uuid, working_store_uuid)
- *   4) 동일 로그는 1회만 편입 (items.staff_work_log_id UNIQUE 로 idempotent)
- *   5) 편입 후 staff_work_logs.status = 'settled'
- *   6) settled 이후 lifecycle 변경은 공통 게이트(SETTLED_LOCKED)에서 차단
- *
- * 네이밍 (ROUND-C 단일 규약):
- *   - from_store_uuid = **payer** (돈을 지불하는 매장 = working_store)
- *   - to_store_uuid   = **receiver** (돈을 수취하는 매장 = origin_store = caller)
- *
- *   근거: migration 036 RPC 계약 (`record_cross_store_payout.p_from_store_uuid`
- *   = 지불자) + legacy reports 해석 ("Outbound from_store_uuid=us = 우리가
- *   지불할 건") 과 일치. Phase 4 이전 구현은 반대 방향이었으나 ROUND-C
- *   backfill (migration 061) 로 교환 완료.
+ * ⚠️ 2026-04-24 복구:
+ *   - 대상 테이블: cross_store_work_records (staff_work_logs 미사용).
+ *   - 금액 출처: session_participants.price_amount 합계.
+ *     (cross_store_work_records 에 category / work_type / 금액 hint 컬럼 없음.)
+ *   - item ↔ record 연결: 신규 컬럼 cross_store_settlement_items.cross_store_work_record_id
+ *     (migration 075). 기존 staff_work_log_id 는 NULL 로 둔다.
+ *   - record.status 는 변경하지 않는다. item 존재 여부가 "편입됨" 플래그.
+ *   - 하드코딩 금액 / 퍼센트 절대 금지.
  *
  * 권한:
- *   - owner: 본인 매장(auth.store_uuid)만 — origin_store_uuid override 금지
- *   - super_admin: body.origin_store_uuid 로 임의 매장 대리 가능
- *   - manager / staff / hostess: 403
+ *   - owner: 본인 매장(auth.store_uuid)만.
+ *   - super_admin: body.origin_store_uuid override 가능.
+ *   - 그 외: 403.
+ *
+ * 멱등:
+ *   items.cross_store_work_record_id 파셜 UNIQUE(075) 로 record 1건당 item 1건.
+ *   본 route 는 먼저 existing id 를 조회해 신규만 insert — 동시 실행에도
+ *   UNIQUE 위배 시 재시도는 하지 않음 (다음 호출에서 자연 수렴).
  *
  * Body:
  *   { from: ISO8601, to: ISO8601, origin_store_uuid?: uuid (super_admin only) }
  *
  * 응답:
- *   { ok: true, processed: number }
- *
- * 금지:
- *   - receipts / session_participants 수정 금지 — 본 route 는 그 테이블에
- *     손대지 않는다.
- *   - 기존 settlement 구조 변경 금지 — 컬럼 추가는 migration 060 에서만.
- *   - BLE / 자동 스케줄러 금지 — 수동 API 만.
+ *   { ok, processed, skipped, created_items, updated_items, skipped_reasons,
+ *     settlement_ids, window }
  */
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}(?:T[0-9:.\-+Z]+)?$/
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-type WorkLog = {
+type WorkRecord = WorkRecordForResolve & {
   id: string
-  origin_store_uuid: string
-  working_store_uuid: string
-  hostess_membership_id: string
-  manager_membership_id: string | null
-  external_amount_hint: number | null
-  category: string
-  work_type: string
-  started_at: string
+  status: string
+  created_at: string
 }
 
 export async function POST(request: Request) {
@@ -107,7 +96,6 @@ export async function POST(request: Request) {
     )
   }
 
-  // origin store 결정: super_admin 만 override 가능, owner 는 본인 매장 강제
   let originStore = auth.store_uuid
   if (isSuperAdmin && typeof body.origin_store_uuid === "string" && body.origin_store_uuid) {
     if (!UUID_RE.test(body.origin_store_uuid)) {
@@ -137,127 +125,160 @@ export async function POST(request: Request) {
 
   const supabase = getServiceClient()
 
-  // ── Step 1: 대상 조회 ───────────────────────────────────────
-  const { data: logsData, error: loadErr } = await supabase
-    .from("staff_work_logs")
+  // ── Step 1: 대상 work_record 로드 ───────────────────────────
+  const { data: recordsRaw, error: loadErr } = await supabase
+    .from("cross_store_work_records")
     .select(
-      "id, origin_store_uuid, working_store_uuid, hostess_membership_id, manager_membership_id, external_amount_hint, category, work_type, started_at",
+      "id, session_id, working_store_uuid, origin_store_uuid, hostess_membership_id, status, created_at",
     )
     .eq("origin_store_uuid", originStore)
     .eq("status", "confirmed")
-    .is("cross_store_settlement_id", null)
     .is("deleted_at", null)
-    .gte("started_at", fromIso)
-    .lte("started_at", toIso)
+    .gte("created_at", fromIso)
+    .lte("created_at", toIso)
 
   if (loadErr) {
     return NextResponse.json(
-      { error: "INTERNAL_ERROR", message: "로그 조회 실패", detail: loadErr.message },
+      { error: "INTERNAL_ERROR", message: "work_record 조회 실패", detail: loadErr.message },
       { status: 500 },
     )
   }
 
-  const all = (logsData ?? []) as WorkLog[]
+  const all = (recordsRaw ?? []) as unknown as WorkRecord[]
+  const crossStore = all.filter((r) => r.origin_store_uuid !== r.working_store_uuid)
 
-  // ── Step 2: 타매장 필터 ────────────────────────────────────
-  const eligible = all.filter((r) => r.origin_store_uuid !== r.working_store_uuid)
-
-  if (eligible.length === 0) {
-    return NextResponse.json({ ok: true, processed: 0, skipped: 0 })
-  }
-
-  // ── Step 2.5: 단가 해석 (external_amount_hint 없으면 DB 조회) ──
-  //
-  // Enum 매핑 / hint 검증 로직은 lib/server/queries/staffWorkLogsAggregate.ts
-  // 에 pure function 으로 추출되어 있다. 본 route 는 priceMap 을 DB 에서
-  // 로드 후 pure resolver 에 위임한다.
-
-  // origin store 의 (service_type, time_type) → price 캐시를 한 번에 로드.
-  const { data: priceRows, error: priceErr } = await supabase
-    .from("store_service_types")
-    .select("service_type, time_type, price, is_active")
-    .eq("store_uuid", originStore)
-    .eq("is_active", true)
-  if (priceErr) {
-    return NextResponse.json(
-      { error: "INTERNAL_ERROR", message: "단가 테이블 조회 실패", detail: priceErr.message },
-      { status: 500 },
-    )
-  }
-  const priceMap = new Map<string, number>()
-  for (const r of (priceRows ?? []) as Array<{
-    service_type: string
-    time_type: string
-    price: number | null
-  }>) {
-    priceMap.set(`${r.service_type}__${r.time_type}`, Number(r.price ?? 0))
-  }
-
-  // 정책 (최종):
-  //   - amount 의 기준은 **항상** store_service_types DB 단가.
-  //   - external_amount_hint 는 "선호값" 이 아니라 **검증값**.
-  //     hint 가 있고 DB 계산과 다르면 → skip (서버 단가를 덮어쓰지 않는다).
-  //   - hint 가 없고 DB 계산이 가능하면 DB 금액으로 진행.
-  // 실제 로직은 pure function `resolveAmountPure` 에 위임 (테스트 가능).
-  const resolveAmount = (log: WorkLog): AmountResolution =>
-    resolveAmountPure(log, priceMap)
-
-  // 0원/불일치 방지: 해석 실패 로그는 "skipped" 로 모아서 응답에 노출.
-  // skipped 로그는 settlement item 을 만들지 않고, staff_work_logs.status
-  // 도 'confirmed' 그대로 유지 → 운영자가 단가 시드/hint 를 고치고 재호출.
-  type PricedLog = { log: WorkLog; amount: number }
-  const priced: PricedLog[] = []
-  const skipped: Array<{ id: string; reason: string }> = []
-  for (const log of eligible) {
-    const r = resolveAmount(log)
-    if (r.ok) priced.push({ log, amount: r.amount })
-    else skipped.push({ id: log.id, reason: r.reason })
-  }
-
-  if (priced.length === 0) {
+  if (crossStore.length === 0) {
     return NextResponse.json({
       ok: true,
       processed: 0,
-      skipped: skipped.length,
-      skipped_details: skipped,
-      message: "단가 해석 가능한 로그가 없습니다.",
+      skipped: 0,
+      created_items: 0,
+      updated_items: 0,
+      skipped_reasons: [],
+      settlement_ids: [],
+      window: { from, to, origin_store_uuid: originStore },
     })
   }
 
-  // ── Step 3: (origin, working) 그룹핑 ────────────────────────
-  const groups = new Map<string, PricedLog[]>()
+  // ── Step 2: 이미 item 에 연결된 record.id 제외 ─────────────
+  const recordIds = crossStore.map((r) => r.id)
+  const { data: existingRaw, error: existingErr } = await supabase
+    .from("cross_store_settlement_items")
+    .select("cross_store_work_record_id")
+    .in("cross_store_work_record_id", recordIds)
+    .is("deleted_at", null)
+  if (existingErr) {
+    // migration 075 미적용 감지: "column ... does not exist".
+    const msg = String(existingErr.message ?? "")
+    if (/column .*cross_store_work_record_id.* does not exist/i.test(msg)) {
+      return NextResponse.json(
+        {
+          error: "MIGRATION_REQUIRED",
+          message:
+            "cross_store_settlement_items.cross_store_work_record_id 컬럼이 없습니다. database/075_cross_store_work_record_settlement_items.sql 을 먼저 적용하세요.",
+          missing_migration: "075_cross_store_work_record_settlement_items.sql",
+          detail: msg,
+        },
+        { status: 409 },
+      )
+    }
+    return NextResponse.json(
+      { error: "INTERNAL_ERROR", message: "기존 item 조회 실패", detail: msg },
+      { status: 500 },
+    )
+  }
+  const alreadyLinked = new Set(
+    ((existingRaw ?? []) as unknown as Array<{ cross_store_work_record_id: string | null }>)
+      .map((r) => r.cross_store_work_record_id)
+      .filter((v): v is string => !!v),
+  )
+  const pending = crossStore.filter((r) => !alreadyLinked.has(r.id))
+
+  // ── Step 3: participants 로드 (amount 산출) ────────────────
+  const sessionIds = [...new Set(pending.map((r) => r.session_id))]
+  const hostessIds = [...new Set(pending.map((r) => r.hostess_membership_id))]
+  let participants: ParticipantForResolve[] = []
+  if (sessionIds.length > 0 && hostessIds.length > 0) {
+    const { data: partRaw, error: partErr } = await supabase
+      .from("session_participants")
+      .select("session_id, membership_id, store_uuid, origin_store_uuid, price_amount, role")
+      .in("session_id", sessionIds)
+      .in("membership_id", hostessIds)
+      .eq("role", "hostess")
+      .is("deleted_at", null)
+    if (partErr) {
+      return NextResponse.json(
+        { error: "INTERNAL_ERROR", message: "participants 조회 실패", detail: partErr.message },
+        { status: 500 },
+      )
+    }
+    participants = (partRaw ?? []) as unknown as ParticipantForResolve[]
+  }
+
+  // ── Step 4: hostesses.manager_membership_id 매핑 ────────────
+  const managerMap = new Map<string, string | null>()
+  if (hostessIds.length > 0) {
+    const { data: hostessRowsRaw } = await supabase
+      .from("hostesses")
+      .select("membership_id, manager_membership_id")
+      .in("membership_id", hostessIds)
+      .eq("store_uuid", originStore)
+      .is("deleted_at", null)
+    const rows = (hostessRowsRaw ?? []) as unknown as Array<{
+      membership_id: string
+      manager_membership_id: string | null
+    }>
+    for (const [k, v] of buildManagerMap(rows)) managerMap.set(k, v)
+  }
+
+  // ── Step 5: record 별 amount 결정 + skip 분류 ──────────────
+  type Priced = {
+    record: WorkRecord
+    amount: number
+    managerId: string | null
+  }
+  const priced: Priced[] = []
+  const skippedReasons: Array<{ id: string; reason: string }> = []
+
+  for (const r of pending) {
+    const resolution = resolveAmountFromParticipants(
+      {
+        session_id: r.session_id,
+        hostess_membership_id: r.hostess_membership_id,
+        working_store_uuid: r.working_store_uuid,
+        origin_store_uuid: r.origin_store_uuid,
+      },
+      participants,
+    )
+    if (!resolution.ok) {
+      skippedReasons.push({ id: r.id, reason: resolution.reason })
+      continue
+    }
+    const managerId = managerMap.get(r.hostess_membership_id) ?? null
+    priced.push({ record: r, amount: resolution.amount, managerId })
+  }
+
+  // ── Step 6: (origin, working) 그룹핑 → header 확보 + items insert ──
+  const groups = new Map<string, Priced[]>()
   for (const pl of priced) {
-    const key = `${pl.log.origin_store_uuid}__${pl.log.working_store_uuid}`
+    const key = `${pl.record.origin_store_uuid}__${pl.record.working_store_uuid}`
     const arr = groups.get(key) ?? []
     arr.push(pl)
     groups.set(key, arr)
   }
 
   const nowIso = new Date().toISOString()
-  let processed = 0
+  let createdItems = 0
+  const settlementIds: string[] = []
 
-  // ── Step 4~6: 그룹별 header 확보 → items 삽입 → header 정산 → logs UPDATE ──
-  //
-  // 머니 인바리언트:
-  //   header.total_amount(델타) === Σ(이 배치에서 실제 삽입된 items.amount)
-  //
-  // 이를 보장하기 위해 순서를 재배치한다:
-  //   (1) 헤더 확보 — 기존 open 재사용, 없으면 totals=0 으로 신규 삽입
-  //   (2) items upsert (ON CONFLICT DO NOTHING)
-  //   (3) **실제 삽입된 amount 합** 으로 header 에 크레딧
-  //   (4) 실제 삽입된 로그만 settled 전이
-  //
-  // 이렇게 하면 동시 실행 경합으로 ON CONFLICT 가 일부 로그를 skip 해도
-  // header 총액이 items 합과 절대 어긋나지 않는다.
-  for (const pricedLogs of groups.values()) {
-    const first = pricedLogs[0].log
-    // ROUND-C canonical convention: from = payer, to = receiver.
-    //   working_store = 손님이 돈 낸 곳 = 지불 주체
-    //   origin_store  = hostess 소속 = 수취 주체 (caller)
-    const fromStore = first.working_store_uuid // canonical: from = payer
-    const toStore = first.origin_store_uuid // canonical: to = receiver
+  for (const groupRows of groups.values()) {
+    const first = groupRows[0].record
+    // Canonical (036): from = payer (working), to = receiver (origin).
+    const fromStore = first.working_store_uuid
+    const toStore = first.origin_store_uuid
 
-    // Step 4: 기존 open settlement 재사용, 없으면 totals=0 으로 신규 생성.
+    // 6-1. Header find-or-create. 035 / 036 양쪽 컬럼셋 호환: from_store_uuid /
+    //       to_store_uuid (신 canonical) + store_uuid / target_store_uuid (legacy).
     const { data: existingHeaders, error: findErr } = await supabase
       .from("cross_store_settlements")
       .select("id, total_amount, remaining_amount")
@@ -267,7 +288,6 @@ export async function POST(request: Request) {
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
-
     if (findErr) {
       return NextResponse.json(
         { error: "HEADER_LOOKUP_FAILED", message: "정산 헤더 조회 실패", detail: findErr.message },
@@ -276,9 +296,8 @@ export async function POST(request: Request) {
     }
 
     let headerId: string
-    let headerExisted: boolean
-    let headerBaselineTotal: number
-    let headerBaselineRemaining: number
+    let headerTotal: number
+    let headerRemaining: number
 
     if (existingHeaders && existingHeaders.length > 0) {
       const h = existingHeaders[0] as {
@@ -287,23 +306,26 @@ export async function POST(request: Request) {
         remaining_amount: number | null
       }
       headerId = h.id
-      headerExisted = true
-      headerBaselineTotal = Number(h.total_amount ?? 0)
-      headerBaselineRemaining = Number(h.remaining_amount ?? 0)
+      headerTotal = Number(h.total_amount ?? 0)
+      headerRemaining = Number(h.remaining_amount ?? 0)
     } else {
+      // Phase 10 (2026-04-24) schema-drift fix:
+      //   038_cross_store_legacy_drop.sql DROPped store_uuid / target_store_uuid
+      //   / note from cross_store_settlements header. live columns are:
+      //     id, from_store_uuid, to_store_uuid, total_amount, prepaid_amount,
+      //     remaining_amount, status, memo, created_by, created_at, updated_at,
+      //     deleted_at.
+      //   note → memo 로 단일화 (memo 가 SSOT, live 컬럼).
       const { data: headerIns, error: headerErr } = await supabase
         .from("cross_store_settlements")
         .insert({
           from_store_uuid: fromStore,
           to_store_uuid: toStore,
-          store_uuid: fromStore, // legacy mirror (migration 035)
-          target_store_uuid: toStore, // legacy mirror
-          total_amount: 0, // credit in Step 5c with actualTotal
+          total_amount: 0,
           prepaid_amount: 0,
           remaining_amount: 0,
           status: "open",
-          memo: `staff_work_logs aggregate ${from}~${to}`,
-          note: `staff_work_logs aggregate ${from}~${to}`,
+          memo: `cross_store_work_records aggregate ${from}~${to}`,
           created_by: auth.user_id,
         })
         .select("id")
@@ -314,51 +336,64 @@ export async function POST(request: Request) {
           { status: 500 },
         )
       }
-      headerId = (headerIns as { id: string }).id
-      headerExisted = false
-      headerBaselineTotal = 0
-      headerBaselineRemaining = 0
+      headerId = (headerIns as unknown as { id: string }).id
+      headerTotal = 0
+      headerRemaining = 0
     }
+    if (!settlementIds.includes(headerId)) settlementIds.push(headerId)
 
-    // Step 5: items insert (idempotent via UNIQUE(staff_work_log_id))
-    //   모든 amount > 0 이 priced 단계에서 이미 보장됨.
-    const itemRows = pricedLogs.map(({ log, amount }) => ({
+    // 6-2. item rows
+    //
+    // Phase 10 (2026-04-24) schema state:
+    //   - 038_cross_store_legacy_drop.sql DROPped (items):
+    //       target_manager_membership_id, assigned_amount, prepaid_amount
+    //   - 075_cross_store_work_record_settlement_items APPLIED
+    //       (this round) → cross_store_work_record_id 컬럼 + partial UNIQUE
+    //       (uq_cssi_cross_store_work_record) 활성. record 1건당 item 1건
+    //       idempotency 가 DB 레벨에서 강제됨.
+    //   - 060 (hostess_membership_id / category / work_type) 는 여전히 미적용
+    //       → 해당 필드는 INSERT payload 에서 제외.
+    //   amount calculation unchanged.
+    const itemRows = groupRows.map(({ record, amount, managerId }) => ({
       cross_store_settlement_id: headerId,
       store_uuid: fromStore,
       target_store_uuid: toStore,
-      staff_work_log_id: log.id,
-      hostess_membership_id: log.hostess_membership_id,
-      manager_membership_id: log.manager_membership_id,
-      target_manager_membership_id: log.manager_membership_id,
+      manager_membership_id: managerId,
+      // 075 컬럼 — partial UNIQUE 로 재aggregate 중복 방지.
+      cross_store_work_record_id: record.id,
       amount,
-      assigned_amount: amount,
       paid_amount: 0,
-      prepaid_amount: 0,
       remaining_amount: amount,
+      // live CHECK chk_csi_status allows only {'open','partial','completed'}.
+      // aggregate 단계는 "미지급" = 'open' 이 정식 초기 상태. 이후 RPC 가
+      // payout 진행 시 'partial' / 'completed' 로 전이.
       status: "open",
-      category: log.category,
-      work_type: log.work_type,
     }))
 
-    // 방어적 재검증: amount <= 0 / 비유한 값 원천 차단 (여기까지 오면 안 되지만
-    //   insert 전 마지막 방어선).
+    // 최종 방어: amount <= 0 / 비유한 값 차단
     for (const row of itemRows) {
       if (!Number.isFinite(row.amount) || row.amount <= 0) {
         return NextResponse.json(
           {
             error: "INVARIANT_VIOLATION",
             message: "amount 가 0 이하인 라인이 감지되었습니다.",
-            detail: { staff_work_log_id: row.staff_work_log_id, amount: row.amount },
+            detail: {
+              cross_store_work_record_id: row.cross_store_work_record_id,
+              amount: row.amount,
+            },
           },
           { status: 500 },
         )
       }
     }
 
+    // 6-3. insert. uq_cssi_cross_store_work_record (partial UNIQUE on
+    //   cross_store_work_record_id WHERE NOT NULL AND deleted_at IS NULL) 가
+    //   race / 재실행 중복을 DB 층에서 차단. alreadyLinked set 은 1차 방어.
     const { data: insertedItems, error: itemsErr } = await supabase
       .from("cross_store_settlement_items")
-      .upsert(itemRows, { onConflict: "staff_work_log_id", ignoreDuplicates: true })
-      .select("staff_work_log_id")
+      .insert(itemRows)
+      .select("id, cross_store_work_record_id, amount")
 
     if (itemsErr) {
       return NextResponse.json(
@@ -367,28 +402,24 @@ export async function POST(request: Request) {
       )
     }
 
-    const insertedLogIds = new Set(
-      ((insertedItems ?? []) as Array<{ staff_work_log_id: string | null }>)
-        .map((r) => r.staff_work_log_id)
-        .filter((v): v is string => !!v),
-    )
+    const inserted = (insertedItems ?? []) as unknown as Array<{
+      id: string
+      cross_store_work_record_id: string | null
+      amount: number | null
+    }>
+    const actualTotal = inserted.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+    createdItems += inserted.length
 
-    // Step 5c: header 크레딧 — 실제 삽입된 라인의 amount 합만 반영.
-    //   invariant: header.total_amount(델타) === Σ 실제 삽입된 items.amount.
-    const actualTotal = pricedLogs
-      .filter((pl) => insertedLogIds.has(pl.log.id))
-      .reduce((s, pl) => s + pl.amount, 0)
-
+    // 6-4. header total 갱신 (실제 insert 된 amount 만큼 누적)
     if (actualTotal > 0) {
       const { error: creditErr } = await supabase
         .from("cross_store_settlements")
         .update({
-          total_amount: headerBaselineTotal + actualTotal,
-          remaining_amount: headerBaselineRemaining + actualTotal,
+          total_amount: headerTotal + actualTotal,
+          remaining_amount: headerRemaining + actualTotal,
           updated_at: nowIso,
         })
         .eq("id", headerId)
-        .eq("store_uuid", fromStore)
         .is("deleted_at", null)
       if (creditErr) {
         return NextResponse.json(
@@ -396,62 +427,50 @@ export async function POST(request: Request) {
           { status: 500 },
         )
       }
-    } else if (!headerExisted) {
-      // 방금 만든 신규 헤더인데 실제 삽입이 0건 (전부 ON CONFLICT) — 고아 헤더
-      //   방지를 위해 soft-delete. totals 는 여전히 0 이므로 돈 손실 없음.
-      await supabase
-        .from("cross_store_settlements")
-        .update({ deleted_at: nowIso, updated_at: nowIso })
-        .eq("id", headerId)
-        .eq("store_uuid", fromStore)
-      continue
-    }
-
-    // Step 6: 실제 삽입된 로그만 status='settled' 로 전이.
-    //   .eq("status","confirmed") 로 이미 전이된 행 재업데이트 차단.
-    const toSettleIds = pricedLogs
-      .map((pl) => pl.log.id)
-      .filter((id) => insertedLogIds.has(id))
-
-    if (toSettleIds.length > 0) {
-      const { error: updErr } = await supabase
-        .from("staff_work_logs")
-        .update({
-          cross_store_settlement_id: headerId,
-          status: "settled",
-          updated_at: nowIso,
-        })
-        .in("id", toSettleIds)
-        .eq("status", "confirmed")
-      if (updErr) {
-        return NextResponse.json(
-          { error: "LOG_UPDATE_FAILED", message: "로그 상태 업데이트 실패", detail: updErr.message },
-          { status: 500 },
-        )
-      }
-      processed += toSettleIds.length
     }
   }
 
-  // ── Step 7: audit_events (fail-close) ───────────────────────
+  // ── Step 7: audit ──────────────────────────────────────────
   const auditFail = await auditOr500(supabase, {
     auth,
-    action: "staff_work_logs_settled",
+    action: "cross_store_work_records_aggregated",
     entity_table: "cross_store_settlements",
     entity_id: originStore,
     metadata: {
-      count: processed,
       origin_store_uuid: originStore,
       from,
       to,
+      candidate_count: crossStore.length,
+      already_linked: alreadyLinked.size,
+      priced: priced.length,
+      skipped: skippedReasons.length,
+      created_items: createdItems,
+      settlement_ids: settlementIds,
     },
   })
   if (auditFail) return auditFail
 
+  // skipped 세부 카운트
+  const participantNotFoundCount = skippedReasons.filter((s) => s.reason === "participant_not_found").length
+  const amountZeroCount = skippedReasons.filter((s) => s.reason === "amount_zero").length
+  // unassigned (hostess 의 manager null) — 생성된 priced 중 managerId null 건수
+  const unassignedCount = priced.filter((p) => p.managerId === null).length
+
   return NextResponse.json({
     ok: true,
-    processed,
-    skipped: skipped.length,
-    ...(skipped.length > 0 ? { skipped_details: skipped } : {}),
+    processed: priced.length,
+    skipped: skippedReasons.length + alreadyLinked.size,
+    created_items: createdItems,
+    updated_items: 0,
+    skipped_reasons: skippedReasons,
+    skipped_counts: {
+      participant_not_found: participantNotFoundCount,
+      amount_zero: amountZeroCount,
+      already_linked: alreadyLinked.size,
+    },
+    unassigned_count: unassignedCount,
+    already_linked_count: alreadyLinked.size,
+    settlement_ids: settlementIds,
+    window: { from, to, origin_store_uuid: originStore },
   })
 }

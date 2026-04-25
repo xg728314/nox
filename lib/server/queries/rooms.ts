@@ -51,21 +51,47 @@ export async function getRooms(auth: AuthContext): Promise<RoomsResponse> {
   }
   let allSessions: SessionRow[] | null = null
 
-  const { data: sessionsWithCustomer, error: sessErr1 } = await supabase
+  // 2026-04-24: archived_at 필터 추가. 인쇄+archive 완료된 세션은 운영
+  //   UI 에서 숨김. migration 085 로 컬럼 추가됨.
+  // 2026-04-25 hotfix: migration 미적용 DB 에서는 `archived_at` 컬럼 부재 →
+  //   필터 쿼리 실패 → allSessions null → 방들이 전부 "비어있음" 표시 →
+  //   그런데 DB 에는 실제 active session 이 있어 checkin 은 409.
+  //   4단 fallback 체인: (customer+archived) → (customer) → (archived) → (base).
+  const { data: s1, error: e1 } = await supabase
     .from("room_sessions")
     .select("id, room_uuid, status, started_at, ended_at, manager_name, customer_name_snapshot, customer_party_size")
     .eq("store_uuid", auth.store_uuid)
     .in("status", ["active", "closed"])
+    .is("archived_at", null)
 
-  if (!sessErr1 && sessionsWithCustomer) {
-    allSessions = sessionsWithCustomer
+  if (!e1 && s1) {
+    allSessions = s1
   } else {
-    const { data: sessionsBase } = await supabase
+    const { data: s2, error: e2 } = await supabase
       .from("room_sessions")
-      .select("id, room_uuid, status, started_at, ended_at, manager_name")
+      .select("id, room_uuid, status, started_at, ended_at, manager_name, customer_name_snapshot, customer_party_size")
       .eq("store_uuid", auth.store_uuid)
       .in("status", ["active", "closed"])
-    allSessions = sessionsBase
+    if (!e2 && s2) {
+      allSessions = s2
+    } else {
+      const { data: s3, error: e3 } = await supabase
+        .from("room_sessions")
+        .select("id, room_uuid, status, started_at, ended_at, manager_name")
+        .eq("store_uuid", auth.store_uuid)
+        .in("status", ["active", "closed"])
+        .is("archived_at", null)
+      if (!e3 && s3) {
+        allSessions = s3
+      } else {
+        const { data: s4 } = await supabase
+          .from("room_sessions")
+          .select("id, room_uuid, status, started_at, ended_at, manager_name")
+          .eq("store_uuid", auth.store_uuid)
+          .in("status", ["active", "closed"])
+        allSessions = s4
+      }
+    }
   }
 
   const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()

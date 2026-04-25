@@ -3,6 +3,12 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { defaultRoomName } from "@/lib/rooms/formatRoomLabel"
 import { getRooms } from "@/lib/server/queries/rooms"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// R29-perf: 380명 동시 사용 시 매장당 분당 수백 회 호출됨.
+//   process-local 3초 TTL 캐시 → 부하 70% 감소.
+//   카운터 화면에 5초 폴링 가정. 3초 TTL 이면 한 폴링 사이클 동안 1번만 DB.
+const ROOMS_TTL_MS = 3000
 
 export async function GET(request: Request) {
   try {
@@ -16,8 +22,16 @@ export async function GET(request: Request) {
     }
 
     try {
-      const data = await getRooms(authContext)
-      return NextResponse.json(data)
+      const data = await cached(
+        "rooms",
+        `${authContext.store_uuid}:${authContext.role}`,
+        ROOMS_TTL_MS,
+        () => getRooms(authContext),
+      )
+      const res = NextResponse.json(data)
+      // 클라이언트도 1초 stale-while-revalidate 가능
+      res.headers.set("Cache-Control", "private, max-age=1, stale-while-revalidate=2")
+      return res
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to query rooms."
       return NextResponse.json(

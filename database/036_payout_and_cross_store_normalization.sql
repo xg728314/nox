@@ -1,3 +1,6 @@
+-- ⚠️ APPLIED AS: step_011d_payout_and_cross_store_normalization
+-- 로컬 파일명은 036 이지만 Supabase history 에는 step_011d 이름으로 기록됨.
+--
 -- STEP-011D (step-011d.md spec): payout / partial / prepayment / cross-store.
 --
 -- Additive-only column additions on four existing tables + three

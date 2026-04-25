@@ -15,18 +15,9 @@ import {
   updateOrderDraftStatus,
   type QueuedEvent,
 } from "./db"
+import { isForbiddenOfflineType } from "./forbidden"
 
 const MAX_RETRIES = 3
-
-// 오프라인 전송 금지 타입 — 서버 전용 처리 필수
-const FORBIDDEN_OFFLINE_TYPES = [
-  "settlement",       // 정산 생성
-  "receipt",           // 영수증 스냅샷
-  "finalize",          // 정산 확정
-  "payment",           // 결제 방식 확정
-  "finalize-settlement", // 정산 확정 (별칭)
-  "close-day",         // 영업일 마감
-]
 
 type SyncResult = {
   total: number
@@ -95,8 +86,9 @@ export async function syncEventQueue(): Promise<SyncResult> {
   }
 
   for (const event of events) {
-    // 1. 금지 타입 체크
-    if (FORBIDDEN_OFFLINE_TYPES.includes(event.type)) {
+    // 1. 금지 타입 체크 (lib/offline/forbidden.ts 단일 출처. enqueue 시점
+    //    에도 동일 목록으로 차단되지만, 레거시 큐/수동 주입 방어로 유지).
+    if (isForbiddenOfflineType(event.type)) {
       result.skipped += 1
       result.details.push({
         id: event.id,

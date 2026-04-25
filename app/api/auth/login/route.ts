@@ -121,10 +121,21 @@ export async function POST(request: Request) {
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error || !data.session) {
-      console.error("[login] auth failed", {
-        code: error?.code,
-        message: error?.message,
-      })
+      // 2026-04-25: 로그인 실패를 system_errors 에 기록해서 감시 대시보드
+      //   (/ops/watchdog) 가 무차별 대입 공격 스파이크를 감지할 수 있게 함.
+      //   email 은 해시 prefix 만 저장해 개인정보 유출 최소화.
+      const emailHash = email
+        ? email.split("@")[0].slice(0, 3) + "***"
+        : "unknown"
+      try {
+        await adminClient.from("system_errors").insert({
+          tag: "login_failed",
+          error_name: "AUTH_FAILED",
+          error_message: `login failed for ${emailHash}`,
+          extra: { code: error?.code ?? null },
+        })
+      } catch { /* 텔레메트리 실패가 로그인 응답을 막아선 안 됨 */ }
+      console.error("[login] auth failed", { code: error?.code })
       return NextResponse.json(
         { error: "AUTH_FAILED", message: "이메일 또는 비밀번호가 올바르지 않습니다." },
         { status: 401 }

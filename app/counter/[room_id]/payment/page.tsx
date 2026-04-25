@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState, use } from "react"
+import { useEffect, useRef, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { captureException } from "@/lib/telemetry/captureException"
 
 type PaymentMethod = "cash" | "card" | "credit" | "mixed"
 
@@ -39,9 +40,19 @@ export default function PaymentPage({
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
 
+  // 2026-04-24 P2 fix: unmount 후 setTimeout 내 router.push 로 인한 경고 방지.
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   useEffect(() => {
     fetchData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room_id])
 
   // 결제 방식 변경 시 금액 자동 배분
   useEffect(() => {
@@ -115,8 +126,9 @@ export default function PaymentPage({
           setCardFeeRate(Number(settingsData.settings.card_fee_rate))
         }
       }
-    } catch {
-      setError("서버 오류가 발생했습니다.")
+    } catch (e) {
+      captureException(e, { tag: "payment_fetch", extra: { room_id } })
+      setError("결제 정보를 불러오는 중 네트워크 오류. 정산이 생성되었는지 확인 후 다시 시도해주세요.")
     } finally {
       setLoading(false)
     }
@@ -162,14 +174,17 @@ export default function PaymentPage({
         setExistingPayment(data.payment_method)
         setSuccessMsg("결제 방식 저장 완료")
         setTimeout(() => {
-          router.push(`/counter/${room_id}`)
+          if (isMountedRef.current) {
+            router.push(`/counter/${room_id}`)
+          }
         }, 1500)
       } else {
         const errData = await res.json()
         setError(errData.message || "결제 저장 실패")
       }
-    } catch {
-      setError("서버 오류가 발생했습니다.")
+    } catch (e) {
+      captureException(e, { tag: "payment_submit", extra: { room_id, method } })
+      setError("결제 저장 중 네트워크 오류. 금액 합계 및 결제 방식 확인 후 다시 시도해주세요.")
     } finally {
       setSubmitting(false)
     }

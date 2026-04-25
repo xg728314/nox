@@ -1,3 +1,7 @@
+-- ✅ STATUS: APPLIED (2026-04-24 Round 3)
+-- 사전 실사: 중복 open 출근 row 0건 확인 후 apply.
+-- 인덱스 `uq_staff_attendance_open` 생성됨.
+--
 -- ============================================================
 -- 062_staff_attendance_uniq_open.sql
 --

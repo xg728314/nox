@@ -28,10 +28,12 @@
  *       resolve to the same bundle, which is the correct semantics.
  *
  *   Safety:
- *     - TTL capped at 60 s. If a membership is revoked or a role
- *       changes, the stale entry disappears within one minute. This is
- *       the same latency window used by most session-hardening middleware
- *       in the industry (Vercel Auth, Clerk, etc.).
+ *     - TTL capped at {@link TTL_MS}. ROUND-CLEANUP-002: tightened from
+ *       60 s → 15 s so revocation / role change / must_change_password
+ *       flips are visible within seconds instead of a minute.
+ *     - Explicit invalidation hooks (`invalidateAuthCache`,
+ *       `invalidateAuthCacheByUserId`) are called by logout + change-password
+ *       paths so the stale window collapses to 0 for those events.
  *     - Entries are evicted eagerly on TTL expiry and passively when
  *       the cache exceeds a hard cap (prevents unbounded growth on
  *       token-rotation misuse).
@@ -62,7 +64,9 @@ export type CachedAuth = {
 
 type Entry = CachedAuth & { expiresAt: number }
 
-const TTL_MS = 60_000
+// ROUND-CLEANUP-002: 60_000 → 15_000. Revocation latency 를 15s 로 축소.
+// Logout / change-password 는 invalidate 경로를 통해 즉시 0s 반영.
+const TTL_MS = 15_000
 const MAX_ENTRIES = 500
 
 const cache = new Map<string, Entry>()
@@ -97,6 +101,30 @@ export function setCachedAuth(token: string, data: CachedAuth): void {
   if (cache.size > MAX_ENTRIES) {
     const first = cache.keys().next().value
     if (typeof first === "string") cache.delete(first)
+  }
+}
+
+/**
+ * ROUND-CLEANUP-002: explicit invalidation for a single token.
+ * Called by `/api/auth/logout` before clearing the cookie so a stolen
+ * warm-instance cache can't outlive the logout action.
+ * Safe to call when the token isn't cached (no-op).
+ */
+export function invalidateAuthCache(token: string): void {
+  if (!token) return
+  cache.delete(token)
+}
+
+/**
+ * ROUND-CLEANUP-002: invalidate every entry belonging to a user.
+ * Called by `/api/auth/change-password` after a successful password update
+ * + must_change_password flip, so later requests re-resolve fresh auth.
+ * Linear scan of the cache — acceptable given MAX_ENTRIES=500 cap.
+ */
+export function invalidateAuthCacheByUserId(userId: string): void {
+  if (!userId) return
+  for (const [token, entry] of cache) {
+    if (entry.user_id === userId) cache.delete(token)
   }
 }
 

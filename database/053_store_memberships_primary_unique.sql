@@ -1,3 +1,7 @@
+-- ✅ STATUS: APPLIED (2026-04-24 Round 3)
+-- 사전 실사: 중복 is_primary=true row 0건 확인 후 apply.
+-- 인덱스 `ux_store_memberships_one_primary_per_profile` 생성됨.
+--
 -- Migration 053 — enforce at most one is_primary=true membership per profile.
 --
 -- SECURITY (R-6 backfill): the application layer (login, middleware,

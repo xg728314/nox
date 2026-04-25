@@ -24,7 +24,10 @@ export default function HeaderCollapsed() {
     >
       {isActive && room.session ? (
         <>
-          <div className="flex items-center justify-between mb-1.5 gap-2">
+          {/* 2026-04-25: Row 1 은 expanded 헤더와 동일한 3-column 레이아웃.
+              left: 방번호+사용+실장+손님 / center: 종목 / right: 남은 시간.
+              이전엔 종목이 Row 2 가운데 있어서 펼침 전후 위치가 달랐음. */}
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 mb-1.5">
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-[15px] font-bold flex-shrink-0">{formatRoomLabel(room)}</span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/80 text-white flex-shrink-0">사용</span>
@@ -44,13 +47,12 @@ export default function HeaderCollapsed() {
                   : "손님 미입력"}
               </button>
             </div>
+            <span className="text-[13px] font-semibold text-slate-200 text-center">{dominantCategory}</span>
+            <span className={`text-xl font-bold text-right ${remainingColor(collapsedRemMs)}`}>{fmtRemaining(collapsedRemMs)}</span>
           </div>
+          {/* Row 2: 금액 만 크게 표시 (종목/시간은 Row 1 로 이동). */}
           <div className="flex items-center justify-between mb-1 gap-2">
             <span className="text-xl font-bold text-white">{fmtWon(room.session.gross_total ?? 0)}</span>
-            <span className="text-sm font-semibold text-slate-300 flex-shrink-0">{dominantCategory}</span>
-            <span className={`text-xl font-bold flex-shrink-0 ${remainingColor(collapsedRemMs)}`}>{fmtRemaining(collapsedRemMs)}</span>
-          </div>
-          <div className="flex items-center justify-end">
             <span className="text-[11px] text-slate-500">{fmtTime(room.session.started_at)} · {getElapsed(room.session.started_at)}</span>
           </div>
         </>

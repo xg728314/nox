@@ -41,10 +41,23 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (!amount || typeof amount !== "number" || amount <= 0) {
+    if (!amount || typeof amount !== "number" || amount <= 0 || !Number.isFinite(amount)) {
       return NextResponse.json(
-        { error: "BAD_REQUEST", message: "amount must be a positive number." },
+        { error: "BAD_REQUEST", message: "amount must be a positive finite number." },
         { status: 400 }
+      )
+    }
+    // 2026-04-24 P1 fix: amount 상한 검증. 이전에는 99억원 같은 오입력이
+    //   DB 에 저장돼 정산 생성 시 grossTotal 이 음수가 될 수 있었다.
+    //   현실적 상한: 건당 1천만원 (실제 선정산은 보통 5만~50만원 수준).
+    const PRE_SETTLEMENT_HARD_CAP = 10_000_000
+    if (amount > PRE_SETTLEMENT_HARD_CAP) {
+      return NextResponse.json(
+        {
+          error: "AMOUNT_TOO_LARGE",
+          message: `선정산 1건 상한은 ${PRE_SETTLEMENT_HARD_CAP.toLocaleString()}원 입니다. 입력값 확인 필요.`,
+        },
+        { status: 400 },
       )
     }
     if (!requester_membership_id || !isValidUUID(requester_membership_id)) {
@@ -100,6 +113,26 @@ export async function POST(request: Request) {
         { error: "REQUESTER_NOT_FOUND", message: "요청자를 찾을 수 없습니다." },
         { status: 404 }
       )
+    }
+
+    // R28-fix: 더블클릭/네트워크 재시도로 같은 (session, requester, amount)
+    //   가 짧은 시간에 두 번 들어오면 이중 차감 위험. 최근 60초 내 동일 row
+    //   존재하면 같은 row 반환 (멱등 처리).
+    {
+      const sixtySecAgo = new Date(Date.now() - 60_000).toISOString()
+      const { data: recent } = await supabase
+        .from("pre_settlements")
+        .select("id, session_id, amount, memo, requester_membership_id, executor_membership_id, status, created_at")
+        .eq("session_id", session_id)
+        .eq("requester_membership_id", requester_membership_id)
+        .eq("amount", amount)
+        .eq("status", "active")
+        .gte("created_at", sixtySecAgo)
+        .limit(1)
+        .maybeSingle()
+      if (recent) {
+        return NextResponse.json({ ok: true, pre_settlement: recent, idempotent: true })
+      }
     }
 
     // 3. INSERT

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { usePagePerf } from "@/lib/debug/usePagePerf"
+import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
+import { fmtMan } from "@/lib/format"
+import ManagerBottomNav from "./components/ManagerBottomNav"
 
 type DashboardData = {
   assigned_hostess_count: number
@@ -233,51 +236,74 @@ export default function ManagerPage() {
   }
 
   async function fetchData() {
-    try {
-      const [dashRes, hostessRes, settleRes, attendRes] = await Promise.all([
-        apiFetch("/api/manager/dashboard"),
-        apiFetch("/api/manager/hostesses"),
-        apiFetch("/api/manager/settlement/summary"),
-        apiFetch("/api/attendance"),
-      ])
+    // 2026-04-25: Promise.all → allSettled 로 교체. 이전엔 1개 실패 시 전체
+    //   catch → 대시보드 blank. 이제 각 fetch 개별 성공/실패 처리.
+    const endpoints = [
+      apiFetch("/api/manager/dashboard").catch(() => null),
+      apiFetch("/api/manager/hostesses").catch(() => null),
+      apiFetch("/api/manager/settlement/summary").catch(() => null),
+      apiFetch("/api/attendance").catch(() => null),
+    ]
+    const [dashRes, hostessRes, settleRes, attendRes] = await Promise.all(endpoints)
 
-      if (dashRes.status === 401 || dashRes.status === 403) {
-        router.push("/login")
-        return
-      }
+    // 401/403 만 공통 처리 — 어느 fetch 라도 감지되면 로그인 페이지로.
+    const anyAuthFail = [dashRes, hostessRes, settleRes, attendRes]
+      .some(r => r && (r.status === 401 || r.status === 403))
+    if (anyAuthFail) {
+      router.push("/login")
+      return
+    }
 
-      if (dashRes.ok) {
+    const failures: string[] = []
+
+    if (dashRes?.ok) {
+      try {
         const data = await dashRes.json()
         setDashboard({
           assigned_hostess_count: data.assigned_hostess_count ?? 0,
           assigned_hostesses_preview: data.assigned_hostesses_preview ?? [],
           visible_sections: data.visible_sections ?? [],
         })
-      }
+      } catch { failures.push("대시보드") }
+    } else {
+      failures.push("대시보드")
+    }
 
-      if (hostessRes.ok) {
+    if (hostessRes?.ok) {
+      try {
         const data = await hostessRes.json()
         setHostesses(data.hostesses ?? [])
-      }
+      } catch { failures.push("스태프 목록") }
+    } else {
+      failures.push("스태프 목록")
+    }
 
-      if (settleRes.ok) {
+    if (settleRes?.ok) {
+      try {
         const data = await settleRes.json()
         setSettlement({
           total_sessions: data.total_sessions ?? 0,
           total_gross: data.gross_total ?? 0,
           total_manager_amount: data.manager_amount ?? 0,
         })
-      }
+      } catch { failures.push("정산") }
+    } else {
+      failures.push("정산")
+    }
 
-      if (attendRes.ok) {
+    if (attendRes?.ok) {
+      try {
         const data = await attendRes.json()
         setAttendance((data.attendance ?? []).filter((a: AttendanceRecord) => a.status !== "off_duty"))
-      }
-    } catch {
-      setError("데이터를 불러올 수 없습니다.")
-    } finally {
-      setLoading(false)
+      } catch { failures.push("출근") }
+    } else {
+      failures.push("출근")
     }
+
+    if (failures.length > 0) {
+      setError(`일부 정보 로드 실패: ${failures.join(", ")}. 새로고침하면 재시도됩니다.`)
+    }
+    setLoading(false)
   }
 
   if (loading) {
@@ -323,23 +349,23 @@ export default function ManagerPage() {
           <div className="mx-4 mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
         )}
 
-        {/* 아가씨 등록 버튼 — manager 전용 내부 생성 경로 바로가기 */}
+        {/* 스태프 등록 버튼 — manager 전용 내부 생성 경로 바로가기 */}
         <div className="px-4 pt-4">
           <button
             onClick={() => router.push("/admin/members/create")}
             className="w-full rounded-2xl border border-pink-400/25 bg-pink-400/5 p-4 flex items-center justify-between hover:bg-pink-400/10 transition-colors"
           >
             <div className="text-left">
-              <div className="text-sm font-medium text-pink-200">➕ 아가씨 등록</div>
+              <div className="text-sm font-medium text-pink-200">➕ 스태프 등록</div>
               <div className="text-[11px] text-slate-400 mt-1">
-                내 담당 아가씨를 직접 등록합니다. 등록 즉시 내 담당으로 배정됩니다.
+                내 담당 스태프를 직접 등록합니다. 등록 즉시 내 담당으로 배정됩니다.
               </div>
             </div>
             <span className="text-pink-300">›</span>
           </button>
         </div>
 
-        {/* 미배정 아가씨 — "내가 맡기" (T2 round).
+        {/* 미배정 스태프 — "내가 맡기" (T2 round).
             owner 가 만든 미배정 hostess 를 manager 본인이 직접 클릭으로
             담당 등록. PATCH /api/hostesses/:id/assign 이 본인(=manager)
             한정 self-assign 을 서버에서 재검증. */}
@@ -373,8 +399,7 @@ export default function ManagerPage() {
             <div className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4">
               <div className="text-xs text-slate-400">실장 수익</div>
               <div className="mt-1 text-xl font-semibold text-purple-300">
-                {((settlement?.total_manager_amount ?? 0) / 10000).toFixed(0)}
-                <span className="text-base text-slate-400">만원</span>
+                {fmtMan(settlement?.total_manager_amount ?? 0)}
               </div>
             </div>
           </div>
@@ -511,44 +536,14 @@ export default function ManagerPage() {
         </div>
       </div>
 
-      {/* 하단 네비 */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#030814]/95 backdrop-blur-sm">
-        {/* OPS(`/ops`)는 owner 전용(middleware OWNER_ONLY_PREFIXES)이라
-            manager가 눌러도 307로 튕긴다. 이 라운드에서 manager 네비에서는
-            제거해 진입 흐름 불일치를 해소한다. 나머지(/attendance /payouts
-            /credits)는 OWNER_MANAGER_PREFIXES 그룹으로 이동되어 통과된다. */}
-        <div className="grid grid-cols-7 py-2">
-          {[
-            { label: "카운터", icon: "⊞", path: "/counter" },
-            { label: "배정", icon: "📋", path: "/attendance" },
-            { label: "정산", icon: "💰", path: "/manager/settlement" },
-            { label: "지급", icon: "💸", path: "/payouts" },
-            { label: "외상", icon: "📝", path: "/credits" },
-            { label: "채팅", icon: "💬", path: "/chat" },
-            { label: "내 정보", icon: "👤", path: "/me" },
-          ].map((item) => (
-            <button
-              key={item.label}
-              onClick={() => router.push(item.path)}
-              className={`flex flex-col items-center py-2 gap-1 text-xs relative ${item.path === "/manager" ? "text-cyan-400" : "text-slate-500"}`}
-            >
-              <span className="text-lg">{item.icon}</span>
-              {item.label}
-              {item.label === "채팅" && chatUnread > 0 && (
-                <span className="absolute top-0.5 right-1 bg-red-500 text-white text-[10px] px-1 py-0 rounded-full min-w-[16px] text-center leading-4">
-                  {chatUnread > 99 ? "99+" : chatUnread}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* R28-refactor: ManagerBottomNav 로 분리 */}
+      <ManagerBottomNav chatUnread={chatUnread} />
     </div>
   )
 }
 
 /**
- * 미배정 아가씨 목록 + "내가 맡기" 버튼. manager 만 사용하는 컴포넌트로
+ * 미배정 스태프 목록 + "내가 맡기" 버튼. manager 만 사용하는 컴포넌트로
  * 분리해 ManagerPage 의 상태 증가를 피한다. GET /api/hostesses/unassigned
  * 는 owner/manager/super_admin 모두 접근 가능하지만, PATCH assign 은
  * manager 가 self-assign 만 가능하도록 서버가 재검증한다.
@@ -637,7 +632,7 @@ function UnassignedClaimSection() {
     <div className="px-4 pt-3">
       <div className="rounded-2xl border border-pink-400/20 bg-pink-500/5 p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-medium text-pink-200">미배정 아가씨</div>
+          <div className="text-sm font-medium text-pink-200">미배정 스태프</div>
           <div className="text-[11px] text-slate-500">{list.length}명</div>
         </div>
         {loading && <div className="text-[11px] text-slate-500">로딩 중...</div>}
@@ -673,6 +668,9 @@ function UnassignedClaimSection() {
           <div className="mt-3 text-[11px] text-emerald-300">{toast}</div>
         )}
       </div>
+
+      {/* ROUND-CLEANUP-002: daily ops check gate */}
+      <DailyOpsCheckGate />
     </div>
   )
 }

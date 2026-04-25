@@ -41,6 +41,10 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true)
   const [mfaStep, setMfaStep] = useState(false)
   const [code, setCode] = useState("")
+  // R25: "totp" 6자리 vs "backup" 12자 영숫자. TOTP 분실 시 사장 영구
+  //   잠금 회로 차단. 사용자가 명시적으로 토글 — 자동 감지는 입력 중간
+  //   상태에서 깜빡임이 발생.
+  const [useBackupCode, setUseBackupCode] = useState(false)
   // STEP-5: "email" = new-device email OTP flow (default bootstrap),
   //         "totp" = legacy TOTP flow for users who opted into TOTP later.
   const [verifyMode, setVerifyMode] = useState<"email" | "totp">("email")
@@ -71,6 +75,9 @@ export default function LoginPage() {
     membership_id?: string
     store_uuid?: string
     role?: string
+    // R25: 백업 코드로 로그인했을 때 클라이언트에 신호.
+    used_backup_code?: boolean
+    backup_codes_remaining?: number | null
   }
 
   function finalizeSession(data: SessionPayload): boolean {
@@ -100,6 +107,22 @@ export default function LoginPage() {
       data.role === "hostess" ? "/me" :
       data.role === "counter" ? "/counter" :
       "/counter"
+
+    // R25: 백업 코드 사용 시 한번 큰 경고. 1회용임을 인지시키고 잔여 표시.
+    if (data.used_backup_code) {
+      const remaining = data.backup_codes_remaining ?? 0
+      try {
+        if (typeof window !== "undefined") {
+          window.alert(
+            `백업 코드로 로그인했습니다.\n\n` +
+            `이 코드는 폐기됐습니다. 남은 백업 코드: ${remaining}개.\n` +
+            `${remaining <= 2 ? "⚠️ 곧 새 백업 코드를 발급받으세요.\n" : ""}` +
+            `MFA 설정에서 [백업 코드 재발급] 으로 새 8개를 받을 수 있습니다.`,
+          )
+        }
+      } catch { /* noop */ }
+    }
+
     router.push(dest)
     return true
   }
@@ -194,7 +217,14 @@ export default function LoginPage() {
   }
 
   async function handleMfa() {
-    if (!new RegExp(`^\\d{${TOTP_CODE_LENGTH}}$`).test(code)) {
+    // R25: TOTP 또는 백업 코드 — 모드별 검증.
+    if (useBackupCode) {
+      const stripped = code.replace(/[-\s]/g, "")
+      if (!/^[A-Z2-9]{12}$/i.test(stripped)) {
+        setError("백업 코드는 12자 영숫자입니다 (예: ABCD-EFGH-2345).")
+        return
+      }
+    } else if (!new RegExp(`^\\d{${TOTP_CODE_LENGTH}}$`).test(code)) {
       setError(`${TOTP_CODE_LENGTH}자리 인증 코드를 입력하세요.`)
       return
     }
@@ -347,22 +377,45 @@ export default function LoginPage() {
                 {mfaStep && (
                   <div className="rounded-2xl border border-cyan-300/30 bg-[#0A1222]/80 px-4 py-3">
                     <label className="block text-xs font-medium tracking-wide text-cyan-200 mb-2">
-                      인증 코드 ({expectedCodeLength}자리)
+                      {useBackupCode
+                        ? "백업 코드 (12자, 대시 허용)"
+                        : `인증 코드 (${expectedCodeLength}자리)`}
                     </label>
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode={useBackupCode ? "text" : "numeric"}
                       autoComplete="one-time-code"
-                      maxLength={expectedCodeLength}
+                      maxLength={useBackupCode ? 14 : expectedCodeLength}
                       value={code}
-                      onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, expectedCodeLength))}
+                      onChange={e => {
+                        if (useBackupCode) {
+                          // 영숫자 + 대시만, 14자 이내 (XXXX-XXXX-XXXX).
+                          setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 14))
+                        } else {
+                          setCode(e.target.value.replace(/\D/g, "").slice(0, expectedCodeLength))
+                        }
+                      }}
                       onKeyDown={e => e.key === "Enter" && (verifyMode === "email" ? handleEmailOtpVerify() : handleMfa())}
                       autoFocus
                       className="w-full bg-transparent text-base tracking-[0.4em] outline-none placeholder:text-slate-500"
-                      placeholder="000000"
+                      placeholder={useBackupCode ? "ABCD-EFGH-2345" : "000000"}
                     />
-                    {verifyMessage && (
+                    {verifyMessage && !useBackupCode && (
                       <p className="mt-2 text-xs text-cyan-200/80">{verifyMessage}</p>
+                    )}
+                    {/* R25: 백업 코드 토글. TOTP 분실 시 유일한 통로. */}
+                    {verifyMode === "totp" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUseBackupCode(v => !v)
+                          setCode("")
+                          setError("")
+                        }}
+                        className="mt-3 text-[11px] text-cyan-300/80 hover:text-cyan-200 underline underline-offset-2"
+                      >
+                        {useBackupCode ? "← 인증기 코드 입력으로 돌아가기" : "📱 인증기를 사용할 수 없나요? 백업 코드 사용"}
+                      </button>
                     )}
                   </div>
                 )}

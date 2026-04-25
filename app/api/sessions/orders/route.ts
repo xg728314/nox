@@ -6,6 +6,7 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { validateCreateOrderInput, validatePriceGuard } from "@/lib/orders/services/validateOrder"
 import { decrementStock } from "@/lib/orders/services/inventoryOps"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import type { OrderListRow } from "@/lib/orders/types"
 
 export async function GET(request: Request) {
@@ -48,13 +49,16 @@ export async function GET(request: Request) {
       )
     }
 
-    const { data: orders, error: ordersError } = await supabase
-      .from("orders")
-      .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("session_id", session_id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true })
+    // 2026-04-25: archive 된 주문은 활성 목록에서 숨김.
+    const applyArchivedNull = await archivedAtFilter(supabase, "orders")
+    const { data: orders, error: ordersError } = await applyArchivedNull(
+      supabase
+        .from("orders")
+        .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("session_id", session_id)
+        .is("deleted_at", null)
+    ).order("created_at", { ascending: true })
 
     if (ordersError) {
       return NextResponse.json(

@@ -1,3 +1,9 @@
+-- ⚠️ APPLIED AS: 080_manager_prepayments  (2026-04-24)
+-- 로컬 파일명이 043 이지만 Supabase 에 **080 slot 으로 apply** 됨.
+-- 이유: 043 slot 은 Supabase MCP 에 의해 `043_super_admin_global_roles` 로
+-- 선점되어 있어 번호 충돌 회피 목적. 파일 rename 대신 이 주석으로 매핑 기록.
+-- 상세: database/README.md 참조.
+--
 -- STEP-043: settlement-tree manager prepayment ledger.
 --
 -- Purpose

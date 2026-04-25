@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useIdleLogout } from "@/lib/security/useIdleLogout"
 import CounterBleMinimapWidget from "./components/CounterBleMinimapWidget"
+import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
 import type {
   Room,
   TimeBasis, StaffItem,
@@ -10,24 +12,31 @@ import type {
   ViewMode,
 } from "./types"
 import { SHEET_INIT, MGR_MODAL_INIT, VIEW_MODE_STORAGE_KEY } from "./types"
-import RoomCardV2 from "./components/RoomCardV2"
-import ParticipantSetupSheetV2 from "./components/ParticipantSetupSheetV2"
-import BulkManagerPickerV2 from "./components/BulkManagerPickerV2"
+import RoomCardV2 from "./components/cards/RoomCardV2"
+import ParticipantSetupSheetV2 from "./components/modals/ParticipantSetupSheetV2"
+import BulkManagerPickerV2 from "./components/modals/BulkManagerPickerV2"
 import ParticipantInlineEditor, { type InlineEditMode, type InlineEditCommit } from "./components/ParticipantInlineEditor"
-import ManagerChangeModalV2 from "./components/ManagerChangeModalV2"
-import CustomerModal from "./components/CustomerModal"
-import ClosedRoomCardV2 from "./components/ClosedRoomCardV2"
+import ManagerChangeModalV2 from "./components/modals/ManagerChangeModalV2"
+import CustomerModal from "./components/modals/CustomerModal"
+import ClosedRoomCardV2 from "./components/cards/ClosedRoomCardV2"
 import CounterSidebar from "./components/CounterSidebar"
-import InterimModeModal from "./components/InterimModeModal"
+import InterimModeModal from "./components/modals/InterimModeModal"
 import CreditSection from "./components/CreditSection"
 import AccountSelectTrigger from "./components/AccountSelectTrigger"
-import CreditSettlementModal from "./components/CreditSettlementModal"
-import PcCounterLayout from "./components/PcCounterLayout"
-import MobileCounterLayout from "./components/MobileCounterLayout"
+import CreditSettlementModal from "./components/modals/CreditSettlementModal"
+import PcCounterLayout from "./components/layouts/PcCounterLayout"
+import MobileCounterLayout from "./components/layouts/MobileCounterLayout"
 import * as counterApi from "./services/counterApi"
 import type { HostessMatchCandidate } from "./helpers/hostessMatcher"
 import { useRooms } from "./hooks/useRooms"
 import { useFocusedSession } from "./hooks/useFocusedSession"
+import { useCounterBootstrap } from "./hooks/useCounterBootstrap"
+import { useViewMode } from "./hooks/useViewMode"
+import { useCustomerFlow } from "./hooks/useCustomerFlow"
+import { useManagerChangeFlow } from "./hooks/useManagerChangeFlow"
+import { useBulkManagerPicker } from "./hooks/useBulkManagerPicker"
+import { useEscapeStack } from "./hooks/useEscapeStack"
+import { useRealtimePatchWiring } from "./hooks/useRealtimePatchWiring"
 import { useOrderMutations } from "./hooks/useOrderMutations"
 import { useParticipantMutations } from "./hooks/useParticipantMutations"
 import { useCheckoutFlow } from "./hooks/useCheckoutFlow"
@@ -55,6 +64,8 @@ export type CounterPageV2Props = {
 // default wrapper that Next can consume at `/counter`.
 export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   const router = useRouter()
+  // 2026-04-24: 카운터 PC 방치 시 30분 무조작 → 자동 로그아웃.
+  useIdleLogout({ onLogout: () => router.push("/login?idle=1") })
   // ── BLE monitor embed toggle (STEP: embedded panel round)
   //   When true, render <MonitorPanel variant="embedded" /> inside this page
   //   instead of navigating to /counter/monitor. The standalone route still
@@ -74,6 +85,19 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   } = useRooms()
   const [error, setError] = useState("")
 
+  // R29-refactor: bootstrap + 4 fetch 함수를 useCounterBootstrap 으로 이전.
+  //   chat_unread / inventory / hostess_stats / hostess_pool 모두 한 훅에서 관리.
+  const {
+    chatUnread, setChatUnread: setUnreadChat,
+    inventoryItems, hostessStats, hostessNamePool,
+    fetchInventory,
+  } = useCounterBootstrap()
+  // 기존 코드 호환을 위한 alias
+  const unreadChat = chatUnread
+
+  // Chat 버튼 중복 클릭 방지 + 실패 시 재시도 허용.
+  const [chatBusy, setChatBusy] = useState(false)
+
   // ── Focus (owned by useFocusedSession)
   const {
     focusRoomId, setFocusRoomId,
@@ -89,39 +113,14 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   // UI 스푸핑이 가능했기 때문에 R-1 fix 이후로는 사용하지 않는다.
   const currentProfile = useCurrentProfile()
   const currentRole = currentProfile?.role ?? null
-  const [unreadChat, setUnreadChat] = useState(0)
 
-  // ── View mode (UI-only: AUTO / PC / MOBILE)
-  // NO business logic touches this — only the layout shell that wraps the
-  // rooms list and the overall page container are affected.
-  const [viewMode, setViewMode] = useState<ViewMode>("auto")
-  const [autoIsMobile, setAutoIsMobile] = useState<boolean>(false)
-  const effectiveMode: "pc" | "mobile" =
-    viewMode === "auto" ? (autoIsMobile ? "mobile" : "pc") : viewMode
-  function applyViewMode(m: ViewMode) {
-    setViewMode(m)
-    try { localStorage.setItem(VIEW_MODE_STORAGE_KEY, m) } catch { /* ignore */ }
-  }
+  // R29-refactor: viewMode 는 useViewMode 훅으로 이전.
+  const { viewMode, effectiveMode, applyViewMode } = useViewMode()
+
   const [busy, setBusy] = useState(false)
   const [orderOpen, setOrderOpen] = useState(false)
   // orderForm / order handlers owned by useOrderMutations (destructured below).
-
-  // ── Inventory (items loaded for order picker)
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
-
-  // ── Hostess stats
-  const [hostessStats, setHostessStats] = useState<{
-    managed_total: number; on_duty_count: number; waiting_count: number; in_room_count: number; scope: string
-  } | null>(null)
-
-  // Hostess candidate pool — structured rows from /api/store/staff?role=hostess
-  // enriched branch. Used for read-only context-aware name-match suggestions
-  // on newly created participants. Populated once on mount; never mutated by
-  // participant operations. Pool type is `HostessMatchCandidate[] | string[]`
-  // — if the endpoint returns only plain names (older version / enrichment
-  // failure), the matcher falls back to name-only scoring.
-  // SAFE: pool is display-side metadata only.
-  const [hostessNamePool, setHostessNamePool] = useState<HostessMatchCandidate[] | string[]>([])
+  // chatUnread / inventoryItems / hostessStats / hostessNamePool 은 useCounterBootstrap.
 
   // ── Modal / sheet state (owned by useCounterModals) ─────────────────
   // sheet, mgr, bulkMgr, inlineEdit, customerModalOpen 을 단일 훅으로 묶어
@@ -157,189 +156,15 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   //     the row shape is unexpected (e.g. partial payload from a server
   //     upgrade), we fall back to fetchFocusData for that event. This
   //     keeps the UI correct even under unknown payloads.
-  useEffect(() => {
-    setOnRealtimeEvent((ev: import("./hooks/useRooms").RealtimeEvent) => {
-      const focusSessionId = focusData?.sessionId
-      if (!focusRoomId || !focusSessionId) return
-
-      // room_sessions changes affect the main rooms list (already handled
-      // by useRooms.scheduleRefresh). If the focused session itself is the
-      // one changing (status flip, ended_at set), refetch the focus view
-      // because session-level flags (session_status) would otherwise go
-      // stale — this is rare and cheap.
-      if (ev.table === "room_sessions") {
-        if (ev.sessionId === focusSessionId) {
-          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
-        }
-        return
-      }
-
-      // For participants / orders: only patch if the event belongs to the
-      // focused session. Other sessions' events are ignored at the focus
-      // level (useRooms handles the room-list side).
-      const eventSessionId = ev.sessionId ?? (ev.newRow?.session_id as string | undefined) ?? (ev.oldRow?.session_id as string | undefined)
-      if (eventSessionId && eventSessionId !== focusSessionId) return
-
-      const eventType = ev.eventType ?? "UPDATE"
-
-      if (ev.table === "session_participants") {
-        const row = (ev.newRow ?? ev.oldRow) as Record<string, unknown> | null
-        const id = typeof row?.id === "string" ? row.id : null
-        if (!id) {
-          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
-          return
-        }
-        setFocusData((prev) => {
-          if (!prev || prev.sessionId !== focusSessionId) return prev
-          if (eventType === "DELETE") {
-            return { ...prev, participants: prev.participants.filter((p) => p.id !== id) }
-          }
-          // INSERT / UPDATE: merge the new row. We cast through unknown because
-          // the CDC payload column set may not perfectly match the Participant
-          // type — missing fields stay undefined which matches current
-          // optional-field semantics on Participant.
-          const nextRow = ev.newRow as unknown as import("./types").Participant | null
-          if (!nextRow || typeof nextRow.id !== "string") {
-            fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
-            return prev
-          }
-          const idx = prev.participants.findIndex((p) => p.id === id)
-          if (idx >= 0) {
-            const merged = { ...prev.participants[idx], ...nextRow }
-            const next = prev.participants.slice()
-            next[idx] = merged
-            return { ...prev, participants: next }
-          }
-          // INSERT (or UPDATE for a row the client didn't know about).
-          return { ...prev, participants: [...prev.participants, nextRow] }
-        })
-        return
-      }
-
-      if (ev.table === "orders") {
-        const row = (ev.newRow ?? ev.oldRow) as Record<string, unknown> | null
-        const id = typeof row?.id === "string" ? row.id : null
-        if (!id) {
-          fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
-          return
-        }
-        setFocusData((prev) => {
-          if (!prev || prev.sessionId !== focusSessionId) return prev
-          if (eventType === "DELETE") {
-            return { ...prev, orders: prev.orders.filter((o) => o.id !== id) }
-          }
-          const nextRow = ev.newRow as unknown as import("./types").Order | null
-          if (!nextRow || typeof nextRow.id !== "string") {
-            fetchFocusData(focusRoomId, focusSessionId, focusData.started_at)
-            return prev
-          }
-          const idx = prev.orders.findIndex((o) => o.id === id)
-          if (idx >= 0) {
-            const merged = { ...prev.orders[idx], ...nextRow }
-            const next = prev.orders.slice()
-            next[idx] = merged
-            return { ...prev, orders: next }
-          }
-          return { ...prev, orders: [...prev.orders, nextRow] }
-        })
-        return
-      }
-    })
-    return () => setOnRealtimeEvent(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusRoomId, focusData?.sessionId, focusData?.started_at])
+  // R29-refactor: realtime patch 흐름은 useRealtimePatchWiring 훅으로 이전.
+  useRealtimePatchWiring({
+    focusRoomId, focusData, setFocusData,
+    setOnRealtimeEvent, fetchFocusData,
+  })
 
   // fetchOrders / fetchFocusData are owned by useFocusedSession.
-
-  async function fetchUnreadChat() {
-    try {
-      const total = await counterApi.fetchChatUnreadTotal()
-      setUnreadChat(total)
-    } catch { /* ignore */ }
-  }
-
-  async function fetchInventory() {
-    try {
-      const items = await counterApi.fetchInventoryItems<InventoryItem>()
-      setInventoryItems(items)
-    } catch { /* ignore */ }
-  }
-
-  async function fetchHostessStats() {
-    try {
-      const d = await counterApi.fetchHostessStats<{
-        managed_total: number
-        on_duty_count: number
-        waiting_count: number
-        in_room_count: number
-        scope: string
-      }>()
-      if (d) setHostessStats(d)
-    } catch { /* ignore */ }
-  }
-
-  // Best-effort hostess candidate fetch for read-only match suggestions.
-  // Tries to consume the enriched branch (structured HostessMatchCandidate
-  // rows with manager/activity context). Falls back to a plain string[]
-  // when the endpoint hasn't been enriched yet (forward-compat). Failure
-  // is non-fatal — pool stays empty and matcher returns NONE.
-  // Shared shape-detection pipeline: extracted so both the legacy
-  // fetchHostessPool() path AND the new counter/bootstrap hostess_pool
-  // slot hydrate through the same code (no duplication, bootstrap truly
-  // eliminates the extra /api/store/staff?role=hostess call on success).
-  function processHostessPool(list: ReadonlyArray<Record<string, unknown>>) {
-    if (list.length === 0) { setHostessNamePool([]); return }
-    const structured = list.every(
-      (r) => typeof r?.membership_id === "string" && typeof r?.name === "string"
-    )
-    if (structured) {
-      const seen = new Set<string>()
-      const out: HostessMatchCandidate[] = []
-      for (const r of list) {
-        const mid = String(r.membership_id ?? "")
-        if (!mid || seen.has(mid)) continue
-        seen.add(mid)
-        const name = typeof r.name === "string" ? r.name : ""
-        const normalized_name =
-          typeof r.normalized_name === "string" && (r.normalized_name as string).length > 0
-            ? (r.normalized_name as string)
-            : name.replace(/\s+/g, "").trim()
-        out.push({
-          membership_id: mid,
-          name,
-          normalized_name,
-          store_uuid: (typeof r.store_uuid === "string" ? r.store_uuid : null),
-          store_name: (typeof r.store_name === "string" ? r.store_name : null),
-          manager_membership_id:
-            typeof r.manager_membership_id === "string" ? r.manager_membership_id : null,
-          manager_name:
-            typeof r.manager_name === "string" ? r.manager_name : null,
-          is_active_today:
-            typeof r.is_active_today === "boolean" ? r.is_active_today : null,
-          recent_assignment_score:
-            typeof r.recent_assignment_score === "number" ? r.recent_assignment_score : null,
-        })
-      }
-      setHostessNamePool(out)
-    } else {
-      const names = Array.from(
-        new Set(
-          list
-            .map((s) => (typeof s?.name === "string" ? (s.name as string).trim() : ""))
-            .filter((n): n is string => n.length > 0)
-        )
-      )
-      setHostessNamePool(names)
-    }
-  }
-
-  async function fetchHostessPool() {
-    try {
-      const list = await counterApi.fetchHostessPool()
-      processHostessPool(list as ReadonlyArray<Record<string, unknown>>)
-      return
-    } catch { /* ignore */ }
-  }
+  // fetchUnreadChat / fetchInventory / fetchHostessStats / fetchHostessPool /
+  //   processHostessPool 은 R29 에서 useCounterBootstrap 훅으로 이전.
 
   // ═══ Session + participant edit flow (hook-owned) ══════════════════════════════
   // ensureSession / handleInlineCommit / handleSheetCommit / bulkAssignManager
@@ -488,48 +313,11 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   // Called by RoomCardV2 after a multi-entry staff-chat submit that
   // resolved an exact store. Loads the store's manager list, then shows
   // BulkManagerPickerV2 with the N newly-created participant ids.
-  async function openBulkManagerPicker(args: {
-    roomId: string
-    sessionId: string | null
-    storeName: string
-    participantIds: string[]
-  }) {
-    if (!args.storeName || args.participantIds.length === 0) return
-    setBulkMgr({
-      open: true,
-      storeName: args.storeName,
-      storeUuid: null,
-      managerList: [],
-      participantIds: args.participantIds,
-      roomId: args.roomId,
-      sessionId: args.sessionId,
-      busy: false,
-    })
-    try {
-      const { staff, store_uuid } = await counterApi.fetchManagersForStore(args.storeName)
-      setBulkMgr(s => ({
-        ...s,
-        managerList: staff,
-        storeUuid: store_uuid,
-      }))
-    } catch { /* leave empty list — UI surfaces it */ }
-  }
-
-  // Apply one manager to every id in the bulk batch. Uses the existing
-  // fillUnspecified PATCH dispatch (triggered by membership_id: null),
-  // passing only manager_membership_id so category/time_minutes on the
-  // row are preserved (fillUnspecified coalesces missing body fields to
-  // the participant's current row values — see
-  // lib/session/services/participantActions/fillUnspecified.ts).
-  // bulkAssignManager now lives in useParticipantEditFlow (flow.bulkAssignManager).
-
-  function closeBulkManagerPicker() {
-    if (bulkMgr.busy) return
-    setBulkMgr({
-      open: false, storeName: "", storeUuid: null, managerList: [],
-      participantIds: [], roomId: null, sessionId: null, busy: false,
-    })
-  }
+  // R29-refactor: bulk picker 모달 open/close 는 useBulkManagerPicker 로 이전.
+  //   bulkAssignManager 자체는 useParticipantEditFlow (flow.bulkAssignManager).
+  const { openBulkManagerPicker, closeBulkManagerPicker } = useBulkManagerPicker({
+    bulkMgr, setBulkMgr,
+  })
 
   // ── Inline editor: entry point + commit ────────────────────────────
   function openInlineEdit(mode: InlineEditMode, participantId: string) {
@@ -621,81 +409,21 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
 
   // ── Manager modal ──
 
-  async function openMgrModal() {
-    try {
-      const { staff } = await counterApi.fetchManagersForStore(null)
-      patchMgr({ open: true, staffList: staff })
-    } catch { patchMgr({ open: true }) }
-  }
-
-  async function handleSaveManager() {
-    if (!focusData) return
-    const body: Record<string, unknown> = {}
-    if (mgr.isExternal) {
-      if (!mgr.externalName.trim()) { setError("실장 이름을 입력하세요"); return }
-      body.is_external_manager = true
-      body.manager_name = mgr.externalOrg.trim()
-        ? `${mgr.externalOrg.trim()} ${mgr.externalName.trim()}`
-        : mgr.externalName.trim()
-      body.manager_membership_id = null
-    } else if (mgr.selected) {
-      body.is_external_manager = false
-      body.manager_name = mgr.selected.name
-      body.manager_membership_id = mgr.selected.membership_id
-    } else {
-      setError("실장을 선택하세요"); return
-    }
-    setBusy(true)
-    try {
-      const sessionId = await ensureSession(focusData.roomId)
-      if (!sessionId) return
-      const result = await counterApi.patchSession(sessionId, body)
-      if (!result.ok) { const d = result.data as { message?: string }; setError(d?.message || "실장 변경 실패"); return }
-      setMgr(MGR_MODAL_INIT)
-      await fetchRooms()
-    } catch { setError("요청 오류") }
-    finally { setBusy(false) }
-  }
+  // R29-refactor: manager change 모달 흐름은 useManagerChangeFlow 로 이전.
+  const { openMgrModal, handleSaveManager } = useManagerChangeFlow({
+    focusData, mgr, setMgr, patchMgr,
+    ensureSession, fetchRooms, setBusy, setError,
+  })
 
   // ── Inventory ──
 
   // ── Customer ──
 
-  type CustomerItem = { id: string; name: string; phone: string | null; memo: string | null }
-
-  async function searchCustomers(q: string): Promise<CustomerItem[]> {
-    try {
-      return await counterApi.searchCustomers<CustomerItem>(q)
-    } catch { return [] }
-  }
-
-  async function createCustomer(data: { name: string; phone?: string }): Promise<CustomerItem | null> {
-    try {
-      const result = await counterApi.createCustomer(data)
-      if (!result.ok) { const d = result.data as { message?: string }; setError(d?.message || "손님 등록 실패"); return null }
-      const d = result.data as { customer?: CustomerItem; message?: string } & CustomerItem
-      // /api/customers 응답은 { customer: {...} } 또는 flat — 기존 로직과 동일하게 flat raw 반환
-      return (d?.customer ?? (d as unknown as CustomerItem)) ?? null
-    } catch { setError("요청 오류"); return null }
-  }
-
-  async function handleSaveCustomer(data: {
-    customer_id: string | null
-    customer_name_snapshot: string
-    customer_party_size: number
-  }) {
-    if (!focusData) return
-    setBusy(true); setError("")
-    try {
-      const sessionId = await ensureSession(focusData.roomId)
-      if (!sessionId) return
-      const result = await counterApi.patchSession(sessionId, data as unknown as Record<string, unknown>)
-      if (!result.ok) { const d = result.data as { message?: string }; setError(d?.message || "손님 정보 저장 실패"); return }
-      setCustomerModalOpen(false)
-      await fetchRooms()
-    } catch { setError("요청 오류") }
-    finally { setBusy(false) }
-  }
+  // R29-refactor: customer 흐름은 useCustomerFlow 로 이전.
+  const { searchCustomers, createCustomer, handleSaveCustomer } = useCustomerFlow({
+    focusData, ensureSession, fetchRooms,
+    setCustomerModalOpen, setBusy, setError,
+  })
 
   // ── Selection / swipe ──
 
@@ -713,122 +441,48 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
 
   usePagePerf("counter")
 
+  // R29-refactor: rooms 만 여기서 fetch. bootstrap (4 slots) 은 useCounterBootstrap 이 처리.
   useEffect(() => {
-    // Bootstrap-first: attempt /api/counter/bootstrap once. Use it to prime
-    // chat_unread / inventory / hostess_stats / hostess_pool only. Rooms is
-    // left to useRooms.fetchRooms() because useRooms owns paired state
-    // (dailySummary, currentStoreUuid, realtime subscription) that a raw
-    // bootstrap slot would not update consistently. If bootstrap fails for
-    // any reason, the full legacy fan-out runs.
-    let cancelled = false
-    ;(async () => {
-      // Rooms always goes through the hook's canonical path.
-      fetchRooms()
-      try {
-        const res = await apiFetch("/api/counter/bootstrap")
-        if (cancelled) return
-        if (!res.ok) {
-          fetchUnreadChat()
-          fetchInventory()
-          fetchHostessStats()
-          fetchHostessPool()
-          return
-        }
-        const data = await res.json()
-        const missing: string[] = []
-
-        if (typeof data.chat_unread === "number") setUnreadChat(data.chat_unread)
-        else missing.push("chat_unread")
-
-        if (data.inventory && Array.isArray((data.inventory as Record<string, unknown>).items)) {
-          setInventoryItems(((data.inventory as Record<string, unknown>).items as InventoryItem[]))
-        } else missing.push("inventory")
-
-        if (data.hostess_stats && typeof data.hostess_stats === "object") {
-          const d = data.hostess_stats as {
-            managed_total: number; on_duty_count: number; waiting_count: number; in_room_count: number; scope: string
-          }
-          setHostessStats(d)
-        } else missing.push("hostess_stats")
-
-        // Hostess pool: bootstrap 이 이미 가져온 list 를 공유
-        // processHostessPool() 로 처리 → 추가 /api/store/staff?role=hostess
-        // 호출 없음. 슬롯 없으면 legacy fetchHostessPool() 로 폴백.
-        if (Array.isArray(data.hostess_pool)) {
-          processHostessPool(data.hostess_pool as ReadonlyArray<Record<string, unknown>>)
-        } else missing.push("hostess_pool")
-
-        if (missing.includes("chat_unread")) fetchUnreadChat()
-        if (missing.includes("inventory")) fetchInventory()
-        if (missing.includes("hostess_stats")) fetchHostessStats()
-        if (missing.includes("hostess_pool")) fetchHostessPool()
-      } catch {
-        if (cancelled) return
-        fetchUnreadChat()
-        fetchInventory()
-        fetchHostessStats()
-        fetchHostessPool()
-      }
-    })()
-    return () => { cancelled = true }
+    fetchRooms()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Auto-focus: if rendered via `/counter/<room_id>` the page parent passes
   // `initialRoomId`. Wait for rooms to load, find the match, enter focus.
-  // Fires once per initialRoomId change and skips if the room is already
-  // focused (stable against re-renders).
+  //
+  // 2026-04-24 FIX: 한 initialRoomId 당 정확히 1 회만 auto-focus 한다.
+  //   이전 버전은 deps 에 focusRoomId 가 들어 있어서, 사용자가 다른 방을
+  //   클릭해 focusRoomId 가 바뀌면 이 effect 가 다시 발화 → initialRoomId
+  //   로 focus 를 강제로 되돌렸다. 결과적으로 /counter/<room_id> 경로에서
+  //   다른 방 선택이 불가능한 상태가 됨. autoFocusedRef 로 "이미 처리한
+  //   initialRoomId" 를 기록해 재진입을 막는다.
+  const autoFocusedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!initialRoomId) return
-    if (focusRoomId === initialRoomId) return
+    if (autoFocusedRef.current === initialRoomId) return
     if (!rooms || rooms.length === 0) return
     const match = rooms.find(r => r.id === initialRoomId)
-    if (match) {
-      void enterFocus(match)
-    }
+    if (!match) return
+    autoFocusedRef.current = initialRoomId
+    void enterFocus(match)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialRoomId, rooms, focusRoomId])
+  }, [initialRoomId, rooms])
 
-  // View mode: load persisted choice + subscribe to viewport width for AUTO.
-  // No business logic here — pure UI preference persistence.
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    try {
-      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-      if (saved === "auto" || saved === "pc" || saved === "mobile") {
-        setViewMode(saved as ViewMode)
-      }
-    } catch { /* ignore */ }
-    const mq = window.matchMedia("(max-width: 768px)")
-    setAutoIsMobile(mq.matches)
-    const onMQ = (e: MediaQueryListEvent) => setAutoIsMobile(e.matches)
-    if (typeof mq.addEventListener === "function") {
-      mq.addEventListener("change", onMQ)
-      return () => mq.removeEventListener("change", onMQ)
-    } else {
-      // Safari <14 fallback
-      const legacy = mq as MediaQueryList & {
-        addListener?: (cb: (e: MediaQueryListEvent) => void) => void
-        removeListener?: (cb: (e: MediaQueryListEvent) => void) => void
-      }
-      legacy.addListener?.(onMQ)
-      return () => legacy.removeListener?.(onMQ)
-    }
-  }, [])
+  // R29-refactor: viewMode persistence + viewport listener 는 useViewMode 훅으로 이전.
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return
-      if (customerModalOpen) { setCustomerModalOpen(false); return }
-      if (mgr.open) { setMgr(MGR_MODAL_INIT); return }
-      if (sheet.open) { setSheet(SHEET_INIT); return }
-      if (sidebarOpen) { setSidebarOpen(false); return }
-      if (focusRoomId) { exitFocus(); return }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerModalOpen, mgr.open, sheet.open, sidebarOpen, focusRoomId])
+  // R29-refactor: ESC 키 처리는 useEscapeStack 으로 이전.
+  useEscapeStack({
+    customerModalOpen,
+    closeCustomerModal: () => setCustomerModalOpen(false),
+    mgrOpen: mgr.open,
+    closeMgrModal: () => setMgr(MGR_MODAL_INIT),
+    sheetOpen: sheet.open,
+    closeSheet: () => setSheet(SHEET_INIT),
+    sidebarOpen,
+    closeSidebar: () => setSidebarOpen(false),
+    focusRoomId,
+    exitFocus,
+  })
 
   // (polling + realtime subscription are owned by useRooms)
 
@@ -960,7 +614,69 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
             >
               BLE 모니터
             </button>
-            <button onClick={() => router.push("/chat")} className="relative text-slate-400 hover:text-white">
+            <button
+              onClick={async () => {
+                if (chatBusy) return
+                // 1순위: explicit focus (focusData.sessionId)
+                // 2순위: focus 미지정 시 rooms[] 에서 active session 을 찾는다.
+                //   - 정확히 1개 → 자동으로 그 session 으로 room_session chat
+                //   - 2개 이상 (ambiguous) 또는 0개 → /chat 리스트 fallback
+                //   state 는 이미 useRooms().rooms 로 보유. 추가 호출 없음.
+                let sid: string | null = focusData?.sessionId ?? null
+                if (!sid) {
+                  const actives = (rooms ?? []).filter(
+                    (r) => !!r.session?.id && r.session?.status === "active",
+                  )
+                  if (actives.length === 1) {
+                    sid = actives[0].session!.id ?? null
+                  }
+                }
+                if (!sid) {
+                  router.push("/chat")
+                  return
+                }
+                setChatBusy(true)
+                try {
+                  const res = await apiFetch("/api/chat/rooms", {
+                    method: "POST",
+                    body: JSON.stringify({ type: "room_session", session_id: sid }),
+                  })
+                  const d = (await res.json().catch(() => ({}))) as {
+                    chat_room_id?: string
+                    error?: string
+                    message?: string
+                  }
+                  if (!res.ok || !d.chat_room_id) {
+                    // 실패 시 existing error UI 재사용.
+                    setError(
+                      d.message ||
+                        d.error ||
+                        `채팅방 생성 실패 (${res.status})`,
+                    )
+                    // fallback: 리스트로 보내서 사용자 막다른 느낌 최소화.
+                    router.push("/chat")
+                    return
+                  }
+                  router.push(`/chat/${d.chat_room_id}`)
+                } catch {
+                  setError("채팅방 생성 실패 — 네트워크 오류")
+                  router.push("/chat")
+                } finally {
+                  setChatBusy(false)
+                }
+              }}
+              disabled={chatBusy}
+              className="relative text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-wait"
+              title={(() => {
+                if (focusData?.sessionId) return "현재 룸 채팅 열기 (room_session)"
+                const activeCount = (rooms ?? []).filter(
+                  (r) => !!r.session?.id && r.session?.status === "active",
+                ).length
+                if (activeCount === 1) return "진행 중인 룸 채팅 열기 (room_session)"
+                if (activeCount > 1) return `채팅 목록 (진행 중 세션 ${activeCount}개 — 한 룸을 선택하세요)`
+                return "채팅 목록 (진행 중 세션 없음)"
+              })()}
+            >
               <span className="text-lg">💬</span>
               {unreadChat > 0 && (
                 <span className="absolute -top-1 -right-1 text-[9px] bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center font-bold">
@@ -1094,6 +810,7 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
                       key={`closed-${room.id}`}
                       room={room}
                       onClickClosed={handleClosedRoomClick}
+                      onReopened={() => { void fetchRooms() }}
                     />
                   ))}
                 </div>
@@ -1238,6 +955,13 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
 
 // Default export shim — Next.js page route compatibility. `/counter/page.tsx`
 // re-exports this; it must accept zero props to satisfy Next's PageProps.
+//
+// ROUND-OPS-2: 하루 1회 운영 체크 게이트 — overlay 로 추가.
 export default function CounterPage() {
-  return <CounterPageV2 />
+  return (
+    <>
+      <CounterPageV2 />
+      <DailyOpsCheckGate />
+    </>
+  )
 }

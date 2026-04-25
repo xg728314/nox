@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/owner/settlement?business_day_id=xxx
  * 사장 정산 현황 — 매장 전체 집계
  *
  * 사장 열람 가능: 양주판매내역, 웨이터봉사비, 사입, TC(타임수), 총매출, 사장마진
- * 사장 열람 불가: 실장 개별 수익(타임당 공제액), 아가씨 개별 수익
+ * 사장 열람 불가: 실장 개별 수익(타임당 공제액), 스태프 개별 수익
  */
 export async function GET(request: Request) {
   try {
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     let businessDayId: string | null = searchParams.get("business_day_id")
 
     if (!businessDayId) {
-      const today = new Date().toISOString().split("T")[0]
+      const today = getBusinessDateForOps()
       const { data: bizDay } = await supabase
         .from("store_operating_days")
         .select("id, business_date, status")
@@ -112,7 +113,7 @@ export async function GET(request: Request) {
     //   - liquor_sales = Σ(store_price × qty)  ← 사장 입금가 기준 (사장 매출)
     //   - waiter_tips  = Σ(customer_amount)     ← 손님 지불 기준, 사장 매출 제외
     //   - purchases    = Σ(customer_amount)     ← 손님 지불 기준, 사장 매출 제외
-    //   실장 마진(sale_price − store_price)과 아가씨 금액은 사장 매출에서 제외된다.
+    //   실장 마진(sale_price − store_price)과 스태프 금액은 사장 매출에서 제외된다.
     const { data: orders } = await supabase
       .from("orders")
       .select("session_id, order_type, qty, unit_price, store_price, customer_amount")
@@ -148,7 +149,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // 3. 참여자 TC 건수 (아가씨 역할 참여자 수 = 타임 건수)
+    // 3. 참여자 TC 건수 (스태프 역할 참여자 수 = 타임 건수)
     const { data: participants } = await supabase
       .from("session_participants")
       .select("id, session_id, role")
@@ -241,7 +242,7 @@ export async function GET(request: Request) {
         total_sessions: sessionIds.length,
         tc_count: tcCountTotal,
         liquor_sales: liquorSales,
-        // owner_revenue = 사장 매출 (주류 입금가 합계만, 웨이터팁/사입/아가씨금액 제외)
+        // owner_revenue = 사장 매출 (주류 입금가 합계만, 웨이터팁/사입/스태프금액 제외)
         owner_revenue: liquorSales,
         waiter_tips: waiterTips,
         purchases: purchases,

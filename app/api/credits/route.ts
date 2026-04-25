@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { logAuditEvent } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/credits — 외상 등록
@@ -139,8 +141,11 @@ export async function POST(request: Request) {
       )
     }
 
-    // Audit
-    await supabase
+    // Audit — 2026-04-24 P1 fix: audit insert 실패 시 이전에는 조용히 무시.
+    //   금전 레코드(외상) 는 반드시 감사 흔적이 있어야 하므로 실패 시 경고
+    //   로그 남기고 호출자에게 부분 성공을 알린다. credit row 는 이미 생성
+    //   됐으므로 롤백 없이 201 + audit_warning 플래그를 돌려줌.
+    const { error: auditErr } = await supabase
       .from("audit_events")
       .insert({
         store_uuid: authContext.store_uuid,
@@ -160,6 +165,20 @@ export async function POST(request: Request) {
           status: "pending",
         },
       })
+    if (auditErr) {
+      console.error(
+        "[credits POST] audit insert FAILED — credit row created but audit missing.",
+        { credit_id: credit.id, err: auditErr },
+      )
+      return NextResponse.json(
+        {
+          ...credit,
+          audit_warning:
+            "외상은 등록됐으나 감사 로그 저장 실패. 관리자에게 알리세요.",
+        },
+        { status: 201 },
+      )
+    }
 
     return NextResponse.json(credit, { status: 201 })
   } catch (error) {
@@ -203,45 +222,87 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const statusFilter = searchParams.get("status")
 
-    let query = supabase
-      .from("credits")
-      .select("id, store_uuid, session_id, receipt_id, business_day_id, room_uuid, manager_membership_id, customer_name, customer_phone, amount, memo, status, collected_at, collected_by, linked_account_id, created_at, updated_at")
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
+    // 2026-04-25: archived_at 필터 — 인쇄+archive 된 외상은 목록에서 숨김.
+    //   per-table 탐지. credits 에 컬럼 없으면 no-op.
+    const applyArchivedNull = await archivedAtFilter(supabase, "credits")
 
-    if (statusFilter && ["pending", "collected", "cancelled"].includes(statusFilter)) {
-      query = query.eq("status", statusFilter)
+    // 2026-04-25: linked_account_id 는 migration 025 로 추가된 선택 컬럼.
+    //   미적용 DB 에서는 `column does not exist` 로 전체 쿼리 실패 →
+    //   외상 목록 자체가 안 뜸. base select 를 optional 컬럼 없이 만들고
+    //   실패 시 fallback 을 쓴다.
+    const BASE_COLS = "id, store_uuid, session_id, receipt_id, business_day_id, room_uuid, manager_membership_id, customer_name, customer_phone, amount, memo, status, collected_at, collected_by, created_at, updated_at"
+    const FULL_COLS = `${BASE_COLS}, linked_account_id`
+
+    type CreditRow = Record<string, unknown>
+    type CreditQueryResult = {
+      data: CreditRow[] | null
+      error: { message?: string; details?: string | null; hint?: string | null; code?: string } | null
     }
 
-    // 실장은 자기 담당 외상만
-    if (authContext.role === "manager") {
-      query = query.eq("manager_membership_id", authContext.membership_id)
+    async function runQuery(cols: string): Promise<CreditQueryResult> {
+      let q = applyArchivedNull(
+        supabase
+          .from("credits")
+          .select(cols)
+          .eq("store_uuid", authContext.store_uuid)
+          .is("deleted_at", null),
+      ).order("created_at", { ascending: false })
+      if (statusFilter && ["pending", "collected", "cancelled"].includes(statusFilter)) {
+        q = q.eq("status", statusFilter)
+      }
+      if (authContext.role === "manager") {
+        q = q.eq("manager_membership_id", authContext.membership_id)
+      }
+      const res = await q
+      return {
+        data: (res.data as unknown as CreditRow[]) ?? null,
+        error: res.error
+          ? {
+              message: res.error.message,
+              details: res.error.details,
+              hint: res.error.hint,
+              code: res.error.code,
+            }
+          : null,
+      }
     }
 
-    const { data: credits, error: queryError } = await query
+    // 1차 시도: linked_account_id 포함. migration 025 미적용이면 42703.
+    let result = await runQuery(FULL_COLS)
+    if (result.error && result.error.code === "42703") {
+      console.warn(
+        "[credits GET] linked_account_id column missing — migration 025 미적용. 필드 제외 후 재시도.",
+      )
+      result = await runQuery(BASE_COLS)
+    }
+    const { data: credits, error: queryError } = result
 
     if (queryError) {
+      // 서버에만 상세 기록. 클라이언트 응답엔 내부 정보 노출 금지.
+      console.error("[credits GET] queryError:", queryError)
       return NextResponse.json(
-        { error: "QUERY_FAILED", message: "Failed to query credits." },
+        { error: "QUERY_FAILED" },
         { status: 500 }
       )
     }
 
     // 방 이름, 실장 이름 조회
-    const roomUuids = [...new Set((credits ?? []).map((c: { room_uuid: string }) => c.room_uuid))]
-    const managerIds = [...new Set((credits ?? []).map((c: { manager_membership_id: string }) => c.manager_membership_id))]
+    const creditRows = (credits ?? []) as CreditRow[]
+    const roomUuids = [...new Set(creditRows.map(c => c.room_uuid as string))]
+    const managerIds = [...new Set(creditRows.map(c => c.manager_membership_id as string))]
 
     const roomNameMap = new Map<string, string>()
     const managerNameMap = new Map<string, string>()
 
     if (roomUuids.length > 0) {
+      // 2026-04-25 fix: rooms 테이블은 `room_name` 컬럼. 이전엔 존재하지
+      //   않는 `name` 을 select → 목록 확장 시 NULL 이름 표시 버그.
       const { data: rooms } = await supabase
         .from("rooms")
-        .select("id, name")
+        .select("id, room_name")
         .eq("store_uuid", authContext.store_uuid)
         .in("id", roomUuids)
-      for (const r of rooms ?? []) roomNameMap.set(r.id, r.name)
+      for (const r of rooms ?? []) roomNameMap.set(r.id, r.room_name)
     }
 
     if (managerIds.length > 0) {
@@ -253,18 +314,32 @@ export async function GET(request: Request) {
       for (const m of managers ?? []) managerNameMap.set(m.membership_id, m.name)
     }
 
-    const enriched = (credits ?? []).map((c: {
-      id: string; store_uuid: string; session_id: string | null; receipt_id: string | null;
-      business_day_id: string | null; room_uuid: string; manager_membership_id: string;
-      customer_name: string; customer_phone: string | null; amount: number; memo: string | null;
-      status: string; collected_at: string | null; collected_by: string | null;
-      linked_account_id: string | null;
-      created_at: string; updated_at: string
-    }) => ({
+    const enriched = creditRows.map(c => ({
       ...c,
-      room_name: roomNameMap.get(c.room_uuid) || null,
-      manager_name: managerNameMap.get(c.manager_membership_id) || null,
+      room_name: roomNameMap.get(c.room_uuid as string) || null,
+      manager_name: managerNameMap.get(c.manager_membership_id as string) || null,
     }))
+
+    // R28-PII (2026-04-26): 개인정보 (손님 이름·전화) 응답 시 audit 기록.
+    //   정보주체 요청 시 "누가 언제 봤는가" 답변 가능하게.
+    //   행 본문(이름/전화)은 의도적으로 audit 에 안 넣음 — 감사 자체가 PII 가
+    //   되면 안 됨. 누가/몇 건/어떤 status 만 기록.
+    if (enriched.length > 0) {
+      const hasPhone = enriched.some(c => Boolean((c as { customer_phone?: string | null }).customer_phone))
+      // best-effort. audit 실패해도 응답은 그대로.
+      logAuditEvent(supabase, {
+        auth: authContext,
+        action: "credits_viewed",
+        entity_table: "credits",
+        entity_id: authContext.store_uuid, // entity 단위로는 store
+        status: "success",
+        metadata: {
+          row_count: enriched.length,
+          status_filter: statusFilter,
+          contains_phone: hasPhone,
+        },
+      }).catch(() => { /* silent — fail-open on audit, fail-close in mutations */ })
+    }
 
     return NextResponse.json({
       store_uuid: authContext.store_uuid,

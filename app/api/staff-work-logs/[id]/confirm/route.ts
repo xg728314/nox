@@ -6,25 +6,22 @@ import {
   checkBaseLifecycleGate,
   errResp,
   getServiceClient,
-} from "@/lib/server/queries/staffWorkLogLifecycle"
+} from "@/lib/server/queries/staff/workLogLifecycle"
 import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/confirm
  *
- * **draft → confirmed** 전용. owner / super_admin 만.
+ * **pending → confirmed** (cross_store_work_records). owner / super_admin 만.
  *
- * disputed → confirmed 는 **별도 경로** `/resolve` 로 이동 (Phase 3-A).
- * audit action 을 'staff_work_log_confirmed' vs 'staff_work_log_resolved'
- * 로 분리해 운영 이력에서 "최초 확정" 과 "분쟁 해결 후 재확정" 을 구별
- * 할 수 있게 한다. 본 route 에 disputed 를 들고 오면 400
- * INVALID_STATE_TRANSITION.
+ * ⚠️ 2026-04-24 수정:
+ *   실 테이블은 `cross_store_work_records`. manager_membership_id /
+ *   confirmed_by / confirmed_at 컬럼은 **없음**. approval 은
+ *   approved_by / approved_at 로 기록.
  *
  * 정책:
- *   - 상태가 draft 가 아니면 INVALID_STATE_TRANSITION (400)
- *   - manager_membership_id 가 null 이면 MANAGER_REQUIRED (400)
- *
- * No schema change — 기존 confirmed_by / confirmed_at 활용.
+ *   - 상태가 pending 이 아니면 INVALID_STATE_TRANSITION (400)
+ *   - manager_membership_id 존재 검사 제거 (컬럼 없음)
  */
 export async function POST(
   request: Request,
@@ -65,25 +62,14 @@ export async function POST(
   const baseErr = checkBaseLifecycleGate(row, auth)
   if (baseErr) return errResp(baseErr)
 
-  if (row.status !== "draft") {
-    // disputed 는 resolve route 로. 여기서는 400.
+  if (row.status !== "pending") {
     return NextResponse.json(
       {
         error: "INVALID_STATE_TRANSITION",
         message:
           row.status === "disputed"
             ? "disputed 상태는 /resolve 로 재확정하세요."
-            : `현재 상태(${row.status}) 에서는 confirm 할 수 없습니다. draft 만 가능합니다.`,
-      },
-      { status: 400 },
-    )
-  }
-
-  if (!row.manager_membership_id) {
-    return NextResponse.json(
-      {
-        error: "MANAGER_REQUIRED",
-        message: "담당 실장 지정이 없으면 확정할 수 없습니다. 먼저 아가씨에 실장을 배정하거나 로그 내용을 보완하세요.",
+            : `현재 상태(${row.status}) 에서는 confirm 할 수 없습니다. pending 만 가능합니다.`,
       },
       { status: 400 },
     )
@@ -92,18 +78,18 @@ export async function POST(
   const supabase = getServiceClient()
   const nowIso = new Date().toISOString()
   const { error: updateErr } = await supabase
-    .from("staff_work_logs")
+    .from("cross_store_work_records")
     .update({
       status: "confirmed",
-      confirmed_by: auth.user_id,
-      confirmed_at: nowIso,
+      approved_by: auth.membership_id,
+      approved_at: nowIso,
       updated_at: nowIso,
     })
     .eq("id", id)
 
   if (updateErr) {
     return NextResponse.json(
-      { error: "UPDATE_FAILED", message: "확정 업데이트 실패" },
+      { error: "UPDATE_FAILED", message: `확정 업데이트 실패: ${updateErr.message}` },
       { status: 500 },
     )
   }
@@ -118,7 +104,7 @@ export async function POST(
       work_log_id: id,
       from_status: row.status,
       to_status: "confirmed",
-      manager_membership_id: row.manager_membership_id,
+      approved_by: auth.membership_id,
     },
   })
   if (auditFail) return auditFail

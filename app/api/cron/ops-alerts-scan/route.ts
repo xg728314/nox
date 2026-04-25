@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { timingSafeEqual } from "node:crypto"
-import { computeAttendanceAnomalies } from "@/lib/server/queries/opsAttendanceAnomalies"
+import { computeAttendanceAnomalies } from "@/lib/server/queries/ops/attendanceAnomalies"
 import { emitAutomationAlert } from "@/lib/automation/alertHooks"
+import { stampCronHeartbeat } from "@/lib/automation/cronHeartbeat"
+import {
+  isBlockingAnomaly,
+  classifySeverity,
+} from "@/lib/ops/attendanceSeverity"
 
 /**
  * GET /api/cron/ops-alerts-scan
@@ -59,15 +64,18 @@ function supa(): SupabaseClient {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
-// Thresholds
-const THR_DUPLICATE_OPEN = 1
-const THR_TAG_MISMATCH = 3
-const THR_NO_BUSINESS_DAY = 1
+// ROUND-OPS-3: blocking emit 임계치는 severity helper 와 동일하게 >0.
+//   warn 중 tag_mismatch 는 noise 완화를 위해 누적 3건 이상일 때만 emit
+//   (severity 분류는 >0, emit 은 >=3 — "분류" 와 "발송 임계치" 는 별개).
+const THR_DUPLICATE_OPEN = 1 // = blocking 기준
+const THR_TAG_MISMATCH = 3 // warn but noise-guarded
+const THR_NO_BUSINESS_DAY = 1 // = blocking 기준
 
 type StoreRow = { id: string; store_name: string | null; is_active: boolean | null }
 
 type ScanEntry = {
   store_uuid: string
+  severity: "ok" | "warn" | "blocking"
   anomalies: {
     duplicate_open: number
     tag_mismatch: number
@@ -96,6 +104,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "SERVER_CONFIG_ERROR" }, { status: 500 })
   }
 
+  // R24: heartbeat — cron 실행 흔적 (사일런트 실패 감지용).
+  await stampCronHeartbeat(supabase, "ops-alerts-scan", "started")
+
   // 3. 활성 매장 로드
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
@@ -118,8 +129,12 @@ export async function GET(request: Request) {
   // 4. 매장별 anomaly 계산 + 임계치 초과 시 emit
   for (const s of storeRows) {
     const ov = await computeAttendanceAnomalies(supabase, s.id)
+    // ROUND-OPS-3: severity 분류는 helper 와 동일 기준.
+    //   블로킹 유형은 THR=1 (>0), 경고 유형 중 tag_mismatch 만 THR=3 유지.
+    const severity = classifySeverity(ov.anomalies)
     const entry: ScanEntry = {
       store_uuid: s.id,
+      severity,
       anomalies: {
         duplicate_open: ov.anomalies.duplicate_open,
         tag_mismatch: ov.anomalies.tag_mismatch,
@@ -130,8 +145,11 @@ export async function GET(request: Request) {
       errors: [],
     }
 
-    // 4a. duplicate_open
-    if (ov.anomalies.duplicate_open >= THR_DUPLICATE_OPEN) {
+    // 4a. duplicate_open (blocking)
+    if (
+      isBlockingAnomaly("duplicate_open", ov.anomalies.duplicate_open) &&
+      ov.anomalies.duplicate_open >= THR_DUPLICATE_OPEN
+    ) {
       const r = dryRun
         ? ({ ok: true, deduped: false, channel_result: { ok: true, message_id: null } } as const)
         : await emitAutomationAlert({
@@ -158,8 +176,11 @@ export async function GET(request: Request) {
       applyResult(entry, "tag_mismatch", r)
     }
 
-    // 4c. no_business_day
-    if (ov.anomalies.no_business_day >= THR_NO_BUSINESS_DAY) {
+    // 4c. no_business_day (blocking)
+    if (
+      isBlockingAnomaly("no_business_day", ov.anomalies.no_business_day) &&
+      ov.anomalies.no_business_day >= THR_NO_BUSINESS_DAY
+    ) {
       const r = dryRun
         ? ({ ok: true, deduped: false, channel_result: { ok: true, message_id: null } } as const)
         : await emitAutomationAlert({

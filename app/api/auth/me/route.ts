@@ -1,9 +1,34 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
+import { createClient } from "@supabase/supabase-js"
 
 export async function GET(request: Request) {
   try {
     const authContext = await resolveAuthContext(request)
+
+    // R26: mfa_enabled + backup_codes_remaining 노출 (additive). /me/security
+    //   페이지가 현재 상태를 알아야 적절한 UI 분기. 둘 다 booleans/숫자라
+    //   민감한 secret 노출 위험 없음.
+    let mfaEnabled = false
+    let backupCodesRemaining = 0
+    try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (url && key) {
+        const sb = createClient(url, key)
+        const { data: row } = await sb
+          .from("user_mfa_settings")
+          .select("is_enabled, backup_codes_hashed")
+          .eq("user_id", authContext.user_id)
+          .is("deleted_at", null)
+          .maybeSingle()
+        const r = row as { is_enabled?: boolean; backup_codes_hashed?: string[] } | null
+        mfaEnabled = !!r?.is_enabled
+        backupCodesRemaining = Array.isArray(r?.backup_codes_hashed) ? r!.backup_codes_hashed!.length : 0
+      }
+    } catch {
+      // best-effort — me 응답은 MFA 조회 실패해도 정상 동작.
+    }
 
     return NextResponse.json({
       user_id: authContext.user_id,
@@ -15,6 +40,8 @@ export async function GET(request: Request) {
       // floor-wide (non-own-floor) tabs. Additive only — existing
       // consumers that ignore this field are unaffected.
       is_super_admin: authContext.is_super_admin,
+      mfa_enabled: mfaEnabled,
+      backup_codes_remaining: backupCodesRemaining,
     })
   } catch (error) {
     if (error instanceof AuthError) {

@@ -97,11 +97,15 @@ export default function TestOfflinePage() {
       })
       addLog(`✓ enqueueEvent(order) → id: ${e2.id}`)
 
-      // settlement should be skipped
-      const e3 = await enqueueEvent("settlement", {
-        session_id: "sess-xxx",
-      })
-      addLog(`✓ enqueueEvent(settlement) → id: ${e3.id} (should be skipped on sync)`)
+      // settlement: enqueue 자체가 거부되어야 한다 (P1 round: 클라이언트
+      // 시점 fail-fast). 과거엔 큐에 들어가고 서버가 skip 했음.
+      try {
+        await enqueueEvent("settlement", { session_id: "sess-xxx" })
+        addLog(`✗ enqueueEvent(settlement) — FORBIDDEN type 이 통과됨 (regression)`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        addLog(`✓ enqueueEvent(settlement) rejected as expected → ${msg}`)
+      }
 
       const allEvents = await getAllQueuedEvents()
       addLog(`✓ getAllQueuedEvents → count: ${allEvents.length}`)

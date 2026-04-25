@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { timingSafeEqual } from "node:crypto"
+import { stampCronHeartbeat } from "@/lib/automation/cronHeartbeat"
 
 /**
  * GET /api/cron/ble-history-reaper
@@ -151,6 +152,9 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
+
+  // R24: heartbeat. 일 1회 실행되는 cron 이라 stale 임계치 26시간.
+  await stampCronHeartbeat(supabase, "ble-history-reaper", "started")
 
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
 

@@ -46,6 +46,8 @@ export type AuditEntityTable =
   | "profiles"
   | "store_operating_days"
   | "credits"
+  | "manager_financial_permissions"
+  | "paper_ledger_snapshots"
 
 export type LogAuditInput = {
   auth: AuthContext

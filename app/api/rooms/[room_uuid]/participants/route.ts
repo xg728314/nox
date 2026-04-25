@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import { resolveMatchStatus } from "@/lib/matching"
+import { resolveMatchStatus } from "@/lib/session/matching"
 
 export async function GET(
   request: Request,
@@ -139,7 +139,7 @@ export async function GET(
       for (const m of mgrNames ?? []) managerNameMap.set(m.membership_id, m.name)
     }
 
-    // 5. 매칭 판정용: origin_store 기준 아가씨 이름 Set (매장별로 캐시)
+    // 5. 매칭 판정용: origin_store 기준 스태프 이름 Set (매장별로 캐시)
     // participant마다 origin_store_uuid가 다를 수 있으므로 store별 Set 구축
     const relevantStoreUuids = [...new Set([
       authContext.store_uuid,

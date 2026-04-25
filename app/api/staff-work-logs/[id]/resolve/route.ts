@@ -6,46 +6,26 @@ import {
   checkResolvable,
   errResp,
   getServiceClient,
-} from "@/lib/server/queries/staffWorkLogLifecycle"
+} from "@/lib/server/queries/staff/workLogLifecycle"
 import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/resolve
  *
- * disputed → confirmed 전이 (해결/재확정). Phase 3-A 신규.
+ * disputed → resolved (cross_store_work_records).
  *
- * 정책 (스펙):
- *   - auth.role ∈ {owner, super_admin} 만 허용 (manager 불가)
- *   - row.status === "disputed" 만 허용 (else 409 STATE_CONFLICT)
- *   - row.manager_membership_id !== null 필수 (else 400 MANAGER_REQUIRED)
- *   - non-super_admin 의 경우 row.origin_store_uuid === auth.store_uuid
- *     (else 403 STORE_SCOPE_FORBIDDEN)
- *   - settled → 400 SETTLED_LOCKED (공통)
- *   - voided → 400 INVALID_STATE_TRANSITION (공통)
+ * ⚠️ 2026-04-24 수정:
+ *   실 테이블 cross_store_work_records. manager_membership_id 컬럼 없음 →
+ *   "담당 실장 지정 필수" 검증 제거. confirmed_by / confirmed_at 컬럼 없음 →
+ *   resolve 시 approved_by / approved_at 를 업데이트 (최종 해결자 기록).
  *
- * Body:
- *   { reason?: string, memo?: string }  — 모두 선택.
- *   DB 에 dispute_reason 컬럼이 없으므로 resolve 사유는 audit_events 에만
- *   저장된다 (스펙 제약: dispute_reason 컬럼 추가 금지).
+ * 정책:
+ *   - auth.role ∈ {owner, super_admin} 만 (manager 불가)
+ *   - row.status === "disputed" 만 (else 409 STATE_CONFLICT)
+ *   - non-super_admin: origin_store_uuid === auth.store_uuid
+ *   - resolved / voided → 400 INVALID_STATE_TRANSITION
  *
- * 동작:
- *   UPDATE staff_work_logs
- *     SET status = 'confirmed',
- *         confirmed_by = auth.user_id,
- *         confirmed_at = now(),
- *         updated_at = now()
- *   WHERE id = :id
- *
- *   audit_events:
- *     action = 'staff_work_log_resolved'
- *     before = { status: 'disputed' }
- *     metadata = { work_log_id, from_status, to_status, manager_membership_id, reason, memo }
- *
- * 주의:
- *   - confirm route (draft → confirmed) 와는 분리된 경로. confirm route
- *     를 disputed 에 호출하면 INVALID_STATE_TRANSITION 으로 차단된다.
- *     감사 로그 action 이 다르므로 의도적 분리.
- *   - settlement / cross_store_settlement / BLE 연결 없음.
+ * Body: { reason?: string, memo?: string } — 모두 선택. audit 에만 저장.
  */
 export async function POST(
   request: Request,
@@ -96,18 +76,18 @@ export async function POST(
   const supabase = getServiceClient()
   const nowIso = new Date().toISOString()
   const { error: updateErr } = await supabase
-    .from("staff_work_logs")
+    .from("cross_store_work_records")
     .update({
-      status: "confirmed",
-      confirmed_by: auth.user_id,
-      confirmed_at: nowIso,
+      status: "resolved",
+      approved_by: auth.membership_id,
+      approved_at: nowIso,
       updated_at: nowIso,
     })
     .eq("id", id)
 
   if (updateErr) {
     return NextResponse.json(
-      { error: "UPDATE_FAILED", message: "재확정 업데이트 실패" },
+      { error: "UPDATE_FAILED", message: `재확정 업데이트 실패: ${updateErr.message}` },
       { status: 500 },
     )
   }
@@ -122,13 +102,13 @@ export async function POST(
     metadata: {
       work_log_id: id,
       from_status: "disputed",
-      to_status: "confirmed",
-      manager_membership_id: row.manager_membership_id,
+      to_status: "resolved",
+      approved_by: auth.membership_id,
       reason: reason || null,
       memo: memo || null,
     },
   })
   if (auditFail) return auditFail
 
-  return NextResponse.json({ ok: true, id, status: "confirmed" })
+  return NextResponse.json({ ok: true, id, status: "resolved" })
 }

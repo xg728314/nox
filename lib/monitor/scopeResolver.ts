@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { AuthContext } from "@/lib/auth/resolveAuthContext"
+import { BUILDING_FLOORS, floorScopeRegex } from "@/lib/building/floors"
 
 /**
  * Scope resolution — single decision point for (scope, auth) → storeUuids[].
@@ -15,10 +16,15 @@ import type { AuthContext } from "@/lib/auth/resolveAuthContext"
  *   store-<uuid>   : non-super → forbidden if uuid ≠ caller's store_uuid; super → any
  */
 
+// 2026-04-24: `floor-N` 리터럴 유니온을 BUILDING_FLOORS 에서 파생.
+//   건물 층 변경 시 `lib/building/floors.ts` 한 곳만 수정하면 이 타입이
+//   자동으로 따라간다.
+type FloorScope = `floor-${typeof BUILDING_FLOORS[number]}`
+
 export type Scope =
   | "mine"
   | "current_floor"
-  | "floor-5" | "floor-6" | "floor-7" | "floor-8"
+  | FloorScope
   | `store-${string}`
 
 export type ScopeResolutionOk = {
@@ -37,7 +43,8 @@ export type ScopeResolutionErr = {
 
 export type ScopeResolution = ScopeResolutionOk | ScopeResolutionErr
 
-const FLOOR_SCOPE_RE = /^floor-([5-8])$/
+// 2026-04-24: 정규식을 BUILDING_FLOORS 에서 동적 생성.
+const FLOOR_SCOPE_RE = floorScopeRegex()
 const STORE_SCOPE_RE = /^store-[0-9a-f-]{36}$/i
 
 /** Parse a raw query-param string. Returns null if malformed. */

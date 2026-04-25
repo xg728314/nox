@@ -7,6 +7,30 @@ export type CategoryPricing = {
 }
 
 /**
+ * 단가 DB 조회 실패 시 던지는 전용 에러. 2026-04-24 P0 fix.
+ *   - 이전에는 cha3=30000 / banti=0 하드코딩 fallback 이 있어서
+ *     store_service_types 로딩이 일시 실패해도 계산이 조용히 진행됨.
+ *   - 장부 시스템에서는 조용한 잘못된 금액 > 명시적 실패. 따라서
+ *     단가 누락 시 예외를 던져 호출부가 5xx 를 반환하도록 한다.
+ */
+export class PricingLookupError extends Error {
+  readonly code = "PRICING_LOOKUP_FAILED"
+  constructor(
+    public readonly missing: "base" | "cha3" | "banti",
+    public readonly category: string,
+    public readonly timeType?: string,
+  ) {
+    const timePart = timeType ? ` (time_type=${timeType})` : ""
+    super(
+      `store_service_types 에서 ${missing} 단가를 찾지 못했습니다. ` +
+      `category=${category}${timePart}. ` +
+      `store_settings/service-types 설정을 확인하세요.`,
+    )
+    this.name = "PricingLookupError"
+  }
+}
+
+/**
  * Resolves time_type from time_minutes and category.
  * Matches the existing logic in participants POST and PATCH flows.
  */
@@ -44,9 +68,12 @@ export async function lookupCategoryPricing(
     .eq("time_type", timeType)
     .eq("is_active", true)
     .maybeSingle()
-  const price = sst?.price ?? 0
+  if (!sst || typeof sst.price !== "number") {
+    throw new PricingLookupError("base", category, timeType)
+  }
+  const price = sst.price
 
-  // cha3 price
+  // cha3 price — 2026-04-24: fallback 30000 제거 (장부 정확성).
   const { data: cha3Type } = await supabase
     .from("store_service_types")
     .select("price")
@@ -55,9 +82,12 @@ export async function lookupCategoryPricing(
     .eq("time_type", "차3")
     .eq("is_active", true)
     .maybeSingle()
-  const cha3Amount = cha3Type?.price ?? 30000
+  if (!cha3Type || typeof cha3Type.price !== "number") {
+    throw new PricingLookupError("cha3", category)
+  }
+  const cha3Amount = cha3Type.price
 
-  // banti price
+  // banti price — 2026-04-24: fallback 0 제거.
   const { data: bantiType } = await supabase
     .from("store_service_types")
     .select("price")
@@ -66,7 +96,10 @@ export async function lookupCategoryPricing(
     .eq("time_type", "반티")
     .eq("is_active", true)
     .maybeSingle()
-  const bantiAmount = bantiType?.price ?? 0
+  if (!bantiType || typeof bantiType.price !== "number") {
+    throw new PricingLookupError("banti", category)
+  }
+  const bantiAmount = bantiType.price
 
   return { price, cha3Amount, bantiAmount }
 }

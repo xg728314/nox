@@ -1,3 +1,11 @@
+-- ⚠️ STATUS: INCOMPATIBLE / SKIP (2026-04-24 Round 3 실사)
+-- 본 migration 은 apply 불가. 사유:
+--   1. items.staff_work_log_id 컬럼이 없음 (060 미적용)
+--   2. header.store_uuid / target_store_uuid / note 는 038 에서 DROP 됨
+-- 따라서 WHERE / UPDATE SET 절 모두 "column does not exist" 에러.
+-- 또한 방향 규약(from=payer, to=receiver)은 이미 코드 레벨에서 일관 준수 중 →
+-- backfill 불필요. 참조용으로만 보존. apply 금지.
+--
 -- ============================================================
 -- 061_phase4_convention_fix.sql
 --

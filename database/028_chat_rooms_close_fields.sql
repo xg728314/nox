@@ -1,3 +1,6 @@
+-- ⚠️ APPLIED AS: chat_rooms_close_fields
+-- 로컬 028, Supabase history 는 번호 없는 이름.
+--
 -- 028: chat_rooms soft-close fields (STEP-009.1)
 --
 -- Adds structured close metadata so room_session chat can be soft-closed on

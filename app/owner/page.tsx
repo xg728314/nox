@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
 import { usePagePerf } from "@/lib/debug/usePagePerf"
+import OwnerQuickNav from "./components/OwnerQuickNav"
+import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
 
 type StoreProfile = {
   store_uuid: string
@@ -50,7 +52,7 @@ export default function OwnerPage() {
   const [switching, setSwitching] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
 
-  // 미배정 아가씨 배정 섹션 (T2 round)
+  // 미배정 스태프 배정 섹션 (T2 round)
   type UnassignedHostess = {
     membership_id: string
     name: string
@@ -65,7 +67,7 @@ export default function OwnerPage() {
   const [assignSubmitting, setAssignSubmitting] = useState(false)
   const [assignToast, setAssignToast] = useState<string>("")
 
-  // T3: 배정된 아가씨 list + 배정 해제 state.
+  // T3: 배정된 스태프 list + 배정 해제 state.
   //   /api/store/staff?role=hostess 가 manager_membership_id / manager_name
   //   enrichment 를 포함하므로 기존 API 재사용으로 충분 (신규 API 없음).
   type AssignedHostess = {
@@ -76,6 +78,15 @@ export default function OwnerPage() {
   }
   const [assignedHostesses, setAssignedHostesses] = useState<AssignedHostess[]>([])
   const [unassignBusyId, setUnassignBusyId] = useState<string | null>(null)
+
+  // Phase (2026-04-24): 섹션 접기/펼치기. 페이지가 너무 길어서 기본 접힘.
+  //   회원 관리 + 빠른 이동 은 자주 쓰는 버튼이라 항상 펼친 상태 유지.
+  const [expandAssigned, setExpandAssigned] = useState(false)
+  const [expandStaff, setExpandStaff] = useState(false)
+  const [expandSettlement, setExpandSettlement] = useState(false)
+  // 출근 카운트 (스태프 현황 헤더 요약용). /api/attendance 에서 checked_out_at
+  //   가 null 인 row 수.
+  const [attendanceOnCount, setAttendanceOnCount] = useState<number | null>(null)
 
   const me = useCurrentProfile()
   const currentStoreUuid = me?.store_uuid ?? ""
@@ -140,6 +151,25 @@ export default function OwnerPage() {
     } catch { /* ignore */ }
   }
 
+  // 스태프 현황 헤더의 "출근 N" 요약용. /api/attendance 는 이미 /staff 에서도
+  //   쓰는 기존 엔드포인트. 실패 시 null 유지 → UI 에서 배지 숨김.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch("/api/attendance")
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        type A = { id: string; checked_out_at: string | null }
+        const items = (data?.attendance ?? []) as A[]
+        if (!cancelled) {
+          setAttendanceOnCount(items.filter((a) => !a.checked_out_at).length)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   async function fetchAll() {
     try {
       const [profileRes, staffRes, overviewRes] = await Promise.all([
@@ -185,7 +215,7 @@ export default function OwnerPage() {
     } catch { /* ignore */ }
   }
 
-  // 미배정 아가씨 조회 — 대시보드 진입 시 1회 + 배정 직후 재조회.
+  // 미배정 스태프 조회 — 대시보드 진입 시 1회 + 배정 직후 재조회.
   async function fetchUnassigned() {
     setUnassignedLoading(true)
     try {
@@ -198,7 +228,7 @@ export default function OwnerPage() {
     finally { setUnassignedLoading(false) }
   }
 
-  // T3: 배정된 아가씨 목록 — /api/store/staff?role=hostess 의 enrichment
+  // T3: 배정된 스태프 목록 — /api/store/staff?role=hostess 의 enrichment
   //   (manager_membership_id / manager_name) 를 활용. manager 가 지정된
   //   row 만 추려 displays.
   async function fetchAssignedHostesses() {
@@ -231,7 +261,7 @@ export default function OwnerPage() {
     fetchAssignedHostesses()
   }, [])
 
-  // T3: owner/super_admin 이 배정된 아가씨를 해제. PATCH /api/hostesses/:id/assign
+  // T3: owner/super_admin 이 배정된 스태프를 해제. PATCH /api/hostesses/:id/assign
   //   { manager_membership_id: null } — 서버가 store scope 재검증 후 null 로 갱신.
   async function unassignHostess(h: AssignedHostess) {
     setUnassignBusyId(h.membership_id)
@@ -350,7 +380,10 @@ export default function OwnerPage() {
       <div className="relative z-10">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 카운터</button>
+          <button
+            onClick={() => router.push("/counter")}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
           <span className="font-semibold">매장관리</span>
           <div className="text-xs text-slate-400">사장</div>
         </div>
@@ -408,14 +441,14 @@ export default function OwnerPage() {
             </div>
           )}
 
-          {/* 미배정 아가씨 배정 섹션 — T2 round.
+          {/* 미배정 스태프 배정 섹션 — T2 round.
               hostesses.manager_membership_id IS NULL 인 행을 노출하고
               실장 드롭다운으로 즉시 배정. 배정 완료 시 /api/manager/hostesses
               에 바로 나타난다. */}
           {unassigned.length > 0 && (
             <div className="rounded-2xl border border-pink-400/20 bg-pink-500/5 p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-medium text-pink-200">미배정 아가씨</div>
+                <div className="text-sm font-medium text-pink-200">미배정 스태프</div>
                 <div className="text-[11px] text-slate-500">{unassigned.length}명</div>
               </div>
               <div className="space-y-2">
@@ -456,40 +489,53 @@ export default function OwnerPage() {
             </div>
           )}
 
-          {/* 배정된 아가씨 — T3 round.
+          {/* 배정된 스태프 — T3 round.
               현재 manager 가 지정된 hostess 를 나열. 각 row 에 "배정 해제"
               버튼으로 기존 PATCH /api/hostesses/:id/assign (manager_membership_id:null)
               재사용. 해제 직후 위 미배정 섹션으로 이동. */}
           {assignedHostesses.length > 0 && (
             <div className="rounded-2xl border border-purple-400/20 bg-purple-500/5 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-medium text-purple-200">배정된 아가씨</div>
-                <div className="text-[11px] text-slate-500">{assignedHostesses.length}명</div>
-              </div>
-              <div className="space-y-2">
-                {assignedHostesses.map((h) => (
-                  <div
-                    key={h.membership_id}
-                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-100 truncate">
-                        {h.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        담당 실장: <span className="text-purple-300">{h.manager_name || h.manager_membership_id?.slice(0, 8) || "-"}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => unassignHostess(h)}
-                      disabled={unassignBusyId === h.membership_id}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-slate-300 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50"
+              <button
+                type="button"
+                onClick={() => setExpandAssigned((v) => !v)}
+                className="w-full flex items-center justify-between mb-0 text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-xs">
+                    {expandAssigned ? "▼" : "▶"}
+                  </span>
+                  <span className="text-sm font-medium text-purple-200">배정된 스태프</span>
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  총 {assignedHostesses.length}명
+                </span>
+              </button>
+              {expandAssigned && (
+                <div className="mt-3 space-y-2">
+                  {assignedHostesses.map((h) => (
+                    <div
+                      key={h.membership_id}
+                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"
                     >
-                      {unassignBusyId === h.membership_id ? "해제 중..." : "배정 해제"}
-                    </button>
-                  </div>
-                ))}
-              </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-100 truncate">
+                          {h.name}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          담당 실장: <span className="text-purple-300">{h.manager_name || h.manager_membership_id?.slice(0, 8) || "-"}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => unassignHostess(h)}
+                        disabled={unassignBusyId === h.membership_id}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-slate-300 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50"
+                      >
+                        {unassignBusyId === h.membership_id ? "해제 중..." : "배정 해제"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -517,156 +563,172 @@ export default function OwnerPage() {
             ))}
           </div>
 
-          {/* 빠른 이동 */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "관제", path: "/admin", icon: "📡" },
-              { label: "리포트", path: "/reports", icon: "📊" },
-              { label: "카운터", path: "/counter", icon: "🖥️" },
-              { label: "배정", path: "/attendance", icon: "📋" },
-              { label: "감사 로그", path: "/audit", icon: "📜" },
-              { label: "정산 현황", path: "/owner/settlement", icon: "💰" },
-              { label: "지급 관리", path: "/payouts", icon: "💸" },
-              { label: "정산 이력", path: "/settlement/history", icon: "📒" },
-              { label: "외상 관리", path: "/credits", icon: "📝" },
-              { label: "이적 관리", path: "/transfer", icon: "🔄" },
-              { label: "재고", path: "/inventory", icon: "📦" },
-              { label: "채팅", path: "/chat", icon: "💬" },
-              { label: "운영 설정", path: "/ops", icon: "⚙️" },
-            ].map((item) => (
-              <button
-                key={item.path}
-                onClick={() => router.push(item.path)}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left hover:bg-white/[0.08] transition-colors relative"
-              >
-                <div className="text-xl mb-2">{item.icon}</div>
-                {item.label === "채팅" && chatUnread > 0 && (
-                  <span className="absolute top-2 right-2 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                    {chatUnread > 99 ? "99+" : chatUnread}
-                  </span>
+          {/* 빠른 이동 — R28-refactor: OwnerQuickNav 로 분리 */}
+          <OwnerQuickNav chatUnread={chatUnread} />
+
+          {/* 스태프 현황 — 기본 접힘. 헤더에 총/실장/스태프/출근 요약. */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
+            <button
+              type="button"
+              onClick={() => setExpandStaff((v) => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 text-xs">
+                  {expandStaff ? "▼" : "▶"}
+                </span>
+                <span className="text-sm font-medium text-slate-300">스태프 현황</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="text-slate-500">총 {staff.length}명</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-blue-300">실장 {managerCount}</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-purple-300">스태프 {hostessCount}</span>
+                {attendanceOnCount !== null && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <span className="text-emerald-300">출근 {attendanceOnCount}</span>
+                  </>
                 )}
-                <div className="text-sm font-medium text-slate-200">{item.label}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* 스태프 현황 */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-300">스태프 현황</span>
-              <span className="text-xs text-slate-500">{staff.length}명</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-blue-500/10 p-3">
-                <div className="text-xs text-slate-400">실장</div>
-                <div className="mt-1 text-2xl font-semibold text-blue-300">{managerCount}</div>
               </div>
-              <div className="rounded-xl bg-purple-500/10 p-3">
-                <div className="text-xs text-slate-400">스태프</div>
-                <div className="mt-1 text-2xl font-semibold text-purple-300">{hostessCount}</div>
-              </div>
-            </div>
+            </button>
 
-            {staff.length === 0 && !error && (
-              <div className="text-center py-4">
-                <p className="text-slate-500 text-sm">등록된 스태프가 없습니다.</p>
-              </div>
-            )}
-
-            {staff.length > 0 && (
-              <div className="space-y-2">
-                {staff.map((s) => (
-                  <div key={s.membership_id} className="flex items-center justify-between py-2 border-t border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
-                        s.role === "manager" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
-                      }`}>
-                        {(s.name || "?").slice(0, 1)}
-                      </div>
-                      <div>
-                        <div className="text-sm">{s.name}</div>
-                        <div className="text-xs text-slate-500">{s.role === "manager" ? "실장" : "스태프"}</div>
-                      </div>
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
-                      {s.status === "approved" ? "승인" : s.status}
-                    </span>
+            {expandStaff && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-blue-500/10 p-3">
+                    <div className="text-xs text-slate-400">실장</div>
+                    <div className="mt-1 text-2xl font-semibold text-blue-300">{managerCount}</div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  <div className="rounded-xl bg-purple-500/10 p-3">
+                    <div className="text-xs text-slate-400">스태프</div>
+                    <div className="mt-1 text-2xl font-semibold text-purple-300">{hostessCount}</div>
+                  </div>
+                </div>
 
-          {/* 정산 개요 */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-300">정산 개요</span>
-              <span className="text-xs text-slate-500">{overview.length}명</span>
-            </div>
+                {staff.length === 0 && !error && (
+                  <div className="text-center py-4">
+                    <p className="text-slate-500 text-sm">등록된 스태프가 없습니다.</p>
+                  </div>
+                )}
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl bg-emerald-500/10 p-3">
-                <div className="text-xs text-slate-400">확정</div>
-                <div className="mt-1 text-2xl font-semibold text-emerald-300">{finalizedCount}</div>
-              </div>
-              <div className="rounded-xl bg-amber-500/10 p-3">
-                <div className="text-xs text-slate-400">대기</div>
-                <div className="mt-1 text-2xl font-semibold text-amber-300">{draftCount}</div>
-              </div>
-              <div className="rounded-xl bg-white/[0.04] p-3">
-                <div className="text-xs text-slate-400">없음</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-400">{noneCount}</div>
-              </div>
-            </div>
-
-            {overview.length === 0 && !error && (
-              <div className="text-center py-4">
-                <p className="text-slate-500 text-sm">정산 데이터가 없습니다.</p>
-              </div>
-            )}
-
-            {overview.length > 0 && (
-              <div className="space-y-2">
-                {overview.map((o) => (
-                  <div key={o.hostess_id} className="flex items-center justify-between py-2 border-t border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
-                        o.has_settlement
-                          ? o.status === "finalized"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : "bg-amber-500/20 text-amber-300"
-                          : "bg-white/10 text-slate-500"
-                      }`}>
-                        {o.has_settlement ? (o.status === "finalized" ? "✓" : "◷") : "−"}
-                      </div>
-                      <div>
-                        <div className="text-sm">{o.hostess_name || o.hostess_id.slice(0, 8)}</div>
-                        <div className="text-xs text-slate-500">
-                          {o.has_settlement
-                            ? o.status === "finalized" ? "정산 확정" : "정산 대기"
-                            : "정산 없음"}
+                {staff.length > 0 && (
+                  <div className="space-y-2">
+                    {staff.map((s) => (
+                      <div key={s.membership_id} className="flex items-center justify-between py-2 border-t border-white/5">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
+                            s.role === "manager" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
+                          }`}>
+                            {(s.name || "?").slice(0, 1)}
+                          </div>
+                          <div>
+                            <div className="text-sm">{s.name}</div>
+                            <div className="text-xs text-slate-500">{s.role === "manager" ? "실장" : "스태프"}</div>
+                          </div>
                         </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
+                          {s.status === "approved" ? "승인" : s.status}
+                        </span>
                       </div>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      o.status === "finalized"
-                        ? "bg-emerald-500/20 text-emerald-300"
-                        : o.status === "draft"
-                          ? "bg-amber-500/20 text-amber-300"
-                          : "bg-white/10 text-slate-500"
-                    }`}>
-                      {o.status === "finalized" ? "확정" : o.status === "draft" ? "대기" : "없음"}
-                    </span>
+                    ))}
                   </div>
-                ))}
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 정산 개요 — 기본 접힘. 헤더에 총/확정/대기/없음 요약. */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
+            <button
+              type="button"
+              onClick={() => setExpandSettlement((v) => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 text-xs">
+                  {expandSettlement ? "▼" : "▶"}
+                </span>
+                <span className="text-sm font-medium text-slate-300">정산 개요</span>
               </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="text-slate-500">총 {overview.length}명</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-emerald-300">확정 {finalizedCount}</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-amber-300">대기 {draftCount}</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-slate-400">없음 {noneCount}</span>
+              </div>
+            </button>
+
+            {expandSettlement && (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl bg-emerald-500/10 p-3">
+                    <div className="text-xs text-slate-400">확정</div>
+                    <div className="mt-1 text-2xl font-semibold text-emerald-300">{finalizedCount}</div>
+                  </div>
+                  <div className="rounded-xl bg-amber-500/10 p-3">
+                    <div className="text-xs text-slate-400">대기</div>
+                    <div className="mt-1 text-2xl font-semibold text-amber-300">{draftCount}</div>
+                  </div>
+                  <div className="rounded-xl bg-white/[0.04] p-3">
+                    <div className="text-xs text-slate-400">없음</div>
+                    <div className="mt-1 text-2xl font-semibold text-slate-400">{noneCount}</div>
+                  </div>
+                </div>
+
+                {overview.length === 0 && !error && (
+                  <div className="text-center py-4">
+                    <p className="text-slate-500 text-sm">정산 데이터가 없습니다.</p>
+                  </div>
+                )}
+
+                {overview.length > 0 && (
+                  <div className="space-y-2">
+                    {overview.map((o) => (
+                      <div key={o.hostess_id} className="flex items-center justify-between py-2 border-t border-white/5">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
+                            o.has_settlement
+                              ? o.status === "finalized"
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : "bg-amber-500/20 text-amber-300"
+                              : "bg-white/10 text-slate-500"
+                          }`}>
+                            {o.has_settlement ? (o.status === "finalized" ? "✓" : "◷") : "−"}
+                          </div>
+                          <div>
+                            <div className="text-sm">{o.hostess_name || o.hostess_id.slice(0, 8)}</div>
+                            <div className="text-xs text-slate-500">
+                              {o.has_settlement
+                                ? o.status === "finalized" ? "정산 확정" : "정산 대기"
+                                : "정산 없음"}
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          o.status === "finalized"
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : o.status === "draft"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-white/10 text-slate-500"
+                        }`}>
+                          {o.status === "finalized" ? "확정" : o.status === "draft" ? "대기" : "없음"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* 실장 선택 모달 — T2 round. 미배정 아가씨 1건에 실장을 배정. */}
+      {/* 실장 선택 모달 — T2 round. 미배정 스태프 1건에 실장을 배정. */}
       {assignModalFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl border border-pink-400/25 bg-[#0A1222] p-5 space-y-3">
@@ -718,6 +780,9 @@ export default function OwnerPage() {
           </div>
         </div>
       )}
+
+      {/* ROUND-OPS-2: 하루 1회 운영 체크 강제 모달 */}
+      <DailyOpsCheckGate />
     </div>
   )
 }

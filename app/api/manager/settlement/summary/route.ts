@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getManagerSettlementSummary } from "@/lib/server/queries/managerSettlementSummary"
+import { getManagerSettlementSummary } from "@/lib/server/queries/manager/settlementSummary"
 
 export async function GET(request: Request) {
   try {

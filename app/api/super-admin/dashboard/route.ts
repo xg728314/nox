@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/super-admin/dashboard
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
     const storeIds = stores.map((s) => s.id)
 
     // 2) Today's business_days across all stores
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
     const { data: bizDays } = await supabase
       .from("store_operating_days")
       .select("id, store_uuid, business_date, status")

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
 
 export async function GET(request: Request) {
   try {
@@ -48,11 +49,15 @@ export async function GET(request: Request) {
     }
 
     // 2. Receipts by session (session-level settlement summaries)
-    const { data: receipts } = await supabase
-      .from("receipts")
-      .select("id, session_id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
+    // 2026-04-25: archive 된 영수증 제외. 인쇄+archive 이후 리포트 중복 집계 차단.
+    const applyArchivedNull = await archivedAtFilter(supabase, "receipts")
+    const { data: receipts } = await applyArchivedNull(
+      supabase
+        .from("receipts")
+        .select("id, session_id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId)
+    )
 
     const receiptList = receipts ?? []
 
@@ -107,10 +112,11 @@ export async function GET(request: Request) {
       const entry = staffMap.get(key)!
       entry.sessions += 1
       entry.total_price += p.price_amount ?? 0
+      // R28-fix: NUMERIC 가 string 으로 오는 경우 string concat 방어 (Number 캐스트).
       if (p.role === "manager") {
-        entry.total_payout += p.manager_payout_amount ?? 0
+        entry.total_payout += Number(p.manager_payout_amount ?? 0) || 0
       } else {
-        entry.total_payout += p.hostess_payout_amount ?? 0
+        entry.total_payout += Number(p.hostess_payout_amount ?? 0) || 0
       }
     }
 
@@ -118,19 +124,51 @@ export async function GET(request: Request) {
     const managerBreakdown = [...staffMap.values()].filter(s => s.role === "manager")
     const hostessBreakdown = [...staffMap.values()].filter(s => s.role === "hostess")
 
-    // Owner visibility: check manager toggles for read-through
+    // Owner visibility: per-manager 토글.
+    // R28-fix: 이전엔 "한 명이라도 share=true 면 전체 노출" 패턴이라 거부한
+    //   다른 실장 수익도 owner 가 봄. 매니저별 per-row 마스킹으로 변경.
+    //
+    //   집계 manager_total/hostess_total 은 share=true 인 매니저들의 수익만
+    //   포함 (그 매니저의 hostess 수익까지). 거부한 매니저 row 는 0 으로 가정.
+    //   manager_breakdown / hostess_breakdown 도 share=true 인 매니저 본인/
+    //   소속 hostess 만 노출.
     if (authContext.role === "owner") {
-      // Look up manager visibility toggles
-      let showManagerProfit = false
-      let showHostessProfit = false
-      {
-        const { data: mgrRows } = await supabase
-          .from("managers")
-          .select("show_profit_to_owner, show_hostess_profit_to_owner")
-          .eq("store_uuid", authContext.store_uuid)
-        for (const m of (mgrRows ?? []) as { show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }[]) {
-          if (m.show_profit_to_owner) showManagerProfit = true
-          if (m.show_hostess_profit_to_owner) showHostessProfit = true
+      // 1) 매니저별 visibility map. 동시에 hostess->manager 매핑.
+      const { data: mgrRows } = await supabase
+        .from("managers")
+        .select("membership_id, show_profit_to_owner, show_hostess_profit_to_owner")
+        .eq("store_uuid", authContext.store_uuid)
+      const mgrShareSelf = new Set<string>()
+      const mgrShareHostess = new Set<string>()
+      for (const m of (mgrRows ?? []) as Array<{ membership_id: string; show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }>) {
+        if (m.show_profit_to_owner) mgrShareSelf.add(m.membership_id)
+        if (m.show_hostess_profit_to_owner) mgrShareHostess.add(m.membership_id)
+      }
+
+      // 2) hostess -> manager 매핑 (해당 호스티스의 owner_view 가능 여부 결정).
+      const { data: hostessRows } = await supabase
+        .from("hostesses")
+        .select("membership_id, manager_membership_id")
+        .eq("store_uuid", authContext.store_uuid)
+      const hostessToManager = new Map<string, string>()
+      for (const h of (hostessRows ?? []) as Array<{ membership_id: string; manager_membership_id: string | null }>) {
+        if (h.manager_membership_id) hostessToManager.set(h.membership_id, h.manager_membership_id)
+      }
+
+      // 3) 매니저별 마스킹된 합계 재계산 (per-row).
+      let ownerManagerTotal = 0
+      let ownerHostessTotal = 0
+      for (const p of (participants ?? [])) {
+        if (p.role === "manager") {
+          if (mgrShareSelf.has(p.membership_id)) {
+            ownerManagerTotal += Number(p.manager_payout_amount ?? 0) || 0
+          }
+        } else {
+          // hostess: 본인이 속한 매니저가 hostess profit share 허용했으면 포함
+          const ownerMgr = hostessToManager.get(p.membership_id)
+          if (ownerMgr && mgrShareHostess.has(ownerMgr)) {
+            ownerHostessTotal += Number(p.hostess_payout_amount ?? 0) || 0
+          }
         }
       }
 
@@ -141,24 +179,29 @@ export async function GET(request: Request) {
         margin_total: totals.margin_total,
         order_total: totals.order_total,
         participant_total: totals.participant_total,
+        manager_total: ownerManagerTotal,
+        hostess_total: ownerHostessTotal,
       }
-      if (showManagerProfit) ownerTotals.manager_total = totals.manager_total
-      if (showHostessProfit) ownerTotals.hostess_total = totals.hostess_total
 
-      const ownerReceipts = receiptList.map((r: { id: string; session_id: string; gross_total: number; tc_amount: number; manager_amount: number; hostess_amount: number; margin_amount: number; order_total_amount: number; participant_total_amount: number; status: string }) => {
-        const item: Record<string, unknown> = {
-          id: r.id,
-          session_id: r.session_id,
-          gross_total: r.gross_total,
-          tc_amount: r.tc_amount,
-          margin_amount: r.margin_amount,
-          order_total_amount: r.order_total_amount,
-          participant_total_amount: r.participant_total_amount,
-          status: r.status,
-        }
-        if (showManagerProfit) item.manager_amount = r.manager_amount
-        if (showHostessProfit) item.hostess_amount = r.hostess_amount
-        return item
+      // 4) receipt 별 마스킹 — 어떤 매니저가 그 세션을 담당했는지 모르면
+      //    안전하게 0. 구현 단순화 위해 receipt 단위 manager/hostess
+      //    개별 amount 는 owner 응답에서 제외 (집계만 노출).
+      const ownerReceipts = receiptList.map((r: { id: string; session_id: string; gross_total: number; tc_amount: number; manager_amount: number; hostess_amount: number; margin_amount: number; order_total_amount: number; participant_total_amount: number; status: string }) => ({
+        id: r.id,
+        session_id: r.session_id,
+        gross_total: r.gross_total,
+        tc_amount: r.tc_amount,
+        margin_amount: r.margin_amount,
+        order_total_amount: r.order_total_amount,
+        participant_total_amount: r.participant_total_amount,
+        status: r.status,
+      }))
+
+      // 5) breakdown — 본인이 share=true 인 매니저, share=true 매니저의 hostess 만.
+      const ownerManagerBreakdown = managerBreakdown.filter(s => mgrShareSelf.has(s.membership_id))
+      const ownerHostessBreakdown = hostessBreakdown.filter(s => {
+        const mgr = hostessToManager.get(s.membership_id)
+        return mgr ? mgrShareHostess.has(mgr) : false
       })
 
       return NextResponse.json({
@@ -167,8 +210,8 @@ export async function GET(request: Request) {
         day_status: opDay.status,
         totals: ownerTotals,
         receipts: ownerReceipts,
-        manager_breakdown: showManagerProfit ? managerBreakdown : [],
-        hostess_breakdown: showHostessProfit ? hostessBreakdown : [],
+        manager_breakdown: ownerManagerBreakdown,
+        hostess_breakdown: ownerHostessBreakdown,
       })
     }
 

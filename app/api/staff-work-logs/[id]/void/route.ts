@@ -6,21 +6,26 @@ import {
   checkBaseLifecycleGate,
   errResp,
   getServiceClient,
-} from "@/lib/server/queries/staffWorkLogLifecycle"
+} from "@/lib/server/queries/staff/workLogLifecycle"
 import { auditOr500 } from "@/lib/audit/logEvent"
 
 /**
  * POST /api/staff-work-logs/[id]/void
  *
- * 전이:
- *   - draft → voided     : 작성자(manager 본인) 또는 owner / super_admin
- *   - confirmed → voided : owner / super_admin 만
- *   - settled            : SETTLED_LOCKED
- *   - voided             : STATE_CONFLICT
+ * status → voided (cross_store_work_records).
  *
- * Body: { reason: string } — void_reason 필수.
+ * ⚠️ 2026-04-24 수정:
+ *   실 테이블 cross_store_work_records 에는 voided_by / voided_at /
+ *   void_reason / created_by / manager_membership_id 컬럼이 **없음**.
+ *   기존 "draft 본인 작성자만" 분기는 created_by 컬럼 부재로 사용 불가 →
+ *   void 권한 정책을 단순화:
  *
- * No schema change — 기존 voided_by / voided_at / void_reason 활용.
+ *     - pending / confirmed / disputed → voided
+ *     - owner / super_admin 만
+ *     - manager 는 본인이 요청한 pending 건만 (requested_by 기반)
+ *     - resolved / voided → INVALID_STATE_TRANSITION
+ *
+ *   void reason 은 audit_events.reason 에만 기록 (DB 컬럼 부재).
  */
 export async function POST(
   request: Request,
@@ -71,39 +76,8 @@ export async function POST(
   const baseErr = checkBaseLifecycleGate(row, auth)
   if (baseErr) return errResp(baseErr)
 
-  // 전이 규칙 (Phase 2 스펙 + Phase 4 감사):
-  //   draft    → 작성자(manager 본인) 또는 owner / super_admin
-  //   confirmed → owner / super_admin 만
-  //   disputed → owner / super_admin 만
-  //
-  // Phase 4 감사: "manager 는 타 담당/타 작성 로그를 수정할 수 없다" 규칙에
-  //   맞게, draft void 에서 manager 의 경우 created_by === auth.user_id
-  //   를 엄격히 요구한다. 이전 코드는 origin 매장 모든 manager 에 대해
-  //   허용했는데, 이는 문서화된 계약("작성자 본인")과 어긋났다.
-  if (row.status === "draft") {
-    if (isManager && !isOwner && !isSuperAdmin) {
-      if (row.created_by !== auth.user_id) {
-        return NextResponse.json(
-          {
-            error: "ASSIGNMENT_FORBIDDEN",
-            message: "본인이 작성한 draft 로그만 무효화할 수 있습니다.",
-          },
-          { status: 403 },
-        )
-      }
-    }
-    // owner / super_admin: 코어스 게이트(+ origin scope)만 통과하면 가능.
-  } else if (row.status === "confirmed" || row.status === "disputed") {
-    if (!isOwner && !isSuperAdmin) {
-      return NextResponse.json(
-        {
-          error: "ROLE_FORBIDDEN",
-          message: "확정/이의 상태는 사장/운영자만 무효화할 수 있습니다.",
-        },
-        { status: 403 },
-      )
-    }
-  } else {
+  // 전이 허용 상태 화이트리스트
+  if (row.status !== "pending" && row.status !== "confirmed" && row.status !== "disputed") {
     return NextResponse.json(
       {
         error: "INVALID_STATE_TRANSITION",
@@ -113,22 +87,41 @@ export async function POST(
     )
   }
 
+  // manager 는 본인 요청한 pending 건만
+  if (isManager && !isOwner && !isSuperAdmin) {
+    if (row.status !== "pending") {
+      return NextResponse.json(
+        {
+          error: "ROLE_FORBIDDEN",
+          message: "확정/이의 상태는 사장/운영자만 무효화할 수 있습니다.",
+        },
+        { status: 403 },
+      )
+    }
+    if (row.requested_by !== auth.membership_id) {
+      return NextResponse.json(
+        {
+          error: "ASSIGNMENT_FORBIDDEN",
+          message: "본인이 요청한 pending 로그만 무효화할 수 있습니다.",
+        },
+        { status: 403 },
+      )
+    }
+  }
+
   const supabase = getServiceClient()
   const nowIso = new Date().toISOString()
   const { error: updateErr } = await supabase
-    .from("staff_work_logs")
+    .from("cross_store_work_records")
     .update({
       status: "voided",
-      voided_by: auth.user_id,
-      voided_at: nowIso,
-      void_reason: reason,
       updated_at: nowIso,
     })
     .eq("id", id)
 
   if (updateErr) {
     return NextResponse.json(
-      { error: "UPDATE_FAILED", message: "무효화 업데이트 실패" },
+      { error: "UPDATE_FAILED", message: `무효화 업데이트 실패: ${updateErr.message}` },
       { status: 500 },
     )
   }

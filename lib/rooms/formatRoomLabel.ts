@@ -13,7 +13,7 @@
  *   - app/api/reports/settlement-tree-operational/route.ts
  *   - app/api/sessions/receipt/route.ts
  *   - app/api/rooms/route.ts (신규 방 기본 이름)
- *   - app/counter/components/RoomCardV2.tsx (2회)
+ *   - app/counter/components/cards/RoomCardV2.tsx (2회)
  *
  * 현재: 이 함수 하나로 집중. 방 이름 규칙(기본 "N번방", room_name 우선,
  * 빈/공백 안전 처리)을 바꿀 때 한 곳만 수정.

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getManagerParticipants } from "@/lib/server/queries/managerParticipants"
+import { getManagerParticipants } from "@/lib/server/queries/manager/participants"
 
 /**
  * GET /api/manager/participants
  *
- * 실장(manager)이 담당하는 아가씨가 참여 중인 session_participants 조회.
+ * 실장(manager)이 담당하는 스태프가 참여 중인 session_participants 조회.
  * origin_store_uuid 기준으로 타매장 세션 포함.
  * match_status (matched/unmatched) 포함.
  * 실장은 자기 담당 participant만 볼 수 있음.

@@ -60,11 +60,11 @@ export default function ModeHelpStrip({ mode }: Props) {
         <div className="text-slate-500 space-y-1">
           <div>
             <span className="text-emerald-300 font-semibold">본점 사장/실장:</span>
-            &nbsp;전체 가게 및 모든 소속/타가게 아가씨 위치 조회 가능
+            &nbsp;전체 가게 및 모든 소속/타가게 스태프 위치 조회 가능
           </div>
           <div>
             <span className="text-fuchsia-300 font-semibold">타 가게 사장/실장:</span>
-            &nbsp;본인 가게 진행중인 방 내 아가씨만 조회 가능
+            &nbsp;본인 가게 진행중인 방 내 스태프만 조회 가능
           </div>
         </div>
       </div>

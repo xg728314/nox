@@ -87,7 +87,7 @@ export default function ReportsOverviewPage() {
         {([
           ["overview", "개요"],
           ["managers", "실장"],
-          ["hostesses", "아가씨"],
+          ["hostesses", "스태프"],
           ["cross", "교차정산"],
           ["activity", "최근 활동"],
         ] as const).map(([k, label]) => (
@@ -114,7 +114,7 @@ export default function ReportsOverviewPage() {
             <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 space-y-2 text-xs">
               <p className="text-slate-400">역할별</p>
               <Row label="실장" amount={overview.by_role.manager.amount} paid={overview.by_role.manager.paid} remaining={overview.by_role.manager.remaining} />
-              <Row label="아가씨" amount={overview.by_role.hostess.amount} paid={overview.by_role.hostess.paid} remaining={overview.by_role.hostess.remaining} />
+              <Row label="스태프" amount={overview.by_role.hostess.amount} paid={overview.by_role.hostess.paid} remaining={overview.by_role.hostess.remaining} />
             </div>
             <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-xs space-y-1">
               <p className="text-slate-400">교차정산</p>
@@ -146,7 +146,7 @@ export default function ReportsOverviewPage() {
 
         {!loading && tab === "hostesses" && (
           <table className="w-full text-xs">
-            <thead className="text-slate-500"><tr><th className="text-left py-1">아가씨</th><th>상태</th><th className="text-right">총액</th><th className="text-right">지급</th><th className="text-right">미지급</th></tr></thead>
+            <thead className="text-slate-500"><tr><th className="text-left py-1">스태프</th><th>상태</th><th className="text-right">총액</th><th className="text-right">지급</th><th className="text-right">미지급</th></tr></thead>
             <tbody>
               {hostesses.map(h => (
                 <tr key={h.membership_id} className="border-t border-white/5">

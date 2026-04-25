@@ -246,7 +246,7 @@ export async function POST(request: Request) {
         } catch {}
         return bad(
           "ROLE_FORBIDDEN",
-          "실장(manager)은 아가씨(hostess) 계정만 생성할 수 있습니다.",
+          "실장(manager)은 스태프(hostess) 계정만 생성할 수 있습니다.",
           403,
         )
       }
@@ -454,7 +454,7 @@ export async function POST(request: Request) {
       if (!isExistingUser) {
         try { await admin.auth.admin.deleteUser(userId) } catch {}
       }
-      return bad("HOSTESS_WRITE_FAILED", "아가씨 레코드 생성에 실패했습니다.", 500)
+      return bad("HOSTESS_WRITE_FAILED", "스태프 레코드 생성에 실패했습니다.", 500)
     }
   }
 

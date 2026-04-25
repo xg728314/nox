@@ -139,7 +139,21 @@ export async function POST(request: Request, { params }: Params) {
       },
       reason: null,
     })
-    if (auditErr) console.warn("[settlement/payout] audit insert failed:", auditErr.message)
+    if (auditErr) {
+      // ROUND-CLEANUP-003: fail-close. money payout 기록 audit 실패를
+      //   500 으로 표면화.
+      console.error("[settlement/payout] audit insert failed (fail-close):", auditErr.message)
+      return NextResponse.json(
+        {
+          error: "AUDIT_WRITE_FAILED",
+          message:
+            "감사 로그 기록에 실패했습니다. 요청 상태가 일관되지 않을 수 있으니 운영자에게 즉시 보고하세요.",
+          action: "settlement_payout_recorded",
+          detail: auditErr.message,
+        },
+        { status: 500 },
+      )
+    }
 
     return NextResponse.json({
       payout_id: inserted.id,

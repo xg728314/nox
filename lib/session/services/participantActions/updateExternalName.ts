@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { AuthContext } from "@/lib/auth/resolveAuthContext"
 import { assertBusinessDayOpen } from "@/lib/auth/assertBusinessDayOpen"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
-import { resolveMatchStatus } from "@/lib/matching"
+import { resolveMatchStatus } from "@/lib/session/matching"
 
 /**
  * Action: update_external_name — full self-contained handler.

@@ -60,7 +60,10 @@ export default function SettlementHistoryPage() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,173,255,0.1),transparent_30%)] pointer-events-none" />
       <div className="relative z-10">
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/settlement")} className="text-cyan-400 text-sm">← 정산</button>
+          {/* 2026-04-25: replace 사용 — 이전엔 push 로 누적되어 "← 뒤로" 가
+              정산 ↔ 이력 루프에 빠졌음. replace 는 history 스택에 항목을
+              쌓지 않고 현재 항목을 교체. */}
+          <button onClick={() => router.replace("/settlement")} className="text-cyan-400 text-sm">← 정산</button>
           <span className="font-semibold">정산 이력</span>
           <span className="text-xs text-slate-500">{receipts.length}건</span>
         </div>

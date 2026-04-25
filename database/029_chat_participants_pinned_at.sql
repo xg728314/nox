@@ -1,3 +1,6 @@
+-- ⚠️ APPLIED AS: chat_participants_pinned_at
+-- 로컬 029, Supabase history 는 번호 없는 이름.
+--
 -- 029: chat_participants.pinned_at — per-user chat room pin (STEP-009.3)
 --
 -- Personal pin, not global. `chat_participants` already has one row per

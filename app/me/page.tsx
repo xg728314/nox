@@ -110,7 +110,10 @@ function MeInfoInner({ seed, router }: { seed: MeSeed | null; router: ReturnType
       <div className="relative z-10">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 뒤로</button>
+          <button
+            onClick={() => router.push("/counter")}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
           <span className="font-semibold">내 정보</span>
           <div className="w-8" />
         </div>

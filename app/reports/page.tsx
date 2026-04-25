@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import RevenueBreakdown from "./RevenueBreakdown"
+import LiquorTarget from "./LiquorTarget"
 
 type DailyTotals = {
   session_count: number
@@ -50,6 +52,7 @@ export default function ReportsPage() {
   const [totals, setTotals] = useState<DailyTotals | null>(null)
   const [dayStatus, setDayStatus] = useState("")
   const [businessDate, setBusinessDate] = useState("")
+  const [breakdownOpen, setBreakdownOpen] = useState(false)
 
   // hostess
   const [hostesses, setHostesses] = useState<HostessReport[]>([])
@@ -179,8 +182,17 @@ export default function ReportsPage() {
       <div className="relative z-10">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 카운터</button>
-          <span className="font-semibold">리포트</span>
+          <button
+            onClick={() => router.push("/counter")}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
+          <span className="font-semibold">일일 리포트</span>
+          <button
+            onClick={() => router.push("/reports/period")}
+            className="text-[11px] px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 hover:bg-cyan-500/25"
+          >
+            기간 리포트 →
+          </button>
           <div className="text-xs text-slate-400">{businessDate || "—"}</div>
         </div>
 
@@ -255,9 +267,40 @@ export default function ReportsPage() {
                     </div>
                   )}
                 </div>
+                {/* 2026-04-25: 총매출 카드 클릭 → 세부 내역 drill-down.
+                    양주 목표는 상시 노출. 스태프/실장 개별 지급액은 비노출 유지. */}
+                <button
+                  type="button"
+                  onClick={() => setBreakdownOpen(o => !o)}
+                  className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                    breakdownOpen
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-slate-400">총 매출</div>
+                      <div className="text-2xl font-bold text-emerald-300 mt-0.5">
+                        ₩{(totals.gross_total ?? 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <span className="text-xs text-emerald-300">
+                      {breakdownOpen ? "세부 닫기 ▲" : "세부 보기 ▼"}
+                    </span>
+                  </div>
+                </button>
+
+                <RevenueBreakdown businessDayId={businessDayId} open={breakdownOpen} />
+
+                {/* 양주 목표 (owner 전용 페이지라 항상 노출) */}
+                <div className="pt-2">
+                  <div className="text-xs text-slate-500 mb-2 px-1">📈 양주 매출 목표 (월간)</div>
+                  <LiquorTarget />
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: "총 매출", value: totals.gross_total },
                     { label: "TC", value: totals.tc_total },
                     { label: "실장 정산", value: totals.manager_total },
                     { label: "스태프 정산", value: totals.hostess_total },

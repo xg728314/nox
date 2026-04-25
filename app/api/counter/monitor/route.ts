@@ -7,6 +7,17 @@ import {
   type CorrectionHistoryRow,
 } from "@/lib/ble/computePresenceConfidence"
 import { defaultRoomName } from "@/lib/rooms/formatRoomLabel"
+import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// R29-perf: 가장 무거운 endpoint. 380명 × 5초 폴링 = ~76 req/s.
+//   3초 TTL → DB 직격 50% 감소 (서버 인스턴스마다).
+//   stale-while-revalidate 로 클라 측에도 공유.
+const MONITOR_TTL_MS = 3000
+
+class MonitorQueryError extends Error {
+  constructor(public code: string, message: string) { super(message); this.name = "MonitorQueryError" }
+}
 
 /**
  * GET /api/counter/monitor
@@ -142,6 +153,42 @@ export async function GET(request: Request) {
       )
     }
 
+    // R29-perf: TTL 캐시. 본문 전체를 cached 안에 넣어 DB 호출 회수 감소.
+    //   query string 의 mode=hybrid 같은 변형이 있으면 cache key 분리.
+    const url = new URL(request.url)
+    const queryParam = url.searchParams.toString()
+    const cacheKey = `${auth.store_uuid}:${auth.role}:${queryParam}`
+
+    const cachedData = await cached(
+      "monitor",
+      cacheKey,
+      MONITOR_TTL_MS,
+      async () => {
+        return await buildMonitorResponse(request, auth)
+      },
+    )
+    const res = NextResponse.json(cachedData)
+    res.headers.set("Cache-Control", "private, max-age=1, stale-while-revalidate=2")
+    return res
+  } catch (error) {
+    if (error instanceof AuthError) {
+      const status =
+        error.type === "AUTH_MISSING" || error.type === "AUTH_INVALID" ? 401 : 403
+      return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    if (error instanceof MonitorQueryError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
+  }
+}
+
+// R29-perf: 기존 GET 본문을 별도 함수로 추출 — 캐시 callback 에서 호출.
+async function buildMonitorResponse(
+  request: Request,
+  auth: Awaited<ReturnType<typeof resolveAuthContext>>,
+): Promise<Record<string, unknown>> {
+  {
     const supabase = supa()
     const storeUuid = auth.store_uuid
     // Single "now" captured once per request so per-participant
@@ -170,7 +217,7 @@ export async function GET(request: Request) {
       .order("sort_order", { ascending: true })
 
     if (roomsErr) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: roomsErr.message }, { status: 500 })
+      throw new MonitorQueryError("QUERY_FAILED", roomsErr.message)
     }
 
     const rooms =
@@ -188,17 +235,22 @@ export async function GET(request: Request) {
       })
 
     // ── Active sessions (this store) ─────────────────────────────────
-    const { data: sessData, error: sessErr } = await supabase
-      .from("room_sessions")
-      .select(
-        "id, room_uuid, status, started_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size",
-      )
-      .eq("store_uuid", storeUuid)
-      .eq("status", "active")
-      .is("deleted_at", null)
+    // 2026-04-25: archived_at 필터 — 인쇄+archive 된 세션은 active 뷰에서 숨김.
+    //   migration 085 미적용 시 컬럼 없음 → archivedAtFilter 헬퍼가 no-op.
+    const applyArchivedNull = await archivedAtFilter(supabase)
+    const { data: sessData, error: sessErr } = await applyArchivedNull(
+      supabase
+        .from("room_sessions")
+        .select(
+          "id, room_uuid, status, started_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size",
+        )
+        .eq("store_uuid", storeUuid)
+        .eq("status", "active")
+        .is("deleted_at", null)
+    )
 
     if (sessErr) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: sessErr.message }, { status: 500 })
+      throw new MonitorQueryError("QUERY_FAILED", sessErr.message)
     }
 
     const activeSessions = (sessData ?? []) as Array<{
@@ -239,7 +291,7 @@ export async function GET(request: Request) {
         .in("session_id", activeSessionIds)
         .is("deleted_at", null)
       if (pErr) {
-        return NextResponse.json({ error: "QUERY_FAILED", message: pErr.message }, { status: 500 })
+        throw new MonitorQueryError("QUERY_FAILED", pErr.message)
       }
       participants = (pData ?? []) as typeof participants
     }
@@ -428,12 +480,14 @@ export async function GET(request: Request) {
       }>
       if (awayList.length > 0) {
         const awaySessionIds = Array.from(new Set(awayList.map(a => a.session_id)))
-        const { data: actSessRows } = await supabase
-          .from("room_sessions")
-          .select("id, status")
-          .in("id", awaySessionIds)
-          .eq("status", "active")
-          .is("deleted_at", null)
+        const { data: actSessRows } = await applyArchivedNull(
+          supabase
+            .from("room_sessions")
+            .select("id, status")
+            .in("id", awaySessionIds)
+            .eq("status", "active")
+            .is("deleted_at", null)
+        )
         const activeAwaySessionIds = new Set((actSessRows ?? []).map((r: Row) => String(r.id)))
         homeAway = awayList
           .filter(a => activeAwaySessionIds.has(a.session_id))
@@ -607,11 +661,13 @@ export async function GET(request: Request) {
     const awayExtensionByParticipantId = new Map<string, number>()
 
     if (awaySessionIds.length > 0) {
-      const { data: awaySessRows } = await supabase
-        .from("room_sessions")
-        .select("id, store_uuid, room_uuid, started_at")
-        .in("id", awaySessionIds)
-        .is("deleted_at", null)
+      const { data: awaySessRows } = await applyArchivedNull(
+        supabase
+          .from("room_sessions")
+          .select("id, store_uuid, room_uuid, started_at")
+          .in("id", awaySessionIds)
+          .is("deleted_at", null)
+      )
       for (const s of (awaySessRows ?? []) as AwaySession[]) {
         awaySessionById.set(s.id, s)
       }
@@ -1038,7 +1094,7 @@ export async function GET(request: Request) {
       movement = []
     }
 
-    return NextResponse.json({
+    return {
       store_uuid: storeUuid,
       mode: bleConfidence === "hybrid" ? ("hybrid" as const) : ("manual" as const),
       generated_at: new Date().toISOString(),
@@ -1054,13 +1110,7 @@ export async function GET(request: Request) {
         confidence: bleConfidence,
         presence: blePresence,
       },
-    })
-  } catch (e) {
-    if (e instanceof AuthError) {
-      const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
-      return NextResponse.json({ error: e.type, message: e.message }, { status })
     }
-    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
   }
 }
 

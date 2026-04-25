@@ -1,0 +1,57 @@
+NOX DB RPC Functions — 2026-04-24 스냅샷
+========================================
+
+본문 추출:
+  SELECT pg_get_functiondef(p.oid) FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname='public' AND p.proname='<FUNCTION_NAME>';
+
+Total: 37
+
+── 인증 / 권한 ──────────────────────────────────
+auth_rl_clear(p_key text, p_action text) RETURNS void
+auth_rl_record_failure(p_key text, p_action text, p_threshold int, p_lockout_seconds int) RETURNS TABLE
+auth_rl_tick_attempt(p_key text, p_action text, p_window_seconds int, p_max_attempts int) RETURNS TABLE
+custom_access_token_hook(event jsonb) RETURNS jsonb
+get_user_membership_id() RETURNS uuid
+get_user_role() RETURNS text
+get_user_store_uuid() RETURNS uuid
+handle_new_user() RETURNS trigger
+
+── 정산 / 지급 핵심 ──────────────────────────────
+record_cross_store_payout(p_from_store_uuid uuid, p_cross_store_settlement_id uuid, p_item_id uuid, p_amount numeric, p_memo text, p_created_by uuid, p_executor_membership_id uuid DEFAULT NULL) RETURNS json
+cancel_cross_store_payout(p_store_uuid uuid, p_payout_id uuid, p_reason text, p_actor uuid, p_executor_membership_id uuid DEFAULT NULL) RETURNS json
+record_settlement_payout(p_store_uuid uuid, p_settlement_item_id uuid, p_amount numeric, p_payout_type text, p_memo text, p_created_by uuid) RETURNS json
+cancel_settlement_payout(p_store_uuid uuid, p_payout_id uuid, p_reason text, p_actor uuid) RETURNS json
+create_cross_store_settlement(p_from_store_uuid uuid, p_to_store_uuid uuid, p_total_amount numeric, p_memo text, p_created_by uuid, p_items jsonb) RETURNS json
+
+── 세션 / 체크아웃 / 결제 ─────────────────────────
+close_session_atomic(p_session_id uuid, p_store_uuid uuid, p_closed_by uuid) RETURNS jsonb
+foxpro_checkout_session(p_session_id uuid, p_closed_by uuid, p_ended_at timestamptz, p_make_snapshot boolean) RETURNS jsonb
+foxpro_receipt_snapshot(p_session_id uuid, p_closed_by uuid, p_finalize boolean) RETURNS jsonb
+register_payment_atomic(p_session_id uuid, p_store_uuid uuid, p_receipt_id uuid, p_payment_method text, p_cash_amount int, p_card_amount int, p_credit_amount int, p_manager_card_margin int, p_card_fee_rate numeric, p_customer_name text, p_customer_phone text, p_manager_membership_id uuid) RETURNS jsonb
+
+── 재고 ─────────────────────────────────────────
+decrement_stock(p_item_id uuid, p_store_uuid uuid, p_qty int) RETURNS TABLE
+increment_stock(p_item_id uuid, p_store_uuid uuid, p_qty int) RETURNS TABLE
+
+── 트리거 함수 ──────────────────────────────────
+block_closed_business_day() RETURNS trigger
+block_duplicate_correction() RETURNS trigger
+deny_loc_log_mutation() RETURNS trigger
+fill_settlement_item_remaining() RETURNS trigger
+fn_block_orders_on_nonactive_session() RETURNS trigger
+fn_block_participants_on_nonactive_session() RETURNS trigger
+fn_credit_status_transition() RETURNS trigger
+fn_receipt_status_transition() RETURNS trigger
+fn_session_status_transition() RETURNS trigger
+set_updated_at() RETURNS trigger
+validate_audit_actor() RETURNS trigger
+validate_cross_store_participant() RETURNS trigger
+validate_hostess_manager_roles() RETURNS trigger
+validate_orders_business_day() RETURNS trigger
+validate_receipts_business_day() RETURNS trigger
+
+── 기타 ─────────────────────────────────────────
+exec_sql(sql text) RETURNS void
+write_location_correction(payload jsonb) RETURNS jsonb

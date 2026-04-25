@@ -4,14 +4,18 @@ import {
   checkResolvable,
   checkDisputeScopeGate,
   type WorkLogRow,
-} from "@/lib/server/queries/staffWorkLogLifecycle"
+} from "@/lib/server/queries/staff/workLogLifecycle"
 import type { AuthContext } from "@/lib/auth/resolveAuthContext"
 
 /**
  * Lifecycle gates — pure (row, auth) → LifecycleError | null.
  *
- * Covers state-transition refusal + scope enforcement used by
- * confirm / void / dispute / resolve routes before any UPDATE.
+ * cross_store_work_records (2026-04-24 수정) 기준. 이전 staff_work_logs
+ * 스키마 (manager_membership_id / created_by / settled / confirmed_by 등)
+ * 는 제거됐다.
+ *
+ * 상태 전이: pending → confirmed → disputed → resolved
+ *            any → voided
  */
 
 const STORE_A = "00000000-0000-0000-0000-00000000000a"
@@ -20,15 +24,15 @@ const STORE_B = "00000000-0000-0000-0000-00000000000b"
 function row(over: Partial<WorkLogRow> = {}): WorkLogRow {
   return {
     id: "log-1",
+    session_id: "00000000-0000-0000-0000-0000000000aa",
+    business_day_id: "00000000-0000-0000-0000-0000000000bb",
     origin_store_uuid: STORE_A,
     working_store_uuid: STORE_A,
     hostess_membership_id: "h-1",
-    manager_membership_id: "mgr-1",
-    status: "draft",
-    created_by: "user-1",
-    created_by_role: "manager",
-    voided_by: null,
-    voided_at: null,
+    requested_by: "mgr-1",
+    approved_by: null,
+    approved_at: null,
+    status: "pending",
     ...over,
   }
 }
@@ -49,10 +53,10 @@ function auth(over: Partial<AuthContext> = {}): AuthContext {
 // ─── checkBaseLifecycleGate ────────────────────────────────────
 
 describe("checkBaseLifecycleGate — terminal state locks", () => {
-  it("settled → SETTLED_LOCKED 400", () => {
-    const e = checkBaseLifecycleGate(row({ status: "settled" }), auth())
+  it("resolved → INVALID_STATE_TRANSITION 400", () => {
+    const e = checkBaseLifecycleGate(row({ status: "resolved" }), auth())
     expect(e).not.toBeNull()
-    expect(e?.error).toBe("SETTLED_LOCKED")
+    expect(e?.error).toBe("INVALID_STATE_TRANSITION")
     expect(e?.status).toBe(400)
   })
 
@@ -63,8 +67,8 @@ describe("checkBaseLifecycleGate — terminal state locks", () => {
     expect(e?.status).toBe(400)
   })
 
-  it("draft passes for owner in same origin store", () => {
-    const e = checkBaseLifecycleGate(row({ status: "draft" }), auth({ role: "owner" }))
+  it("pending passes for owner in same origin store", () => {
+    const e = checkBaseLifecycleGate(row({ status: "pending" }), auth({ role: "owner" }))
     expect(e).toBeNull()
   })
 
@@ -95,16 +99,16 @@ describe("checkBaseLifecycleGate — store scope", () => {
 
 // ─── checkResolvable ────────────────────────────────────────────
 
-describe("checkResolvable — disputed → confirmed gate", () => {
+describe("checkResolvable — disputed → resolved gate", () => {
   it("non-disputed status → STATE_CONFLICT 409", () => {
-    const e = checkResolvable(row({ status: "draft" }), auth())
+    const e = checkResolvable(row({ status: "pending" }), auth())
     expect(e?.error).toBe("STATE_CONFLICT")
     expect(e?.status).toBe(409)
   })
 
-  it("settled → SETTLED_LOCKED 400 (precedence over STATE_CONFLICT)", () => {
-    const e = checkResolvable(row({ status: "settled" }), auth())
-    expect(e?.error).toBe("SETTLED_LOCKED")
+  it("resolved → INVALID_STATE_TRANSITION 400", () => {
+    const e = checkResolvable(row({ status: "resolved" }), auth())
+    expect(e?.error).toBe("INVALID_STATE_TRANSITION")
     expect(e?.status).toBe(400)
   })
 
@@ -114,18 +118,9 @@ describe("checkResolvable — disputed → confirmed gate", () => {
     expect(e?.status).toBe(400)
   })
 
-  it("disputed + manager_membership_id null → MANAGER_REQUIRED 400", () => {
+  it("disputed + owner origin → passes", () => {
     const e = checkResolvable(
-      row({ status: "disputed", manager_membership_id: null }),
-      auth(),
-    )
-    expect(e?.error).toBe("MANAGER_REQUIRED")
-    expect(e?.status).toBe(400)
-  })
-
-  it("disputed + assigned manager + owner origin → passes", () => {
-    const e = checkResolvable(
-      row({ status: "disputed", manager_membership_id: "mgr-2" }),
+      row({ status: "disputed" }),
       auth({ role: "owner", store_uuid: STORE_A }),
     )
     expect(e).toBeNull()
@@ -141,7 +136,7 @@ describe("checkResolvable — disputed → confirmed gate", () => {
 
   it("disputed super_admin in any store → passes", () => {
     const e = checkResolvable(
-      row({ status: "disputed", origin_store_uuid: STORE_B, manager_membership_id: "mgr" }),
+      row({ status: "disputed", origin_store_uuid: STORE_B }),
       auth({ store_uuid: STORE_A, is_super_admin: true }),
     )
     expect(e).toBeNull()
@@ -151,9 +146,9 @@ describe("checkResolvable — disputed → confirmed gate", () => {
 // ─── checkDisputeScopeGate ──────────────────────────────────────
 
 describe("checkDisputeScopeGate — origin OR working store allowed", () => {
-  it("settled → SETTLED_LOCKED regardless of scope", () => {
-    const e = checkDisputeScopeGate(row({ status: "settled" }), auth())
-    expect(e?.error).toBe("SETTLED_LOCKED")
+  it("resolved → INVALID_STATE_TRANSITION regardless of scope", () => {
+    const e = checkDisputeScopeGate(row({ status: "resolved" }), auth())
+    expect(e?.error).toBe("INVALID_STATE_TRANSITION")
   })
 
   it("voided → INVALID_STATE_TRANSITION", () => {

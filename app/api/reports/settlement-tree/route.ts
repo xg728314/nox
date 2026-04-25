@@ -31,6 +31,11 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+// Null manager_membership_id 를 가진 item 을 수집할 bucket key.
+// 이전: 무음 drop → 전체 집계에서 사라짐 (task §3 위반).
+// 지금: "미배정" bucket 에 모아 UI 가 별도 표시 + 선지급 경로에서 제외.
+const UNASSIGNED_MANAGER_KEY = "__unassigned__"
+
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
@@ -46,6 +51,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const counterpartStoreUuid = searchParams.get("counterpart_store_uuid")
     const managerMembershipId = searchParams.get("manager_membership_id")
+    // R29: 정산 트리 단계 — 1(오늘) / 2(이틀) / 3(삼일). 기본 1.
+    const stageRaw = searchParams.get("stage") ?? "1"
+    const treeStage = (stageRaw === "2" ? 2 : stageRaw === "3" ? 3 : 1) as 1 | 2 | 3
 
     // ═══ LEVEL 3: Hostess trace ══════════════════════════════════════════════
     if (managerMembershipId && counterpartStoreUuid) {
@@ -54,11 +62,11 @@ export async function GET(request: Request) {
 
     // ═══ LEVEL 2: Manager breakdown ══════════════════════════════════════════
     if (counterpartStoreUuid) {
-      return handleLevel2(supabase, auth, counterpartStoreUuid)
+      return handleLevel2(supabase, auth, counterpartStoreUuid, treeStage)
     }
 
     // ═══ LEVEL 1: Store-to-store ═════════════════════════════════════════════
-    return handleLevel1(supabase, auth)
+    return handleLevel1(supabase, auth, treeStage)
 
   } catch (error) {
     return handleRouteError(error, "reports/settlement-tree")
@@ -69,21 +77,49 @@ export async function GET(request: Request) {
 
 async function handleLevel1(
   supabase: SupabaseClient,
-  auth: Awaited<ReturnType<typeof resolveAuthContext>>
+  auth: Awaited<ReturnType<typeof resolveAuthContext>>,
+  treeStage: 1 | 2 | 3 = 1,
 ) {
-  // Outbound: cross_store_settlements WHERE from_store_uuid = us
-  const { data: outboundRaw } = await supabase
-    .from("cross_store_settlements")
-    .select("to_store_uuid, total_amount, prepaid_amount, remaining_amount, status")
-    .eq("from_store_uuid", auth.store_uuid)
-    .is("deleted_at", null)
+  // R29: tree_stage 필터. migration 097 미적용 → 42703 → 필터 제거 fallback.
+  async function tryQuery(applyStage: boolean) {
+    const baseOut = supabase
+      .from("cross_store_settlements")
+      .select("to_store_uuid, total_amount, prepaid_amount, remaining_amount, status")
+      .eq("from_store_uuid", auth.store_uuid)
+      .is("deleted_at", null)
+    const baseIn = supabase
+      .from("cross_store_settlements")
+      .select("from_store_uuid, total_amount, prepaid_amount, remaining_amount, status")
+      .eq("to_store_uuid", auth.store_uuid)
+      .is("deleted_at", null)
+    const out = applyStage ? baseOut.eq("tree_stage", treeStage) : baseOut
+    const inb = applyStage ? baseIn.eq("tree_stage", treeStage) : baseIn
+    return { out: await out, inb: await inb }
+  }
 
-  // Inbound: cross_store_settlements WHERE to_store_uuid = us
-  const { data: inboundRaw } = await supabase
-    .from("cross_store_settlements")
-    .select("from_store_uuid, total_amount, prepaid_amount, remaining_amount, status")
-    .eq("to_store_uuid", auth.store_uuid)
-    .is("deleted_at", null)
+  let { out: outRes, inb: inRes } = await tryQuery(true)
+  if (outRes.error?.code === "42703" || inRes.error?.code === "42703") {
+    console.warn("[settlement-tree] 42703 — migration 097 미적용. tree_stage 필터 제거 fallback.")
+    ;({ out: outRes, inb: inRes } = await tryQuery(false))
+  }
+  const outboundRaw = outRes.data
+  const inboundRaw = inRes.data
+
+  // R29: 사용자별 매장 숨김 목록 조회 (settlement_tree_user_hides).
+  //   migration 098 미적용이면 42P01 → 빈 set 으로 fallback (모두 표시).
+  const hiddenSet = new Set<string>()
+  try {
+    const { data: hides, error: hideErr } = await supabase
+      .from("settlement_tree_user_hides")
+      .select("counterpart_store_uuid")
+      .eq("user_id", auth.user_id)
+      .eq("store_uuid", auth.store_uuid)
+    if (!hideErr && hides) {
+      for (const h of hides as Array<{ counterpart_store_uuid: string }>) {
+        hiddenSet.add(h.counterpart_store_uuid)
+      }
+    }
+  } catch { /* migration pending — empty set OK */ }
 
   type StoreEntry = {
     counterpart_store_uuid: string
@@ -116,16 +152,18 @@ async function handleLevel1(
     return map.get(uuid)!
   }
 
-  // Aggregate outbound (we owe them)
+  // Aggregate outbound (we owe them) — 본인 숨김 매장 제외
   for (const row of (outboundRaw ?? []) as { to_store_uuid: string; total_amount: unknown; prepaid_amount: unknown; remaining_amount: unknown }[]) {
+    if (hiddenSet.has(row.to_store_uuid)) continue
     const e = getOrCreate(row.to_store_uuid)
     e.outbound_total += num(row.total_amount)
     e.outbound_paid += num(row.prepaid_amount)
     e.outbound_remaining += num(row.remaining_amount)
   }
 
-  // Aggregate inbound (they owe us)
+  // Aggregate inbound (they owe us) — 본인 숨김 매장 제외
   for (const row of (inboundRaw ?? []) as { from_store_uuid: string; total_amount: unknown; prepaid_amount: unknown; remaining_amount: unknown }[]) {
+    if (hiddenSet.has(row.from_store_uuid)) continue
     const e = getOrCreate(row.from_store_uuid)
     e.inbound_total += num(row.total_amount)
     e.inbound_paid += num(row.prepaid_amount)
@@ -166,25 +204,62 @@ async function handleLevel1(
 async function handleLevel2(
   supabase: SupabaseClient,
   auth: Awaited<ReturnType<typeof resolveAuthContext>>,
-  counterpartStoreUuid: string
+  counterpartStoreUuid: string,
+  treeStage: 1 | 2 | 3 = 1,
 ) {
+  // R29: 본인 숨김 매장이면 빈 응답.
+  try {
+    const { data: hide } = await supabase
+      .from("settlement_tree_user_hides")
+      .select("counterpart_store_uuid")
+      .eq("user_id", auth.user_id)
+      .eq("store_uuid", auth.store_uuid)
+      .eq("counterpart_store_uuid", counterpartStoreUuid)
+      .maybeSingle()
+    if (hide) {
+      return NextResponse.json({ level: 2, managers: [], hidden_by_user: true })
+    }
+  } catch { /* migration pending — pass through */ }
+
+  // R29: tree_stage 필터 (level 1 과 동일).
+
   // Outbound items: headers where from=us, to=counterpart
-  const { data: outboundHeaders } = await supabase
+  let { data: outboundHeaders, error: outErr } = await supabase
     .from("cross_store_settlements")
     .select("id")
     .eq("from_store_uuid", auth.store_uuid)
     .eq("to_store_uuid", counterpartStoreUuid)
     .is("deleted_at", null)
+    .eq("tree_stage", treeStage)
+  if (outErr?.code === "42703") {
+    const r = await supabase
+      .from("cross_store_settlements")
+      .select("id")
+      .eq("from_store_uuid", auth.store_uuid)
+      .eq("to_store_uuid", counterpartStoreUuid)
+      .is("deleted_at", null)
+    outboundHeaders = r.data
+  }
 
   const outboundHeaderIds = (outboundHeaders ?? []).map((h: { id: string }) => h.id)
 
   // Inbound items: headers where from=counterpart, to=us
-  const { data: inboundHeaders } = await supabase
+  let { data: inboundHeaders, error: inErr } = await supabase
     .from("cross_store_settlements")
     .select("id")
     .eq("from_store_uuid", counterpartStoreUuid)
     .eq("to_store_uuid", auth.store_uuid)
     .is("deleted_at", null)
+    .eq("tree_stage", treeStage)
+  if (inErr?.code === "42703") {
+    const r = await supabase
+      .from("cross_store_settlements")
+      .select("id")
+      .eq("from_store_uuid", counterpartStoreUuid)
+      .eq("to_store_uuid", auth.store_uuid)
+      .is("deleted_at", null)
+    inboundHeaders = r.data
+  }
 
   const inboundHeaderIds = (inboundHeaders ?? []).map((h: { id: string }) => h.id)
 
@@ -223,9 +298,11 @@ async function handleLevel2(
       .in("cross_store_settlement_id", outboundHeaderIds)
       .is("deleted_at", null)
 
-    for (const it of (outItems ?? []) as { manager_membership_id: string; amount: unknown; paid_amount: unknown }[]) {
-      if (!it.manager_membership_id) continue
-      const e = getOrCreateMgr(it.manager_membership_id)
+    for (const it of (outItems ?? []) as { manager_membership_id: string | null; amount: unknown; paid_amount: unknown }[]) {
+      // null manager 는 "__unassigned__" bucket 으로 분리 (task §3).
+      //   선지급/지급 경로는 이 bucket 을 따로 처리해야 한다 (이 route 는 표시만).
+      const mid = it.manager_membership_id ?? UNASSIGNED_MANAGER_KEY
+      const e = getOrCreateMgr(mid)
       e.outbound_amount += num(it.amount)
       e.outbound_paid += num(it.paid_amount)
     }
@@ -239,9 +316,10 @@ async function handleLevel2(
       .in("cross_store_settlement_id", inboundHeaderIds)
       .is("deleted_at", null)
 
-    for (const it of (inItems ?? []) as { manager_membership_id: string; amount: unknown; paid_amount: unknown }[]) {
-      if (!it.manager_membership_id) continue
-      const e = getOrCreateMgr(it.manager_membership_id)
+    for (const it of (inItems ?? []) as { manager_membership_id: string | null; amount: unknown; paid_amount: unknown }[]) {
+      // null manager 는 "__unassigned__" bucket 으로 분리 (task §3).
+      const mid = it.manager_membership_id ?? UNASSIGNED_MANAGER_KEY
+      const e = getOrCreateMgr(mid)
       e.inbound_amount += num(it.amount)
       e.inbound_paid += num(it.paid_amount)
     }
@@ -252,8 +330,15 @@ async function handleLevel2(
     e.net_amount = e.inbound_amount - e.outbound_amount
   }
 
+  // Label the __unassigned__ bucket (if any items had null manager).
+  const unassignedEntry = mgrMap.get(UNASSIGNED_MANAGER_KEY)
+  if (unassignedEntry) {
+    unassignedEntry.manager_name = "미배정"
+  }
+
   // Resolve manager names via store_memberships → profiles
-  const mids = Array.from(mgrMap.keys())
+  //   __unassigned__ key 는 UUID 아니므로 lookup 에서 제외.
+  const mids = Array.from(mgrMap.keys()).filter((k) => k !== UNASSIGNED_MANAGER_KEY)
   if (mids.length > 0) {
     const { data: memRaw } = await supabase
       .from("store_memberships")
@@ -297,9 +382,17 @@ async function handleLevel2(
     .eq("id", counterpartStoreUuid)
     .maybeSingle()
 
-  const managers = Array.from(mgrMap.values()).sort((a, b) =>
-    Math.abs(b.net_amount) - Math.abs(a.net_amount)
-  )
+  // __unassigned__ 를 마지막으로 정렬해 UI 분리 노출을 쉽게 한다.
+  const managers = Array.from(mgrMap.values())
+    .map((m) => ({
+      ...m,
+      is_unassigned: m.manager_membership_id === UNASSIGNED_MANAGER_KEY,
+    }))
+    .sort((a, b) => {
+      if (a.is_unassigned && !b.is_unassigned) return 1
+      if (!a.is_unassigned && b.is_unassigned) return -1
+      return Math.abs(b.net_amount) - Math.abs(a.net_amount)
+    })
 
   return NextResponse.json({
     level: 2,
@@ -307,6 +400,7 @@ async function handleLevel2(
     counterpart_store_uuid: counterpartStoreUuid,
     counterpart_store_name: (storeRow as { store_name?: string } | null)?.store_name ?? counterpartStoreUuid.slice(0, 8),
     managers,
+    unassigned_manager_key: UNASSIGNED_MANAGER_KEY,
   })
 }
 
@@ -320,7 +414,7 @@ async function handleLevel3(
 ) {
   // Manager role: can only see own hostesses
   if (auth.role === "manager" && managerMembershipId !== auth.membership_id) {
-    return NextResponse.json({ error: "FORBIDDEN", message: "실장은 자신의 아가씨만 조회 가능합니다." }, { status: 403 })
+    return NextResponse.json({ error: "FORBIDDEN", message: "실장은 자신의 스태프만 조회 가능합니다." }, { status: 403 })
   }
 
   // Find cross-store session_participants tied to this manager + counterpart store.

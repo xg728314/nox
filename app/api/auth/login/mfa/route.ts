@@ -6,6 +6,7 @@ import { rateLimit } from "@/lib/security/guards"
 import { rateLimitDurable } from "@/lib/security/rateLimitDurable"
 import { getClientIp } from "@/lib/security/clientIp"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { consumeBackupCode, looksLikeBackupCode } from "@/lib/security/backupCodes"
 
 /**
  * STEP-013E: POST /api/auth/login/mfa
@@ -54,9 +55,12 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (!/^\d{6}$/.test(code)) {
+    // R25: TOTP (6자리 숫자) 또는 백업 코드 (12자 영숫자, 대시 허용) 둘 다 허용.
+    const isTotp = /^\d{6}$/.test(code)
+    const isBackup = !isTotp && looksLikeBackupCode(code)
+    if (!isTotp && !isBackup) {
       return NextResponse.json(
-        { error: "BAD_REQUEST", message: "6-digit TOTP code required." },
+        { error: "BAD_REQUEST", message: "6-digit code or 12-character backup code required." },
         { status: 400 }
       )
     }
@@ -168,15 +172,29 @@ export async function POST(request: Request) {
     }
 
     let ok = false
-    try {
-      const secret = decryptSecret({
-        iv: Buffer.from(rec.secret_iv, "base64"),
-        ciphertext: Buffer.from(rec.secret_ciphertext, "base64"),
-        auth_tag: Buffer.from(rec.secret_auth_tag, "base64"),
-      })
-      ok = verifyTotp(secret, code)
-    } catch {
-      ok = false
+    let usedBackupCode = false
+    let backupCodesRemaining: number | null = null
+
+    if (isBackup) {
+      // R25: 백업 코드 경로. consume 가 race-safe atomic update.
+      //   성공 시 해당 코드는 즉시 폐기 (1회용).
+      const r = await consumeBackupCode(admin, signIn.user.id, code)
+      if (r.ok) {
+        ok = true
+        usedBackupCode = true
+        backupCodesRemaining = r.remaining
+      }
+    } else {
+      try {
+        const secret = decryptSecret({
+          iv: Buffer.from(rec.secret_iv, "base64"),
+          ciphertext: Buffer.from(rec.secret_ciphertext, "base64"),
+          auth_tag: Buffer.from(rec.secret_auth_tag, "base64"),
+        })
+        ok = verifyTotp(secret, code)
+      } catch {
+        ok = false
+      }
     }
 
     if (!ok) {
@@ -261,10 +279,15 @@ export async function POST(request: Request) {
         global_roles: [],
         is_super_admin: false,
       },
-      action: "login_mfa_success",
+      // R25: 백업 코드 사용 여부를 audit 에 별도 액션으로 기록.
+      //   "내가 안 쓴 백업 코드가 소비됐다" 신호 추적용.
+      action: usedBackupCode ? "login_mfa_backup_code_used" : "login_mfa_success",
       entity_table: "profiles",
       entity_id: signIn.user.id,
       status: "success",
+      metadata: usedBackupCode
+        ? { backup_codes_remaining: backupCodesRemaining }
+        : undefined,
     })
 
     const res = NextResponse.json({
@@ -274,6 +297,9 @@ export async function POST(request: Request) {
       role: membership.role,
       store_uuid: membership.store_uuid,
       mfa_enabled: true,
+      // 백업 코드로 들어왔으면 클라이언트에 강한 경고 + 잔여 개수 노출.
+      used_backup_code: usedBackupCode,
+      backup_codes_remaining: backupCodesRemaining,
     })
     res.cookies.set({
       name: "nox_access_token",

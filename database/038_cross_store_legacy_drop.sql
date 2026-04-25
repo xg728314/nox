@@ -1,3 +1,6 @@
+-- ⚠️ APPLIED AS: step_011f_cross_store_legacy_drop
+-- 로컬 파일명 038, Supabase history 는 step_011f 이름.
+--
 -- STEP-011F (step-011f.md spec): legacy cleanup / consolidation.
 --
 -- 1. Redefine `create_cross_store_settlement` and

@@ -50,6 +50,9 @@ export type ParticipantEditFlow = {
 export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
   // ─── ensureSession ───────────────────────────────────────────────
   // P0 fix: room-mismatch guard + stale-closure guard.
+  // 2026-04-25 fix: 체크인 시도 전에 먼저 /api/rooms 스냅샷 으로 active 세션
+  //   있는지 확인. 있으면 그대로 사용 → 409 SESSION_CONFLICT 네트워크 에러
+  //   로그를 안 남김. 없을 때만 실제 checkin 호출.
   async function ensureSession(roomId: string): Promise<string | null> {
     const { focusData, setFocusData, fetchRooms, fetchFocusData, setError } = deps
     if (focusData?.roomId === roomId && focusData?.sessionId) {
@@ -76,13 +79,31 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
       }
     }
 
+    // STEP 1: 선제 조회 — 이미 active 세션이 있으면 checkin 호출을 아예 안 함.
+    const existing = await fetchActiveSessionForRoom(roomId)
+    if (existing) {
+      setFocusData({
+        roomId,
+        sessionId: existing.sessionId,
+        started_at: existing.startedAt,
+        session_status: "active",
+        participants: [],
+        orders: [],
+        loading: true,
+      })
+      await fetchFocusData(roomId, existing.sessionId, existing.startedAt)
+      return existing.sessionId
+    }
+
+    // STEP 2: 정말 없을 때만 체크인.
     try {
       const result = await counterApi.checkinSession(roomId)
       const res = { status: result.status, ok: result.ok }
       const data = result.data as { session_id?: string; started_at?: string; message?: string }
 
       if (res.status === 409) {
-        console.log("[ensureSession] 409 conflict — fetching fresh session from /api/rooms")
+        // race: 방금 사이에 다른 단말이 체크인 했을 수도. 한 번 더 조회 후 사용.
+        console.log("[ensureSession] 409 race — refetching fresh session")
         const fresh = await fetchActiveSessionForRoom(roomId)
         void fetchRooms()
         if (fresh) {

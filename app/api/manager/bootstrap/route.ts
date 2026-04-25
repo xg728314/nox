@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getManagerDashboard } from "@/lib/server/queries/managerDashboard"
-import { getManagerHostesses } from "@/lib/server/queries/managerHostesses"
-import { getManagerSettlementSummary } from "@/lib/server/queries/managerSettlementSummary"
-import { getAttendance } from "@/lib/server/queries/attendance"
+import { getManagerDashboard } from "@/lib/server/queries/manager/dashboard"
+import { getManagerHostesses } from "@/lib/server/queries/manager/hostesses"
+import { getManagerSettlementSummary } from "@/lib/server/queries/manager/settlementSummary"
+import { getAttendance } from "@/lib/server/queries/ops/attendance"
 import { getChatUnread } from "@/lib/server/queries/chatUnread"
-import { getManagerParticipants } from "@/lib/server/queries/managerParticipants"
-import { getManagerVisibility } from "@/lib/server/queries/managerVisibility"
+import { getManagerParticipants } from "@/lib/server/queries/manager/participants"
+import { getManagerVisibility } from "@/lib/server/queries/manager/visibility"
 
 async function slot<T>(
   routeTag: string,

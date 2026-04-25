@@ -1,0 +1,21 @@
+-- ✅ STATUS: APPLIED (2026-04-24 Round 3) — no-op on current DB
+-- 사전 실사: `fk_participant_membership_store` 제약 이미 없음.
+-- idempotent DROP IF EXISTS 실행 후 list_migrations 에 기록.
+--
+-- ============================================================
+-- 063_session_participants_fk_fix.sql
+--
+-- Renamed from 010_fix_cross_store_fk.sql (cleanup-001 라운드).
+-- 010 prefix 가 010_session_participant_manager.sql 와 중복되어 파일명
+-- 정렬 기반 migration 순서가 머신마다 달라질 수 있었음. DROP CONSTRAINT
+-- IF EXISTS 는 idempotent 하며 실행 순서 의존성 없음 → 가장 높은 번호 뒤
+-- (062 다음) 로 이동.
+--
+-- 근거:
+--   - 현재 `database/002_actual_schema.sql` 의 session_participants 에
+--     `fk_participant_membership_store` 제약이 존재하지 않음 → DROP 은
+--     freshly provisioned DB 에서 no-op.
+--   - 이미 제거된 기존 prod DB 에서도 IF EXISTS 로 no-op.
+-- ============================================================
+
+ALTER TABLE session_participants DROP CONSTRAINT IF EXISTS fk_participant_membership_store;

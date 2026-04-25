@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { fmtWon } from "@/lib/format"
 
 type SettlementItem = {
   hostess_id: string
@@ -93,8 +94,29 @@ export default function SettlementPage() {
       <div className="relative z-10">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 카운터</button>
-          <span className="font-semibold">정산</span>
+          <button
+            onClick={() => {
+              // 2026-04-25: 정산 ↔ 이력 루프 방지.
+              //   referrer 가 /settlement/history 면 단순 back() 은 이력 페이지
+              //   로 돌아가서 루프. 역할별 기본 홈으로 replace.
+              if (typeof window !== "undefined") {
+                const ref = document.referrer
+                const fromHistoryLoop = ref && ref.includes("/settlement/history")
+                if (!fromHistoryLoop && window.history.length > 1) {
+                  router.back()
+                  return
+                }
+              }
+              const home =
+                role === "owner" ? "/owner" :
+                role === "manager" ? "/manager" :
+                role === "hostess" ? "/me" :
+                "/counter"
+              router.replace(home)
+            }}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
+          <span className="font-semibold">정산 확인</span>
           <div className="text-xs text-slate-400">{role === "owner" ? "사장" : role === "manager" ? "실장" : "스태프"}</div>
         </div>
 
@@ -179,7 +201,7 @@ export default function SettlementPage() {
                   ].map((f) => (
                     <div key={f.label} className="flex items-center justify-between text-xs">
                       <span className="text-slate-500">{f.label}</span>
-                      <span className="text-slate-300">{f.value != null ? `₩${f.value.toLocaleString()}` : "—"}</span>
+                      <span className="text-slate-300">{fmtWon(f.value)}</span>
                     </div>
                   ))}
                 </div>

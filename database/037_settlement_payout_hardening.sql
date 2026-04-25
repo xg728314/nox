@@ -1,3 +1,6 @@
+-- ⚠️ APPLIED AS: step_011e_settlement_payout_hardening
+-- 로컬 파일명 037, Supabase history 는 step_011e 이름.
+--
 -- STEP-011E (step-011e.md spec): settlement/payout hardening.
 --
 -- Locks down the schema introduced by 032/035/036 with NOT NULL,

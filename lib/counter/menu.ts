@@ -20,10 +20,19 @@ export type MenuItemId =
   | "counter"
   | "customers"
   | "inventory"
+  | "reports"
   | "payouts"
+  | "settlement_history"
   | "owner_home"
+  | "manager_home"
   | "staff"
+  | "chat"
+  | "watchdog"
+  | "issues"
+  | "help"
   | "me"
+  | "security"
+  | "reconcile"
 
 export type MenuItemDefinition = {
   id: MenuItemId
@@ -44,7 +53,7 @@ export const COUNTER_MENU: readonly MenuItemDefinition[] = [
     togglable: false,
   },
   {
-    id: "customers", label: "고객관리", icon: "👥", path: "/customers",
+    id: "customers", label: "고객·외상", icon: "👥", path: "/customers",
     requiredRoles: ["owner", "manager"],
     togglable: true,
   },
@@ -53,8 +62,22 @@ export const COUNTER_MENU: readonly MenuItemDefinition[] = [
     requiredRoles: ["owner", "manager"],
     togglable: true,
   },
+  // 2026-04-25: 상세 매출표 (일일/스태프/실장 탭). owner 전용 (middleware 가드).
   {
-    id: "payouts",   label: "정산",     icon: "🧾", path: "/payouts/settlement-tree",
+    id: "reports",   label: "상세매출", icon: "📊", path: "/reports",
+    requiredRoles: ["owner"],
+    togglable: true,
+  },
+  // 2026-04-25: "정산" 라벨이 여러 페이지에 중복돼 있어서 역할별로 명확하게
+  //   차별화. 이건 정산 **트리** (실장 → 스태프 드릴다운) 로 이름 변경.
+  {
+    id: "payouts",   label: "정산 트리",  icon: "💰", path: "/payouts/settlement-tree",
+    requiredRoles: ["owner", "manager"],
+    togglable: true,
+  },
+  // 2026-04-25: 정산 이력 — owner/manager 공통으로 자주 조회.
+  {
+    id: "settlement_history", label: "정산 이력", icon: "📒", path: "/settlement/history",
     requiredRoles: ["owner", "manager"],
     togglable: true,
   },
@@ -63,13 +86,53 @@ export const COUNTER_MENU: readonly MenuItemDefinition[] = [
     requiredRoles: ["owner"],
     togglable: true,
   },
+  // 2026-04-25: manager 전용 홈. 이전엔 사이드바에 없어서 실장이 카운터
+  //   에서 자기 대시보드로 돌아갈 수 없었음.
+  {
+    id: "manager_home", label: "실장 홈", icon: "🪪", path: "/manager",
+    requiredRoles: ["manager"],
+    togglable: true,
+  },
   {
     id: "staff",     label: "스태프",   icon: "👤", path: "/staff",
     requiredRoles: ["owner", "manager"],
     togglable: true,
   },
+  // 2026-04-25: 채팅 — 룸/DM/글로벌. 모든 role 이 접근.
+  {
+    id: "chat", label: "채팅", icon: "💬", path: "/chat",
+    togglable: true,
+  },
+  // 2026-04-25: 감시 대시보드 — owner 전용. 실시간 이상 징후 한눈에.
+  {
+    id: "watchdog", label: "감시", icon: "🛡️", path: "/ops/watchdog",
+    requiredRoles: ["owner"],
+    togglable: true,
+  },
+  // 2026-04-25: 이슈 트리아지 — owner 전용. 사용자 신고 처리.
+  {
+    id: "issues", label: "이슈 신고함", icon: "🐞", path: "/ops/issues",
+    requiredRoles: ["owner"],
+    togglable: true,
+  },
+  // 2026-04-25: 사용 가이드 — role 별 자주 쓰는 기능 설명.
+  {
+    id: "help", label: "가이드", icon: "📖", path: "/help",
+    togglable: true,
+  },
   {
     id: "me",        label: "내 정보",  icon: "🪪", path: "/me",
+    togglable: true,
+  },
+  // R26: MFA / 백업 코드 관리. 모든 role 접근 — 보안은 본인 계정 단위.
+  {
+    id: "security",  label: "보안 설정", icon: "🔐", path: "/me/security",
+    togglable: true,
+  },
+  // R27: 종이장부 ↔ NOX 대조. owner/manager.
+  {
+    id: "reconcile", label: "종이장부 대조", icon: "📑", path: "/reconcile",
+    requiredRoles: ["owner", "manager"],
     togglable: true,
   },
 ] as const

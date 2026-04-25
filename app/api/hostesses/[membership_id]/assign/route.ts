@@ -115,13 +115,13 @@ export async function PATCH(
 
   if (hErr) {
     return NextResponse.json(
-      { error: "INTERNAL_ERROR", message: "아가씨 조회에 실패했습니다." },
+      { error: "INTERNAL_ERROR", message: "스태프 조회에 실패했습니다." },
       { status: 500 },
     )
   }
   if (!hostessRow) {
     return NextResponse.json(
-      { error: "NOT_FOUND", message: "아가씨 레코드를 찾을 수 없습니다." },
+      { error: "NOT_FOUND", message: "스태프 레코드를 찾을 수 없습니다." },
       { status: 404 },
     )
   }
@@ -131,7 +131,7 @@ export async function PATCH(
     return NextResponse.json(
       {
         error: "STORE_SCOPE_FORBIDDEN",
-        message: "본인 매장 외 아가씨는 배정할 수 없습니다.",
+        message: "본인 매장 외 스태프는 배정할 수 없습니다.",
       },
       { status: 403 },
     )

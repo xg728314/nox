@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import PrintAndArchiveButton from "./PrintAndArchiveButton"
 
 type LiquorItem = { name: string; qty: number; unit_price: number; amount: number }
 type TimeEntry = { category: string; time_minutes: number; amount: number }
@@ -35,10 +36,11 @@ export default function BillPage({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
+  // 2026-04-24 P1 fix: room_id 변경 시 refetch 안 되던 버그.
   useEffect(() => {
     fetchBill()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [room_id])
 
   async function fetchBill() {
     try {
@@ -90,9 +92,10 @@ export default function BillPage({
   }
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 pb-20">
+    <div className="min-h-screen bg-[#030814] text-slate-200 pb-20 print:bg-white print:text-gray-900">
+      {/* 2026-04-25: 화면에선 다크 (앱 일관성), 인쇄 시만 밝게. */}
+      <div className="max-w-md mx-auto px-6 py-8 bg-white text-gray-900 rounded-2xl my-4 shadow-2xl print:shadow-none print:rounded-none print:my-0">
       {/* 손님용 청구서 — 밝은 테마, 인쇄 친화적 */}
-      <div className="max-w-md mx-auto px-6 py-8">
         {/* 헤더 */}
         <div className="text-center border-b-2 border-gray-900 pb-4 mb-6">
           <h1 className="text-2xl font-bold tracking-wide">NOX</h1>
@@ -228,6 +231,14 @@ export default function BillPage({
           >
             인쇄
           </button>
+          {/* 2026-04-24: 인쇄 + 기록 숨김(archive) 원샷 버튼.
+              archive 는 hard delete 가 아니라 archived_at 타임스탬프만 찍어
+              운영 UI 에서 숨기고 DB 에는 그대로 남긴다 (세법 5년 보관 +
+              분쟁 증빙). owner/manager + finalized 영수증 전용. */}
+          <PrintAndArchiveButton
+            roomId={room_id}
+            onDone={() => router.push(`/counter`)}
+          />
           <button
             onClick={() => router.push(`/counter/${room_id}`)}
             className="w-full py-3 rounded-xl bg-gray-100 text-gray-600 text-sm"

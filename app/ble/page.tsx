@@ -96,7 +96,13 @@ export default function BlePage() {
       <div className="relative z-10">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 카운터</button>
+          <button
+            onClick={() => {
+              if (typeof window !== "undefined" && window.history.length > 1) router.back()
+              else router.push("/counter")
+            }}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
           <div className="flex items-center gap-2">
             <span className="font-semibold">BLE 모니터링</span>
             <div className="flex items-center gap-1.5">

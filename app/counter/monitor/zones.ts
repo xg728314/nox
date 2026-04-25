@@ -14,7 +14,11 @@
  * split this into per-store counter slots.
  */
 
-export type FloorId = 5 | 6 | 7 | 8
+// 2026-04-24: FloorId / 층 배열을 lib/building/floors.ts 단일 원본에서
+//   import. 9층 추가 같은 변경 시 한 곳만 수정.
+import { BUILDING_FLOORS, type FloorId, floorLabel } from "@/lib/building/floors"
+
+export type { FloorId }
 export type ZoneKind = "room" | "counter" | "restroom" | "elevator" | "lounge"
 
 export type ZoneBlock = {
@@ -45,17 +49,12 @@ const makeFloor = (floor: FloorId): FloorLayout => ({
   ],
 })
 
-export const FLOOR_LAYOUTS: Record<FloorId, FloorLayout> = {
-  5: makeFloor(5),
-  6: makeFloor(6),
-  7: makeFloor(7),
-  8: makeFloor(8),
-}
+// 2026-04-24: BUILDING_FLOORS 에서 동적 생성. 층 추가 시 floors.ts 만 수정.
+export const FLOOR_LAYOUTS: Record<FloorId, FloorLayout> = Object.fromEntries(
+  BUILDING_FLOORS.map((f) => [f, makeFloor(f)]),
+) as Record<FloorId, FloorLayout>
 
 export const FLOOR_TABS: ReadonlyArray<{ id: FloorId | "all"; label: string }> = [
-  { id: 5, label: "5F" },
-  { id: 6, label: "6F" },
-  { id: 7, label: "7F" },
-  { id: 8, label: "8F" },
-  { id: "all", label: "전체층" },
+  ...BUILDING_FLOORS.map((f) => ({ id: f, label: floorLabel(f) })),
+  { id: "all" as const, label: "전체층" },
 ]

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import { captureException } from "@/lib/telemetry/captureException"
+import CustomerCreditTabs from "../customers/CustomerCreditTabs"
 
 type Credit = {
   id: string
@@ -71,8 +73,9 @@ export default function CreditsPage() {
       } else {
         setError("외상 목록을 불러올 수 없습니다.")
       }
-    } catch {
-      setError("서버 오류가 발생했습니다.")
+    } catch (e) {
+      captureException(e, { tag: "credits_fetch" })
+      setError("외상 목록을 불러오는 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
     } finally {
       setLoading(false)
     }
@@ -87,10 +90,17 @@ export default function CreditsPage() {
 
       if (roomsRes.ok) {
         const data = await roomsRes.json()
-        setRooms((data.rooms ?? []).map((r: { room_uuid: string; room_name: string }) => ({
-          room_uuid: r.room_uuid,
-          room_name: r.room_name,
-        })))
+        // 2026-04-25 fix: /api/rooms 는 `id` 필드를 반환하지만 credits 폼은
+        //   room_uuid 로 제출해야 함. 이전엔 `r.room_uuid` 를 읽어서 항상
+        //   undefined → 서버 400 "must be a valid UUID". id 에서 매핑.
+        setRooms(
+          (data.rooms ?? []).map(
+            (r: { id?: string; room_uuid?: string; room_name: string }) => ({
+              room_uuid: r.room_uuid ?? r.id ?? "",
+              room_name: r.room_name,
+            }),
+          ),
+        )
       }
 
       if (staffRes.ok) {
@@ -154,8 +164,9 @@ export default function CreditsPage() {
         const data = await res.json()
         setError(data.message || "등록 실패")
       }
-    } catch {
-      setError("서버 오류가 발생했습니다.")
+    } catch (e) {
+      captureException(e, { tag: "credits_submit" })
+      setError("외상 등록 중 네트워크 오류. 금액·실장·방 정보 확인 후 다시 시도해주세요.")
     } finally {
       setSubmitting(false)
     }
@@ -178,8 +189,9 @@ export default function CreditsPage() {
         const data = await res.json()
         setError(data.message || "처리 실패")
       }
-    } catch {
-      setError("서버 오류가 발생했습니다.")
+    } catch (e) {
+      captureException(e, { tag: "credits_action" })
+      setError("외상 상태 변경 중 네트워크 오류. 다시 시도해주세요.")
     } finally {
       setActionLoading(null)
     }
@@ -211,9 +223,12 @@ export default function CreditsPage() {
           >
             ← 대시보드
           </button>
-          <span className="font-semibold">외상 관리</span>
+          <span className="font-semibold">고객·외상</span>
           <div className="w-16" />
         </div>
+
+        {/* 2026-04-25: 고객·외상 통합 탭 네비게이션. */}
+        <CustomerCreditTabs active="credits" />
 
         {/* 메시지 */}
         {error && (

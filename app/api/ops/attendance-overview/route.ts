@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
-import { computeAttendanceAnomalies } from "@/lib/server/queries/opsAttendanceAnomalies"
+import { computeAttendanceAnomalies } from "@/lib/server/queries/ops/attendanceAnomalies"
 
 /**
  * GET /api/ops/attendance-overview

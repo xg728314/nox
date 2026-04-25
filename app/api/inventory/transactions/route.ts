@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 const VALID_TYPES = ["in", "out", "adjust", "loss"] as const
 
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
 
     // 3. 영업일 조회
     let businessDayId: string | null = null
-    const today = new Date().toISOString().split("T")[0]
+    const today = getBusinessDateForOps()
     const { data: bizDay } = await supabase
       .from("store_operating_days")
       .select("id")

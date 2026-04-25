@@ -3,8 +3,8 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getRooms } from "@/lib/server/queries/rooms"
 import { getChatUnread } from "@/lib/server/queries/chatUnread"
 import { getInventoryItems } from "@/lib/server/queries/inventoryItems"
-import { getManagerHostessStats } from "@/lib/server/queries/managerHostessStats"
-import { getStoreStaff } from "@/lib/server/queries/storeStaff"
+import { getManagerHostessStats } from "@/lib/server/queries/manager/hostessStats"
+import { getStoreStaff } from "@/lib/server/queries/store/staff"
 
 async function slot<T>(
   routeTag: string,

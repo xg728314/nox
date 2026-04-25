@@ -9,6 +9,7 @@ export type SessionInfo = {
   gross_total: number
   participant_total?: number
   order_total?: number
+  manager_membership_id?: string | null
   manager_name?: string | null
   customer_name_snapshot?: string | null
   customer_party_size?: number | null

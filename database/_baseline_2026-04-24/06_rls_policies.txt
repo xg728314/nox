@@ -1,0 +1,117 @@
+NOX DB RLS Policies — 2026-04-24 스냅샷
+========================================
+
+Total: 70 policies across 24 tables.
+
+본문 추출:
+  SELECT policyname, cmd, qual, with_check
+  FROM pg_policies
+  WHERE schemaname='public' AND tablename='<TABLE>' AND policyname='<POLICY>';
+
+⚠️ 앱 route 는 **service-role key** 사용 → RLS 우회.
+   일반 user JWT 로는 아래 정책 적용됨.
+
+── 정책 목록 ────────────────────────────────────
+
+audit_events (5):
+  audit_events_insert_authenticated (INSERT)
+  audit_events_insert_only (INSERT)
+  audit_events_no_delete (DELETE)
+  audit_events_no_update (UPDATE)
+  audit_events_select_same_store (SELECT)
+
+ble_gateways / ble_ingest_events / ble_tag_presence / ble_tags (각 1):
+  *_select_same_store (SELECT)
+
+closing_reports (2):
+  closing_reports_insert_owner (INSERT)
+  closing_reports_select_same_store (SELECT)
+
+cross_store_work_records (3):
+  select_jwt_origin_scope (SELECT)
+  select_jwt_super_admin (SELECT)
+  select_jwt_working_scope_pending (SELECT)
+
+hostesses (5):
+  hostesses_insert_owner_manager (INSERT)
+  hostesses_select_hostess_self (SELECT)
+  hostesses_update_owner_manager (UPDATE)
+  select_jwt_store_uuid (SELECT)
+  select_jwt_super_admin (SELECT)
+
+managers (3):
+  managers_insert_owner (INSERT)
+  managers_select_same_store (SELECT)
+  managers_update_owner (UPDATE)
+
+orders (4):
+  orders_insert_owner_manager (INSERT)
+  orders_select_same_store (SELECT)
+  select_jwt_store_uuid (SELECT)
+  select_jwt_super_admin (SELECT)
+
+profiles (2):
+  profiles_select_self (SELECT)
+  profiles_update_self (UPDATE)
+
+receipt_snapshots (5):
+  receipt_snapshots_insert_only (INSERT)
+  receipt_snapshots_insert_owner_manager (INSERT)
+  receipt_snapshots_no_delete (DELETE)
+  receipt_snapshots_no_update (UPDATE)
+  receipt_snapshots_select_same_store (SELECT)
+
+receipts (3):
+  receipts_insert_owner_manager (INSERT)
+  receipts_select_same_store (SELECT)
+  receipts_update_owner (UPDATE)
+
+room_sessions (5):
+  room_sessions_insert_owner_manager (INSERT)
+  room_sessions_select_same_store (SELECT)
+  room_sessions_update_owner_manager (UPDATE)
+  select_jwt_store_uuid (SELECT)
+  select_jwt_super_admin (SELECT)
+
+rooms (4):
+  rooms_insert_owner (INSERT)
+  rooms_update_owner (UPDATE)
+  select_jwt_store_uuid (SELECT)
+  select_jwt_super_admin (SELECT)
+
+session_participants (6):
+  select_jwt_origin_scope_cross_store (SELECT)
+  select_jwt_super_admin (SELECT)
+  select_jwt_working_scope (SELECT)
+  session_participants_insert_owner_manager (INSERT)
+  session_participants_select_hostess_self (SELECT)
+  session_participants_select_same_store (SELECT)
+  session_participants_update_owner_manager (UPDATE)
+
+store_memberships (5):
+  select_jwt_store_uuid (SELECT)
+  select_jwt_super_admin (SELECT)
+  store_memberships_insert_owner (INSERT)
+  store_memberships_select_self (SELECT)
+  store_memberships_update_owner (UPDATE)
+
+store_operating_days (4):
+  allow_authenticated_read_operating_days (SELECT)
+  store_operating_days_insert_owner (INSERT)
+  store_operating_days_select_same_store (SELECT)
+  store_operating_days_update_owner (UPDATE)
+
+store_settings (3):
+  allow_authenticated_read_settings (SELECT)
+  store_settings_select_same_store (SELECT)
+  store_settings_update_owner (UPDATE)
+
+stores (3):
+  allow_authenticated_read_stores (SELECT)
+  stores_select_own (SELECT)
+  stores_update_owner (UPDATE)
+
+transfer_requests (3):
+  transfer_requests_insert_owner_manager (INSERT)
+  transfer_requests_select_involved_store (SELECT)
+  transfer_requests_update_involved (UPDATE)

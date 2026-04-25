@@ -118,8 +118,19 @@ function allowedScopesFor(role: string | null): BleMinimapScope[] {
 // Persistence
 // ────────────────────────────────────────────────────────────────
 
-const KEY_COLLAPSED = "nox.counter.ble_minimap.collapsed"
-const KEY_SCOPE     = "nox.counter.ble_minimap.scope"
+// 2026-04-24 P1 fix: 이전에는 전역 key 였다. 같은 기기에서 계정/매장 전환
+//   시 이전 사용자의 scope (예: 다른 매장의 "8F") 가 재사용되어 403 을
+//   유발하거나 혼동을 일으켰다. 이제 store_uuid 로 namespace.
+const KEY_COLLAPSED_BASE = "nox.counter.ble_minimap.collapsed"
+const KEY_SCOPE_BASE     = "nox.counter.ble_minimap.scope"
+
+function storageKeys(storeUuid: string | null) {
+  const suffix = storeUuid ? `.${storeUuid}` : ""
+  return {
+    collapsed: `${KEY_COLLAPSED_BASE}${suffix}`,
+    scope: `${KEY_SCOPE_BASE}${suffix}`,
+  }
+}
 
 function readStorage(key: string): string | null {
   try { return typeof window !== "undefined" ? window.localStorage.getItem(key) : null }
@@ -181,25 +192,36 @@ function toApiScope(s: BleMinimapScope): MonitorScope {
 export default function CounterBleMinimapWidget() {
   const profile = useCurrentProfile()
   const role = profile?.role ?? null
+  const storeUuid = profile?.store_uuid ?? null
 
   const allowed = useMemo(() => allowedScopesFor(role), [role])
 
   // Persisted collapse + scope. Initial render uses safe defaults so
   // SSR and first client render match; localStorage hydration happens
   // in an effect.
-  const [collapsed, setCollapsed] = useState<boolean>(false)
+  // 2026-04-24: 기본값을 접힘으로 변경. 헤더 chip (재실/이탈/대기) 만으로도
+  //   현장 운영 정보는 충분 — 전체 그리드 + 중복 pill 은 사용자가 명시적으로
+  //   펼쳤을 때만 노출.
+  const [collapsed, setCollapsed] = useState<boolean>(true)
   const [scope, setScopeState] = useState<BleMinimapScope>("own_store")
+  // 2026-04-24 P1 fix: storeUuid 가 확정된 뒤 namespace 키에서 로드.
   useEffect(() => {
-    const c = readStorage(KEY_COLLAPSED)
-    if (c === "1") setCollapsed(true)
-    const s = readStorage(KEY_SCOPE) as BleMinimapScope | null
+    if (!storeUuid) return
+    const keys = storageKeys(storeUuid)
+    const c = readStorage(keys.collapsed)
+    if (c === "0") setCollapsed(false)
+    else if (c === "1") setCollapsed(true)
+    const s = readStorage(keys.scope) as BleMinimapScope | null
     if (s && SCOPE_ORDER.includes(s)) setScopeState(s)
-  }, [])
+    else setScopeState("own_store") // 새 매장이면 기본값으로 리셋
+  }, [storeUuid])
   const setCollapsedPersist = (v: boolean) => {
-    setCollapsed(v); writeStorage(KEY_COLLAPSED, v ? "1" : "0")
+    setCollapsed(v)
+    writeStorage(storageKeys(storeUuid).collapsed, v ? "1" : "0")
   }
   const setScopePersist = (s: BleMinimapScope) => {
-    setScopeState(s); writeStorage(KEY_SCOPE, s)
+    setScopeState(s)
+    writeStorage(storageKeys(storeUuid).scope, s)
   }
   // Guard against a persisted scope the current role is not allowed to see.
   const effectiveScope: BleMinimapScope = allowed.includes(scope) ? scope : "own_store"
@@ -339,14 +361,12 @@ export default function CounterBleMinimapWidget() {
       {/* Expanded body. */}
       {!collapsed && (
         <div className="px-3 py-2.5 flex flex-col gap-2.5">
-          {/* Operational summary pills — restroom / elevator / 외부 */}
+          {/* Operational summary pills — 헤더 chip 에 이미 재실/이탈/대기 가
+              있으므로 여기서는 헤더에 없는 항목만 표시. */}
           <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
             <Pill label="화장실" value={ops.restroom} tone="amber" />
             <Pill label="엘리베이터" value={ops.elevator} tone="violet" />
             <Pill label="외부(타층)" value={ops.external} tone="slate" />
-            <Pill label="대기" value={ops.waiting} tone="slate" />
-            <Pill label="재실" value={ops.inRoom} tone="cyan" />
-            <Pill label="이탈" value={ops.midOut} tone="amber" />
           </div>
 
           {/* Phase 3: Cross-store placeholder 제거. 서버가 /api/monitor/scope 로

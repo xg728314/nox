@@ -47,21 +47,43 @@ export async function GET(request: Request) {
       })
     }
 
-    const sessions = (participation as any).room_sessions
-    const settlements = sessions?.receipts
-
-    if (!settlements || (Array.isArray(settlements) && settlements.length === 0)) {
-      return NextResponse.json({
-        store_uuid: authContext.store_uuid,
-        role: authContext.role,
-        settlement_status: {
-          has_settlement: false,
-          status: null,
-        },
-      })
+    // select shape: "session_id, room_sessions!inner(session_id, receipts(status))"
+    //   Supabase 버전/조건에 따라 room_sessions 및 receipts 는 object 또는
+    //   array 로 올 수 있어 runtime guard + 양측 정규화.
+    type ReceiptShape = { status: string | null }
+    type SessionShape = {
+      session_id: string
+      receipts: ReceiptShape | ReceiptShape[] | null
+    }
+    type ParticipationJoinRow = {
+      session_id: string
+      room_sessions: SessionShape | SessionShape[] | null
     }
 
-    const settlement = Array.isArray(settlements) ? settlements[0] : settlements
+    function isParticipationJoinRow(x: unknown): x is ParticipationJoinRow {
+      if (!x || typeof x !== "object") return false
+      const r = x as Record<string, unknown>
+      return "session_id" in r && "room_sessions" in r
+    }
+
+    const emptyResponse = () =>
+      NextResponse.json({
+        store_uuid: authContext.store_uuid,
+        role: authContext.role,
+        settlement_status: { has_settlement: false, status: null },
+      })
+
+    if (!isParticipationJoinRow(participation)) return emptyResponse()
+
+    const session = Array.isArray(participation.room_sessions)
+      ? participation.room_sessions[0] ?? null
+      : participation.room_sessions
+    if (!session) return emptyResponse()
+
+    const receipts = session.receipts
+    if (!receipts) return emptyResponse()
+    const settlement = Array.isArray(receipts) ? receipts[0] : receipts
+    if (!settlement) return emptyResponse()
 
     return NextResponse.json({
       store_uuid: authContext.store_uuid,

@@ -45,7 +45,106 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "BAD_REQUEST", message: `reason must be non-empty and ≤ ${MEMO_MAX} chars.` }, { status: 400 })
     }
 
-    // Owner + reauth + rate limit + dup guard + biz day
+    // Phase 10.1: reversal row 에도 executor 기록.
+    //   body.executor_membership_id 미지정 시 auth.membership_id 로 기본.
+    //   executor 는 payer 매장(auth.store_uuid) 소속 approved membership 이어야 함.
+    const bodyExecutor = body.executor_membership_id
+    const explicitExecutor =
+      typeof bodyExecutor === "string" ? parseUuid(bodyExecutor) : null
+    if (typeof bodyExecutor === "string" && bodyExecutor.length > 0 && !explicitExecutor) {
+      return NextResponse.json(
+        { error: "BAD_REQUEST", message: "executor_membership_id must be a valid uuid." },
+        { status: 400 },
+      )
+    }
+    const executorMembershipId = explicitExecutor ?? auth.membership_id
+    if (executorMembershipId !== auth.membership_id) {
+      const { data: execMem, error: execMemErr } = await supabase
+        .from("store_memberships")
+        .select("id, store_uuid, status")
+        .eq("id", executorMembershipId)
+        .is("deleted_at", null)
+        .maybeSingle()
+      if (execMemErr) {
+        return NextResponse.json(
+          { error: "INTERNAL_ERROR", message: "executor 조회 실패", detail: execMemErr.message },
+          { status: 500 },
+        )
+      }
+      const em = execMem as { id: string; store_uuid: string; status: string } | null
+      if (!em) {
+        return NextResponse.json(
+          { error: "EXECUTOR_NOT_FOUND", message: "executor 멤버십을 찾을 수 없습니다." },
+          { status: 404 },
+        )
+      }
+      if (em.status !== "approved") {
+        return NextResponse.json(
+          { error: "EXECUTOR_INVALID", message: "executor 는 approved membership 이어야 합니다." },
+          { status: 400 },
+        )
+      }
+      if (em.store_uuid !== auth.store_uuid) {
+        return NextResponse.json(
+          {
+            error: "EXECUTOR_STORE_MISMATCH",
+            message: "executor 는 payer 매장 소속이어야 합니다.",
+          },
+          { status: 400 },
+        )
+      }
+    }
+
+    // Phase 10: cancel 은 payout_id 만 받으므로 guard 에 전달할 handler/store
+    //   를 복원하기 위해 payout → item 2-hop 사전 조회.
+    //   실패 / 077 미적용 fallback 은 itemHandlerId = null (→ manager 경로 차단).
+    let itemHandlerId: string | null = null
+    let itemStoreUuid: string | null = null
+    {
+      const { data: payoutRow, error: payoutErr } = await supabase
+        .from("payout_records")
+        .select("cross_store_settlement_item_id")
+        .eq("id", payout_id)
+        .is("deleted_at", null)
+        .maybeSingle()
+      if (payoutErr) {
+        return NextResponse.json(
+          { error: "INTERNAL_ERROR", message: "payout 조회 실패", detail: payoutErr.message },
+          { status: 500 },
+        )
+      }
+      const p = payoutRow as { cross_store_settlement_item_id: string | null } | null
+      const item_id_for_scope = p?.cross_store_settlement_item_id ?? null
+      if (item_id_for_scope) {
+        const { data: itemRow, error: itemErr } = await supabase
+          .from("cross_store_settlement_items")
+          .select("current_handler_membership_id, store_uuid")
+          .eq("id", item_id_for_scope)
+          .is("deleted_at", null)
+          .maybeSingle()
+        if (itemErr) {
+          const msg = String(itemErr.message ?? "")
+          if (!/column .*current_handler_membership_id.* does not exist/i.test(msg)) {
+            return NextResponse.json(
+              { error: "INTERNAL_ERROR", message: "item 조회 실패", detail: msg },
+              { status: 500 },
+            )
+          }
+          // 077 미적용 → itemHandlerId = null (manager 경로 자동 차단).
+        } else if (itemRow) {
+          const row = itemRow as {
+            current_handler_membership_id: string | null
+            store_uuid: string | null
+          }
+          itemHandlerId = row.current_handler_membership_id ?? null
+          itemStoreUuid = row.store_uuid ?? null
+        }
+      }
+      // payout 자체가 없으면 RPC 가 PAYOUT_NOT_FOUND 로 최종 차단.
+      // 여기서는 handler fallback 만 유지.
+    }
+
+    // role + (handler + permission) + reauth + rate-limit + dup + day
     const guard = await ownerFinancialGuard({
       auth,
       supabase,
@@ -55,6 +154,11 @@ export async function POST(request: Request) {
       rateLimitPerMin: 20,
       dupKey: `xs-payout-cancel-dup:${auth.user_id}:${cheapHash(payout_id)}`,
       dupWindowMs: 5000,
+      requireItemScope: {
+        itemHandlerMembershipId: itemHandlerId,
+        permissionKey: "cross_store_payout",
+        itemStoreUuid: itemStoreUuid ?? auth.store_uuid,
+      },
     })
     if (guard.error) return guard.error
 
@@ -63,6 +167,7 @@ export async function POST(request: Request) {
       p_payout_id: payout_id,
       p_reason: reason,
       p_actor: auth.user_id,
+      p_executor_membership_id: executorMembershipId,
     })
 
     if (error) {
@@ -94,6 +199,9 @@ export async function POST(request: Request) {
         cross_store_settlement_id: result.cross_store_settlement_id ?? null,
         cross_store_settlement_item_id: result.cross_store_settlement_item_id ?? null,
         amount: result.amount ?? null,
+        executor_membership_id: executorMembershipId,
+        executor_role: guard.executorRole,
+        permission_id: guard.permissionId,
         new_item_status: (result as { item?: { status?: string } }).item?.status ?? null,
         new_header_status: (result as { header?: { status?: string } }).header?.status ?? null,
         previous_status: result.previous_status ?? null,

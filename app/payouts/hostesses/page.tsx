@@ -113,7 +113,7 @@ export default function HostessPayoutsPage() {
       <header className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
         <div>
           <button onClick={() => router.push("/payouts")} className="text-xs text-slate-400 hover:text-slate-200">← 정산 현황</button>
-          <h1 className="mt-1 text-lg font-semibold">아가씨 지급</h1>
+          <h1 className="mt-1 text-lg font-semibold">스태프 지급</h1>
         </div>
         <button onClick={load} className="text-xs text-slate-400 hover:text-slate-200">새로고침</button>
       </header>
@@ -141,7 +141,7 @@ export default function HostessPayoutsPage() {
         {loading && <p className="text-sm text-slate-400">불러오는 중…</p>}
         {error && <p className="text-sm text-rose-400">{error}</p>}
         {flash && <p className="text-sm text-emerald-300">{flash}</p>}
-        {!loading && filtered.length === 0 && <p className="text-sm text-slate-500">표시할 아가씨가 없습니다.</p>}
+        {!loading && filtered.length === 0 && <p className="text-sm text-slate-500">표시할 스태프가 없습니다.</p>}
 
         {filtered.map(g => (
           <section key={g.membership_id} className="rounded-lg border border-white/10 bg-white/[0.04]">

@@ -24,50 +24,79 @@ export function getExtendMinutes(category: string | null | undefined, type: Exte
   return EXTEND_MINUTES[category][type]
 }
 
-export function fmtWon(n: number): string {
-  return `₩${n.toLocaleString()}`
+// 2026-04-24: lib/format.ts 로 통합. null/NaN 안전 버전.
+//   기존 import 경로 (`import { fmtWon } from "../helpers"`) 유지.
+export { fmtWon } from "@/lib/format"
+
+/**
+ * ISO 문자열 → epoch ms. 2026-04-24 P2 fix.
+ *   `new Date(bad).getTime()` = NaN 이 이후 계산 전체를 오염시키므로
+ *   유효하지 않은 ISO 는 null 을 돌려준다.
+ */
+function parseIsoMs(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const ms = new Date(iso).getTime()
+  return Number.isFinite(ms) ? ms : null
 }
 
 export function fmtTime(iso: string): string {
-  if (!iso) return "-"
-  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+  const ms = parseIsoMs(iso)
+  if (ms == null) return "-"
+  return new Date(ms).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
 }
 
 export function getElapsed(started_at: string): string {
-  if (!started_at) return "-"
-  const diff = Math.floor((Date.now() - new Date(started_at).getTime()) / 60000)
+  const startMs = parseIsoMs(started_at)
+  if (startMs == null) return "-"
+  const diff = Math.floor((Date.now() - startMs) / 60000)
+  if (!Number.isFinite(diff) || diff < 0) return "-"
   const h = Math.floor(diff / 60)
   const m = diff % 60
   return h > 0 ? `${h}시간 ${m}분` : `${m}분`
 }
 
-/** 개별 참여자 남은 밀리초 — entered_at 없으면 sessionStartedAt + 60분 fallback */
+/** 개별 참여자 남은 밀리초 — entered_at 없으면 sessionStartedAt + 60분 fallback.
+ *
+ * 2026-04-25: 음수 허용. 초과 시간 (-N분) 을 표시해서 연장 누락 인지 + 초과
+ *   후 연장 시 자동 흡수 ("-10분 상태에서 90분 연장 → 남은 80분").
+ */
 export function remainingMsForParticipant(p: Participant, now: number, sessionStartedAt?: string): number {
-  const startIso = p.entered_at || sessionStartedAt
-  if (!startIso) return 0
+  const startMs = parseIsoMs(p.entered_at) ?? parseIsoMs(sessionStartedAt)
+  if (startMs == null) return 0
   const minutes = p.time_minutes && p.time_minutes > 0 ? p.time_minutes : 60
-  const end = new Date(startIso).getTime() + minutes * 60000
-  return Math.max(0, end - now)
+  const end = startMs + minutes * 60000
+  const rem = end - now
+  return Number.isFinite(rem) ? rem : 0
 }
 
-/** 방기준 남은 밀리초 — 가장 먼저 entered_at인 active 참여자 기준 */
+/** 방기준 남은 밀리초 — 가장 먼저 entered_at인 active 참여자 기준.
+ *
+ * 2026-04-25: 음수 허용 (초과 시간 표시).
+ */
 export function roomRemainingMs(participants: Participant[], now: number, sessionStartedAt?: string): number {
-  const active = participants.filter(p => p.status === "active" && p.entered_at)
+  const active = participants.filter(p => p.status === "active" && parseIsoMs(p.entered_at) != null)
   if (active.length === 0) {
-    if (sessionStartedAt) {
-      const end = new Date(sessionStartedAt).getTime() + 60 * 60000
-      return Math.max(0, end - now)
+    const sessMs = parseIsoMs(sessionStartedAt)
+    if (sessMs != null) {
+      const end = sessMs + 60 * 60000
+      return end - now
     }
     return 0
   }
   const first = [...active].sort((a, b) =>
-    new Date(a.entered_at).getTime() - new Date(b.entered_at).getTime()
+    (parseIsoMs(a.entered_at) ?? 0) - (parseIsoMs(b.entered_at) ?? 0)
   )[0]
   return remainingMsForParticipant(first, now, sessionStartedAt)
 }
 
 export function fmtRemaining(ms: number): string {
-  if (ms <= 0) return "종료"
+  if (!Number.isFinite(ms)) return "종료"
+  // 2026-04-25: 음수(초과 시간) 표시. "-N분" 으로 단조 증가하며 사용자에게
+  //   연장 누락을 시각적으로 인지시킴.
+  if (ms <= 0) {
+    const overMin = Math.max(1, Math.ceil(-ms / 60000))
+    return `-${overMin}분`
+  }
   const totalMin = Math.ceil(ms / 60000)
   const h = Math.floor(totalMin / 60)
   const m = totalMin % 60
@@ -77,9 +106,13 @@ export function fmtRemaining(ms: number): string {
 }
 
 export function remainingColor(ms: number): string {
+  if (!Number.isFinite(ms)) return "text-slate-500"
   const min = ms / 60000
+  // 2026-04-25: 초과 상태를 고유 색으로 (진한 빨강 + 깜빡임 유도는 카드에서).
+  if (min < 0) return "text-red-500 font-bold"
   if (min >= 30) return "text-emerald-400"
   if (min >= 10) return "text-amber-300"
+  if (min >= 5) return "text-orange-400"
   return "text-red-400"
 }
 
@@ -182,7 +215,22 @@ export function calcUnits(elapsedMinutes: number, unitMinutes: number): {
   remainderMin: number
   unitMinutes: number
 } {
-  if (elapsedMinutes <= 0 || unitMinutes <= 0) return { units: 0, whole: 0, half: false, remainderMin: 0, unitMinutes }
+  // NaN / Infinity / null 방어 — 이전엔 `NaN <= 0 === false` 로 우회되어
+  //   `${NaN}개` 가 UI 에 "NaN개" 로 표시되던 버그 (2026-04-24 fix).
+  if (
+    !Number.isFinite(elapsedMinutes) ||
+    !Number.isFinite(unitMinutes) ||
+    elapsedMinutes <= 0 ||
+    unitMinutes <= 0
+  ) {
+    return {
+      units: 0,
+      whole: 0,
+      half: false,
+      remainderMin: 0,
+      unitMinutes: Number.isFinite(unitMinutes) && unitMinutes > 0 ? unitMinutes : 0,
+    }
+  }
   const whole = Math.floor(elapsedMinutes / unitMinutes)
   const remainder = elapsedMinutes - whole * unitMinutes
   const halfUnit = unitMinutes / 2
@@ -199,16 +247,24 @@ export function calcUnits(elapsedMinutes: number, unitMinutes: number): {
  */
 export function fmtUnitCount(elapsedMinutes: number, unitMinutes: number): string | null {
   // UI rule: do NOT show minutes. Always render in 개(반티) units.
-  // Internal calc (calcUnits) is unchanged — only the display string switches.
+  //
+  // 2026-04-25 fix: NOX_SETTLEMENT_DOMAIN_TRUTH 1.5 판정 규칙 준수.
+  //   "반티 기준(unitMinutes/2) 이하 → 반티 / 그 이상 → 기본 + 다음 단위"
+  //   이전 구현은 remainder > 0 이면 무조건 whole+1 로 올려서 "반티" 구간을
+  //   다음 개수로 조기 승격 → 사용자 시나리오 (87분 셔츠 → 1.5개 = 21만)
+  //   를 2개(=28만) 로 과다계산. 금액 영향 있음.
   if (elapsedMinutes <= 0 || unitMinutes <= 0) return null
   const { whole, half, remainderMin } = calcUnits(elapsedMinutes, unitMinutes)
+  const halfUnit = unitMinutes / 2
   if (whole === 0 && half) return "반티"
   if (whole === 0 && !half) {
-    // partial under one unit with no half mark → count as 1개
-    return remainderMin > 0 ? "1개" : null
+    // 0개 + 부분. 반티 이하면 "반티", 초과면 "1개"(반올림).
+    if (remainderMin === 0) return null
+    return remainderMin <= halfUnit ? "반티" : "1개"
   }
   if (half) return `${whole}.5개`
   if (remainderMin === 0) return `${whole}개`
-  // partial beyond N whole units → round up to the next whole count
-  return `${whole + 1}개`
+  // N개 + 부분. 반티 이하면 N.5 (반티 추가), 초과면 N+1 (다음 개수 올림).
+  // 이 분기가 LOCKED 도메인 룰의 핵심.
+  return remainderMin <= halfUnit ? `${whole}.5개` : `${whole + 1}개`
 }

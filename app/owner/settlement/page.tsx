@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { fmtMan } from "@/lib/format"
 
 type Summary = {
   total_sessions: number
@@ -68,16 +69,8 @@ export default function OwnerSettlementPage() {
     }
   }
 
-  function fmt(amount: number | null): string {
-    if (amount === null || amount === undefined) return "−"
-    if (amount >= 10000) {
-      const man = Math.floor(amount / 10000)
-      const remainder = amount % 10000
-      if (remainder === 0) return `${man}만`
-      return `${man}만${remainder.toLocaleString()}`
-    }
-    return amount.toLocaleString() + "원"
-  }
+  // 2026-04-24: 공용 lib/format.fmtMan 으로 교체. 동일 로직 + null/NaN 안전.
+  const fmt = fmtMan
 
   if (loading) {
     return (

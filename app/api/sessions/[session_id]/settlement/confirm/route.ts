@@ -132,7 +132,20 @@ export async function POST(request: Request, { params }: Params) {
       reason: null,
     })
     if (auditErr) {
-      console.warn("[settlement/confirm] audit insert failed:", auditErr.message)
+      // ROUND-CLEANUP-003: fail-close. money mutation path 의 audit 실패를
+      //   조용히 삼키던 console.warn 을 500 응답으로 교체. audit_events 의
+      //   기존 before/after shape 은 유지 (다른 consumer 호환).
+      console.error("[settlement/confirm] audit insert failed (fail-close):", auditErr.message)
+      return NextResponse.json(
+        {
+          error: "AUDIT_WRITE_FAILED",
+          message:
+            "감사 로그 기록에 실패했습니다. 요청 상태가 일관되지 않을 수 있으니 운영자에게 즉시 보고하세요.",
+          action: "settlement_confirmed",
+          detail: auditErr.message,
+        },
+        { status: 500 },
+      )
     }
 
     return NextResponse.json({

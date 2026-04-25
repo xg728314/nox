@@ -3,10 +3,11 @@ import { resolveAuthContext } from "@/lib/auth/resolveAuthContext"
 import { createServiceClient } from "@/lib/session/createServiceClient"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { resolveStoreNames, resolveHostessNames } from "@/lib/cross-store/queries/loadCrossStoreScoped"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/cross-store/settlement?business_date=2026-04-12
- * 내 매장(origin_store) 소속 아가씨가 타매장에서 근무한 정산 내역.
+ * 내 매장(origin_store) 소속 스태프가 타매장에서 근무한 정산 내역.
  */
 export async function GET(request: Request) {
   try {
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
     let businessDate: string | null = searchParams.get("business_date")
 
     if (!businessDate) {
-      const today = new Date().toISOString().split("T")[0]
+      const today = getBusinessDateForOps()
       const { data: bizDay } = await supabase
         .from("store_operating_days")
         .select("business_date")
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
       })
     }
 
-    // 2. 내 매장 소속 아가씨의 CSWR 조회
+    // 2. 내 매장 소속 스태프의 CSWR 조회
     const { data: workRecords } = await supabase
       .from("cross_store_work_records")
       .select("id, session_id, working_store_uuid, hostess_membership_id, status")

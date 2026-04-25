@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 
 /**
  * GET /api/me/settlements
- * 아가씨 본인의 정산 내역 조회 (읽기 전용).
+ * 스태프 본인의 정산 내역 조회 (읽기 전용).
  * 본인 지급액만 노출 — 실장수익(manager_payout_amount) 비노출.
  */
 export async function GET(request: Request) {

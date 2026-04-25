@@ -7,6 +7,8 @@
  * - localStorage 사용 금지 (업무 데이터)
  */
 
+import { isForbiddenOfflineType, ForbiddenOfflineTypeError } from "./forbidden"
+
 const DB_NAME = "nox_offline"
 const DB_VERSION = 1
 
@@ -222,6 +224,11 @@ export async function enqueueEvent(
   type: string,
   payload: Record<string, unknown>
 ): Promise<QueuedEvent> {
+  // 클라이언트 enqueue 시점 방어. 서버 sync skip 과 별개로 UI 가 "저장됨"
+  // 으로 오인하지 않도록 즉시 throw. lib/offline/forbidden.ts 단일 출처.
+  if (isForbiddenOfflineType(type)) {
+    throw new ForbiddenOfflineTypeError(type)
+  }
   const db = await open()
   const record: QueuedEvent = {
     id: generateId(),

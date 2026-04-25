@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { resolveAdminScope } from "@/lib/auth/resolveAdminScope"
 import { createClient } from "@supabase/supabase-js"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/super-admin/stores/[store_uuid]/settlement/manager
@@ -41,7 +42,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     let businessDayId: string | null = searchParams.get("business_day_id")
     if (!businessDayId) {
-      const today = new Date().toISOString().split("T")[0]
+      const today = getBusinessDateForOps()
       const { data: bizDay } = await supabase
         .from("store_operating_days")
         .select("id")

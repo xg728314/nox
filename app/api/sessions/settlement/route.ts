@@ -176,8 +176,18 @@ export async function POST(request: Request) {
       .eq("status", "active")
       .is("deleted_at", null)
 
+    // 2026-04-24 P0 fix: NUMERIC string / null / NaN 으로 들어와도 grossTotal
+    //   오염 안 되도록 엄격 변환. finite 숫자만 합산.
     const preSettlementTotal = (preSettlements ?? []).reduce(
-      (sum: number, ps: { amount: number }) => sum + (ps.amount ?? 0), 0
+      (sum: number, ps: { amount: unknown }) => {
+        const n = typeof ps.amount === "number"
+          ? ps.amount
+          : typeof ps.amount === "string"
+            ? Number(ps.amount)
+            : NaN
+        return Number.isFinite(n) ? sum + n : sum
+      },
+      0,
     )
 
     // 5.6 Locked invariant guard
@@ -185,12 +195,29 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: "REMAINDER_NEGATIVE",
-          message: "정산 잔액이 음수입니다. 실장+아가씨 지급 합계가 타임 단가 합계를 초과합니다.",
+          message: "정산 잔액이 음수입니다. 실장+스태프 지급 합계가 타임 단가 합계를 초과합니다.",
           participant_flow_total: totals.participantFlowTotal,
           manager_profit_from_participants: totals.managerProfitFromParticipants,
           hostess_profit_total: totals.hostessProfitTotal,
         },
         { status: 409 }
+      )
+    }
+
+    // 2026-04-25: 선정산 차감 후 grossTotal 음수 방어.
+    //   선정산액이 실제 매출보다 큰 경우 (과다 선정산 또는 삭제된 세션)
+    //   정산을 중단하고 운영자에게 알림. 음수 금액이 DB 에 저장되는 것을
+    //   원천 차단.
+    if (preSettlementTotal > totals.grossTotal) {
+      return NextResponse.json(
+        {
+          error: "PRE_SETTLEMENT_EXCEEDS_GROSS",
+          message:
+            `선정산 합계(${preSettlementTotal.toLocaleString()}원)가 총 매출` +
+            `(${totals.grossTotal.toLocaleString()}원)을 초과합니다. ` +
+            `선정산 내역을 확인해주세요.`,
+        },
+        { status: 409 },
       )
     }
 

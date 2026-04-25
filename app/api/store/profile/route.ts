@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { getStoreProfile } from "@/lib/server/queries/storeProfile"
+import { getStoreProfile } from "@/lib/server/queries/store/profile"
 
 export async function GET(request: Request) {
   try {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { timingSafeEqual } from "node:crypto"
+import { stampCronHeartbeat } from "@/lib/automation/cronHeartbeat"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/cron/ble-attendance-sync
@@ -105,6 +107,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "SERVER_CONFIG_ERROR" }, { status: 500 })
   }
 
+  // R24: heartbeat — cron 이 실제로 실행됐다는 흔적. 실패해도 cron 본체에 영향 없음.
+  await stampCronHeartbeat(supabase, "ble-attendance-sync", "started")
+
   const nowMs = Date.now()
   const nowIso = new Date(nowMs).toISOString()
   const windowStartIso = new Date(nowMs - SCAN_LOOKBACK_MIN * 60 * 1000).toISOString()
@@ -189,7 +194,7 @@ export async function GET(request: Request) {
   }
 
   // open business_day per store (오늘 + status='open')
-  const today = new Date().toISOString().split("T")[0]
+  const today = getBusinessDateForOps()
   const { data: dayRows } = await supabase
     .from("store_operating_days")
     .select("id, store_uuid")

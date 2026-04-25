@@ -54,9 +54,16 @@ export default function InventoryPage() {
   // 품목 등록 폼
   const [form, setForm] = useState({ name: "", unit: "병", current_stock: "", min_stock: "", store_price: "", cost_per_box: "", units_per_box: "" })
   const needsUnitsPerBox = form.unit === "박스"
-  const boxPreview = needsUnitsPerBox && Number(form.units_per_box) >= 1
-    ? `환산 재고: ${Number(form.current_stock) || 0}박스 × ${Number(form.units_per_box)}병 = ${(Number(form.current_stock) || 0) * Number(form.units_per_box)}병`
-    : ""
+  // 2026-04-24 P2 fix: 입력값이 숫자로 파싱 안 될 때 NaN 이 화면에 노출되던
+  //   버그. finite 체크 후 빈 문자열 fallback.
+  const boxPreview = (() => {
+    if (!needsUnitsPerBox) return ""
+    const upb = Number(form.units_per_box)
+    const cs = Number(form.current_stock)
+    if (!Number.isFinite(upb) || upb < 1) return ""
+    const safeCs = Number.isFinite(cs) ? cs : 0
+    return `환산 재고: ${safeCs}박스 × ${upb}병 = ${safeCs * upb}병`
+  })()
   const SELECT_CLS = "w-full rounded-xl bg-[#0b1220] border border-white/10 text-white px-3 py-2.5 text-sm focus:outline-none focus:border-cyan-500/40 [&>option]:bg-[#0b1220] [&>option]:text-white"
   const [submitting, setSubmitting] = useState(false)
 

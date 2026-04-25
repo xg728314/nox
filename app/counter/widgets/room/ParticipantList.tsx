@@ -7,7 +7,7 @@
  */
 
 import { useRoomContext } from "../RoomContext"
-import ParticipantCardV2 from "../../components/ParticipantCardV2"
+import ParticipantCardV2 from "../../components/cards/ParticipantCardV2"
 import type { Participant } from "../../types"
 
 export default function ParticipantList() {

@@ -107,10 +107,10 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // ── Safe stale reads: receipt id + card fee rate ────────────────────
+    // ── Safe stale reads: receipt id + gross total + card fee rate ───────
     const { data: receipt, error: receiptError } = await supabase
       .from("receipts")
-      .select("id")
+      .select("id, gross_total")
       .eq("session_id", session_id)
       .eq("store_uuid", authContext.store_uuid)
       .order("version", { ascending: false })
@@ -122,6 +122,31 @@ export async function POST(request: Request) {
         { error: "RECEIPT_NOT_FOUND", message: "정산 내역이 없습니다. 먼저 정산을 생성하세요." },
         { status: 404 }
       )
+    }
+
+    // 2026-04-24 P1 fix: 결제 금액 합이 gross_total 과 일치하는지 서버에서
+    //   RPC 호출 전에 검증. RPC 내부에도 동일 검증이 있지만 early fail 로
+    //   audit/orphan 가능성을 축소하고 UX 오류 메시지를 명확히 함.
+    const grossTotal = Number(receipt.gross_total ?? 0)
+    const sumAmount = cashAmt + cardAmt + creditAmt
+    if (Number.isFinite(grossTotal) && grossTotal > 0) {
+      // "card" 단독 결제일 때 카드 수수료가 gross 에 포함되지 않은 금액으로
+      // 들어올 수 있으므로, 여기서는 mixed 와 순수 합산 결제만 엄격 검증한다.
+      const strict =
+        payment_method === "cash" ||
+        payment_method === "credit" ||
+        payment_method === "mixed"
+      if (strict && Math.abs(sumAmount - grossTotal) > 1) {
+        return NextResponse.json(
+          {
+            error: "AMOUNT_MISMATCH",
+            message: `결제 금액 합계(${sumAmount.toLocaleString()}원)가 총액(${grossTotal.toLocaleString()}원)과 일치하지 않습니다.`,
+            sum: sumAmount,
+            gross_total: grossTotal,
+          },
+          { status: 400 },
+        )
+      }
     }
 
     const { data: settings } = await supabase

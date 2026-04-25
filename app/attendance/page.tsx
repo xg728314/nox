@@ -111,7 +111,13 @@ export default function AttendancePage() {
       <div className="relative z-10">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <button onClick={() => router.push("/counter")} className="text-cyan-400 text-sm">← 카운터</button>
+          <button
+            onClick={() => {
+              if (typeof window !== "undefined" && window.history.length > 1) router.back()
+              else router.push("/counter")
+            }}
+            className="text-cyan-400 text-sm"
+          >← 뒤로</button>
           <span className="font-semibold">배정 현황판</span>
           <button onClick={() => fetchData()} className="text-xs text-slate-400 hover:text-white">새로고침</button>
         </div>

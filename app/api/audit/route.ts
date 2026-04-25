@@ -53,7 +53,8 @@ export async function GET(request: Request) {
     const { data: events, error } = await query
 
     if (error) {
-      return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
+      console.error("[audit] query failed:", error)
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
 
     // actor 이름 조회

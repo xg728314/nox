@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { formatRoomLabel } from "@/lib/rooms/formatRoomLabel"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 /**
  * GET /api/inventory/sales-trace?business_day_id=xxx
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     let businessDayId: string | null = searchParams.get("business_day_id")
     if (!businessDayId) {
-      const today = new Date().toISOString().split("T")[0]
+      const today = getBusinessDateForOps()
       const { data: bizDay } = await supabase
         .from("store_operating_days")
         .select("id")
