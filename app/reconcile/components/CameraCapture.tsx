@@ -53,39 +53,68 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
         if (videoRef.current) {
           videoRef.current.srcObject = stream
 
-          // TODO(diagnostic): video.play() 와 getUserMedia 의 에러를 분리하기 위해
-          //   별도 try/catch. 진단 완료 후 사용자 친화적 메시지로 교체할 것.
+          // video.play() 와 getUserMedia 에러를 분리. play() 가 reject 하면
+          // stream 은 받았는데 화면 표시만 실패한 상태 → stream cleanup 필수.
           try {
             await videoRef.current.play()
             setReady(true)
           } catch (e) {
             const err = e as DOMException
             console.error("Camera error (video.play):", err)
-            // play() 실패 시 stream cleanup 명시 — 카메라 LED/하드웨어 즉시 회수
             streamRef.current?.getTracks().forEach(t => t.stop())
             streamRef.current = null
             if (videoRef.current) videoRef.current.srcObject = null
-            setError(`video.play 실패\nname: ${err?.name}\nmessage: ${err?.message}`)
+            setError("카메라 미리보기 시작 실패. '📁 파일 선택' 을 사용해주세요.")
           }
         }
       } catch (e) {
-        // TODO(diagnostic): 진단용 raw error 노출. 사용자 폰에서 error.name 확인 후
-        //   정확한 케이스별 분기로 교체하고 이 블록 제거할 것.
-        //   (NotAllowedError / NotReadableError / OverconstrainedError / AbortError /
-        //    SecurityError / NotFoundError / TypeError 등)
+        // error.name 기반 정확한 분기 (substring 매칭 X).
+        // 진단 라운드 (R29-2) 에서 사용자 폰 (Galaxy S24 Chrome) 에서
+        // NotAllowedError + Permission denied 확인됨. 그 외 case 도 같이 처리.
         const err = e as DOMException
-        const debug = [
-          `name: ${err?.name}`,
-          `message: ${err?.message}`,
-          `ua: ${navigator.userAgent.slice(0, 80)}`,
-        ].join("\n")
         console.error("Camera error:", err)
 
-        // HTTPS / localhost 체크는 substring 매칭이 아니라 location 기반이라 유지
+        // HTTPS / localhost 체크는 location 기반이라 위에서 먼저 처리
         if (location.protocol !== "https:" && location.hostname !== "localhost") {
-          setError(`HTTPS 환경에서만 카메라 사용 가능.\n\n${debug}`)
-        } else {
-          setError(`카메라 오류\n\n${debug}`)
+          setError("HTTPS 환경에서만 카메라 사용 가능. '📁 파일 선택' 을 이용해주세요.")
+          return
+        }
+
+        switch (err?.name) {
+          case "NotAllowedError":
+            setError(
+              "카메라 권한이 거부됐습니다.\n" +
+              "주소창 좌측 자물쇠 → 권한 → 카메라 → 허용 후 재시도하거나, " +
+              "아래 '📁 파일 선택' 을 사용해주세요.",
+            )
+            break
+          case "NotReadableError":
+            setError(
+              "카메라가 다른 앱에서 사용 중입니다.\n" +
+              "카카오/줌/카메라 앱 등을 종료 후 재시도하거나, '📁 파일 선택' 을 사용해주세요.",
+            )
+            break
+          case "OverconstrainedError":
+            setError(
+              "이 기기에서 카메라 설정을 적용할 수 없습니다.\n" +
+              "'📁 파일 선택' 을 사용해주세요.",
+            )
+            break
+          case "AbortError":
+            setError("카메라 시작이 중단됐습니다. 잠시 후 다시 시도해주세요.")
+            break
+          case "NotFoundError":
+            setError("카메라를 찾을 수 없습니다. '📁 파일 선택' 을 사용해주세요.")
+            break
+          case "SecurityError":
+            setError("보안 정책으로 카메라 사용 불가. '📁 파일 선택' 을 사용해주세요.")
+            break
+          case "TypeError":
+            setError("카메라 설정 오류. '📁 파일 선택' 을 사용해주세요.")
+            break
+          default:
+            // 미지의 에러는 name + message 노출 (운영 신고 시 정보 됨)
+            setError(`카메라 오류 (${err?.name ?? "Unknown"})\n${err?.message ?? ""}`)
         }
       }
     }

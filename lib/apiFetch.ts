@@ -31,9 +31,14 @@
 import { perfLog, perfNow } from "@/lib/debug/perfLog"
 
 export async function apiFetch(url: string, opts?: RequestInit): Promise<Response> {
-  const baseHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-  }
+  // FormData 를 보낼 때는 Content-Type 을 명시하면 안 된다. 브라우저가
+  // boundary 와 함께 multipart/form-data 를 자동 설정해야 한다. application/json
+  // 을 강제하면 boundary 누락으로 서버가 multipart 파싱에 실패한다
+  // (예: /api/reconcile/upload 에서 "multipart/form-data 필요" reject).
+  const isFormData = typeof FormData !== "undefined" && opts?.body instanceof FormData
+  const baseHeaders: Record<string, string> = isFormData
+    ? {}
+    : { "Content-Type": "application/json" }
   const mergedHeaders = { ...baseHeaders, ...(opts?.headers as Record<string, string> | undefined) }
   const method = (opts?.method ?? "GET").toUpperCase()
   const t_start = perfNow()
