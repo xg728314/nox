@@ -49,21 +49,43 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
           return
         }
         streamRef.current = stream
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play()
-          setReady(true)
+
+          // TODO(diagnostic): video.play() 와 getUserMedia 의 에러를 분리하기 위해
+          //   별도 try/catch. 진단 완료 후 사용자 친화적 메시지로 교체할 것.
+          try {
+            await videoRef.current.play()
+            setReady(true)
+          } catch (e) {
+            const err = e as DOMException
+            console.error("Camera error (video.play):", err)
+            // play() 실패 시 stream cleanup 명시 — 카메라 LED/하드웨어 즉시 회수
+            streamRef.current?.getTracks().forEach(t => t.stop())
+            streamRef.current = null
+            if (videoRef.current) videoRef.current.srcObject = null
+            setError(`video.play 실패\nname: ${err?.name}\nmessage: ${err?.message}`)
+          }
         }
       } catch (e) {
-        const msg = (e as Error).message ?? ""
-        if (msg.includes("Permission") || msg.includes("denied")) {
-          setError("카메라 권한이 거부됨. 브라우저 설정에서 허용 후 다시 시도.")
-        } else if (msg.includes("NotFound") || msg.includes("device")) {
-          setError("카메라를 찾을 수 없습니다.")
-        } else if (location.protocol !== "https:" && location.hostname !== "localhost") {
-          setError("HTTPS 환경에서만 카메라 사용 가능. 파일 선택을 이용해주세요.")
+        // TODO(diagnostic): 진단용 raw error 노출. 사용자 폰에서 error.name 확인 후
+        //   정확한 케이스별 분기로 교체하고 이 블록 제거할 것.
+        //   (NotAllowedError / NotReadableError / OverconstrainedError / AbortError /
+        //    SecurityError / NotFoundError / TypeError 등)
+        const err = e as DOMException
+        const debug = [
+          `name: ${err?.name}`,
+          `message: ${err?.message}`,
+          `ua: ${navigator.userAgent.slice(0, 80)}`,
+        ].join("\n")
+        console.error("Camera error:", err)
+
+        // HTTPS / localhost 체크는 substring 매칭이 아니라 location 기반이라 유지
+        if (location.protocol !== "https:" && location.hostname !== "localhost") {
+          setError(`HTTPS 환경에서만 카메라 사용 가능.\n\n${debug}`)
         } else {
-          setError(`카메라 시작 실패: ${msg}`)
+          setError(`카메라 오류\n\n${debug}`)
         }
       }
     }
@@ -117,7 +139,7 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
       </div>
 
       {error && (
-        <div className="m-4 p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-sm">
+        <div className="m-4 p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-sm whitespace-pre-line break-words">
           {error}
         </div>
       )}
