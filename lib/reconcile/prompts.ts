@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 6
+export const PROMPT_VERSION = 7
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -146,6 +146,18 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "    - 손님이 다른 매장 양주를 가져온 경우 amount_won 만 (paid_to_store_won 비움).",
     "    - qty = 수량 (종이에 명시 시. 예: '골든 ×2'). 미명시 = 1병 가정 (qty 비움).",
     "",
+    "## Phase A2 — 결제 + 개인 정산금 (카운터 데이터와 동일 schema)",
+    "15) 셀 안 강조 합계는 결제 정보로 분류:",
+    "    - '현금 N' / '현 N' → cash_total_won (단위 원)",
+    "    - '카드 N' / 'C N' → card_total_won",
+    "    - '수수료 N' / 'fee N' → card_fee_won",
+    "    - 셀에 카드/현금 표기가 없고 미수만 있으면 payment_method='credit'",
+    "    - 둘 다 보이면 payment_method='mixed', 한 쪽만 보이면 'cash' 또는 'card'",
+    "16) 스태프 옆 추가 숫자는 개인 정산금으로 분류 (있을 때만):",
+    "    - 시간/이름 옆 숫자 N (예: '21:00 예린 70') → hostess_payout_won (그 hostess 받을 돈, 원 단위)",
+    "    - 그 옆 작은 숫자 (예: '+1' 또는 '실 1') → manager_payout_won (실장 수익, 보통 0/5천/1만)",
+    "    - 종이에 명시 안 되어 있으면 두 필드 모두 비움 (사용자가 검수 시 채움).",
+    "",
     "13) 하단 줄돈/받돈 박스 → daily_summary.owe[] / recv[]:",
     "    형식: '매장명 금액' 한 줄씩 (예: '신세계 16', '발리', '리브 7', '이으라', '파리').",
     "    - '줄돈' / '주는 돈' 라벨 아래 = owe (우리가 다른 매장에 줘야 할 정산금)",
@@ -229,9 +241,13 @@ const SCHEMAS: Record<SheetKind, string> = {
         rt_count: 0,
         waiter_tip_won: 0,
         staff_entries: [
-          { time: "HH:MM", hostess_name: "string", origin_store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", raw_text: "string", confidence: 0.0 },
+          { time: "HH:MM", hostess_name: "string", origin_store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", raw_text: "string", confidence: 0.0, hostess_payout_won: 0, manager_payout_won: 0 },
         ],
         misu_won: 0,
+        cash_total_won: 0,
+        card_total_won: 0,
+        card_fee_won: 0,
+        payment_method: "cash|card|credit|mixed",
         raw_text: "string",
       },
     ],

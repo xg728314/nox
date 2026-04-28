@@ -11,7 +11,7 @@
 
 "use client"
 
-import type { PaperRoomCell, RoomLiquor, RoomStaffEntry } from "@/lib/reconcile/types"
+import type { PaperRoomCell, PaymentMethod, RoomLiquor, RoomStaffEntry } from "@/lib/reconcile/types"
 import { confidenceLevel } from "@/lib/reconcile/qualityHints"
 import ConfidenceBadge from "./ConfidenceBadge"
 import StaffEntryRow from "./StaffEntryRow"
@@ -216,6 +216,72 @@ export default function RoomCard({
             className="w-full py-2 rounded-lg border border-dashed border-cyan-500/40 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/10 hover:border-cyan-400 active:scale-95 transition"
           >+ 양주 추가</button>
         )}
+      </div>
+
+      {/* Phase A2: 결제 정보 (카운터 schema 와 동일) */}
+      <div className="space-y-1.5">
+        <div className="text-[11px] font-semibold text-slate-300">결제</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">현금</label>
+            <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
+              <span className="text-[10px] text-slate-500">₩</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={room.cash_total_won != null ? room.cash_total_won.toLocaleString() : ""}
+                onChange={(e) => patchNum("cash_total_won", e.target.value)}
+                disabled={readOnly}
+                className="flex-1 min-w-0 bg-transparent text-[11px] text-right tabular-nums outline-none disabled:opacity-50"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">카드</label>
+            <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
+              <span className="text-[10px] text-slate-500">₩</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={room.card_total_won != null ? room.card_total_won.toLocaleString() : ""}
+                onChange={(e) => patchNum("card_total_won", e.target.value)}
+                disabled={readOnly}
+                className="flex-1 min-w-0 bg-transparent text-[11px] text-right tabular-nums outline-none disabled:opacity-50"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">카드수수료</label>
+            <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
+              <span className="text-[10px] text-slate-500">₩</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={room.card_fee_won != null ? room.card_fee_won.toLocaleString() : ""}
+                onChange={(e) => patchNum("card_fee_won", e.target.value)}
+                disabled={readOnly}
+                className="flex-1 min-w-0 bg-transparent text-[11px] text-right tabular-nums outline-none disabled:opacity-50"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-0.5">결제방식</label>
+            <select
+              value={room.payment_method ?? ""}
+              onChange={(e) => patch("payment_method", (e.target.value || undefined) as PaymentMethod | undefined)}
+              disabled={readOnly}
+              className="w-full rounded bg-[#030814] border border-white/10 px-2 py-1 text-[11px] disabled:opacity-50"
+            >
+              <option value="">자동</option>
+              <option value="cash">현금</option>
+              <option value="card">카드</option>
+              <option value="credit">외상</option>
+              <option value="mixed">혼합</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* raw_text */}

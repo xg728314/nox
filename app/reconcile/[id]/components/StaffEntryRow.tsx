@@ -94,6 +94,44 @@ export default function StaffEntryRow({
           {TIER_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
+      {/* Phase A2: 개인 정산금 (받을 금액 / 실장 수익) — 카운터 schema 와 동일 */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <div>
+          <label className="block text-[9px] text-slate-500 mb-0.5 px-0.5">받을 금액 (개인)</label>
+          <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
+            <span className="text-[10px] text-slate-500">₩</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={entry.hostess_payout_won != null ? entry.hostess_payout_won.toLocaleString() : ""}
+              onChange={(e) => {
+                const v = parseInt(e.target.value.replace(/[^\d]/g, "") || "0", 10)
+                patch("hostess_payout_won", v > 0 ? v : undefined)
+              }}
+              disabled={readOnly}
+              className="flex-1 min-w-0 bg-transparent text-[11px] text-right tabular-nums outline-none disabled:opacity-50"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[9px] text-slate-500 mb-0.5 px-0.5">실장 수익</label>
+          <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
+            <span className="text-[10px] text-slate-500">₩</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={entry.manager_payout_won != null ? entry.manager_payout_won.toLocaleString() : ""}
+              onChange={(e) => {
+                const v = parseInt(e.target.value.replace(/[^\d]/g, "") || "0", 10)
+                patch("manager_payout_won", v > 0 ? v : undefined)
+              }}
+              disabled={readOnly}
+              placeholder="0/5천/1만"
+              className="flex-1 min-w-0 bg-transparent text-[11px] text-right tabular-nums outline-none disabled:opacity-50 placeholder:text-slate-700"
+            />
+          </div>
+        </div>
+      </div>
       {entry.raw_text && (
         <div className="text-[10px] text-slate-500 italic truncate">원본: {entry.raw_text}</div>
       )}

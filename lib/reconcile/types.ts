@@ -48,7 +48,13 @@ export type RoomStaffEntry = {
   raw_text?: string         // 원본 셀 텍스트 (디버깅 + 사람 확인용)
   /** R-A: VLM 자체 신뢰도 0~1. 사람 검수 우선순위 결정용. optional. */
   confidence?: number
+  /** Phase A2: 그 hostess 가 받을 개인 정산금 (원). 카운터의 hostess_payout_amount 매핑. */
+  hostess_payout_won?: number
+  /** Phase A2: 그 row 에서 실장이 가져갈 수익 (원). 카운터 정책상 0/5천/1만. */
+  manager_payout_won?: number
 }
+
+export type PaymentMethod = "cash" | "card" | "credit" | "mixed"
 
 export type PaperRoomCell = {
   room_no: string                          // "1T", "2T", "3T", "4T"
@@ -64,6 +70,11 @@ export type PaperRoomCell = {
   raw_text?: string
   /** R-A: 방 단위 종합 신뢰도 0~1. UI 가 카드 색깔로 우선순위 표시. optional. */
   confidence?: number
+  /** Phase A2: 결제 정보 (카운터의 receipts.payment_method + amounts 매핑). */
+  cash_total_won?: number
+  card_total_won?: number
+  card_fee_won?: number
+  payment_method?: PaymentMethod
 }
 
 // ─── 스태프 시트 (staff) ──────────────────────────────────────
