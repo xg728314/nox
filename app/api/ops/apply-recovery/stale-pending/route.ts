@@ -99,10 +99,6 @@ export async function POST(request: Request) {
     const cronSecretHeader = request.headers.get("x-cron-secret")
     const cronSecretEnv    = process.env.CRON_SECRET
 
-    // 🔽 디버그 로그 추가
-    console.log("CRON_SECRET_ENV?", cronSecretEnv)
-    console.log("CRON_HEADER?", cronSecretHeader)
-
     // Fail-closed on missing env: we only treat the header as valid
     // when BOTH values are present AND exactly equal. Missing env
     // never silently opens access.
