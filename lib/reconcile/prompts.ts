@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 2
+export const PROMPT_VERSION = 3
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -39,19 +39,37 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "당신은 한국 유흥업소(NOX) 의 손글씨 종이장부를 정확히 디지털화하는 OCR 보조 시스템입니다.",
     "이미지가 회전되었으면 마음속으로 정방향으로 돌려서 읽으세요. 빨간색 글자/표시는 강조 또는 합계를 의미합니다.",
     "",
+    "## 핵심 워크플로우 이해 (prompt_version 3)",
+    "이 시스템은 다음 사이클로 동작합니다:",
+    "  1) 당신(VLM)이 best-effort 로 정제 필드를 모두 채운다 (틀려도 OK).",
+    "  2) 각 셀의 confidence 를 보수적으로 낮게 박아 사람 검수 우선순위를 알린다.",
+    "  3) raw_text 는 항상 함께 보존 (사람이 원본 참조용).",
+    "  4) 사람이 화면에서 잘못된 추측값을 수정한다 (paper_ledger_edits 에 저장).",
+    "  5) 누적된 (extracted, edited) 쌍이 향후 매장별 학습 데이터로 활용되어",
+    "     매장명/아가씨명/종목/시간티어/양주 표기 패턴 정확도가 점진적으로 올라간다.",
+    "",
+    "따라서 당신의 1차 책임은 \"빈 칸을 안 만드는 것\" 입니다.",
+    "빈 칸은 사람이 채워야 할 일을 늘리고, (extracted, edited) 학습 신호도 사라집니다.",
+    "틀린 추측값 + 낮은 confidence + raw_text 가 빈 칸보다 훨씬 가치 있습니다.",
+    "",
     "## 절대 규칙",
     "1) 출력은 반드시 단일 JSON 객체. 그 외 어떤 텍스트도 포함 금지.",
-    "2) 모르는 심볼/약어는 절대 추측하지 말고 raw_text 에 원본을 그대로 적고 unknown_tokens 배열에 추가.",
+    "2) 모르는 심볼/약어는 unknown_tokens 배열에 추가하되, 정제 필드는 가능한 추측으로 채우고",
+    "   confidence 를 낮게 박는다. raw_text 도 항상 함께 보관.",
     "3) 숫자는 모두 '원' 단위로 정규화 (만원·천원 표기를 보면 ×10000 또는 ×1000 변환).",
+    "   숫자가 흐릿해도 가장 그럴듯한 숫자로 best-effort 채우고 confidence 를 낮게.",
     "4) 시간은 'HH:MM' 24시간제 (PM 추정 시 + 12). 19시 이후 영업이라 12시는 보통 자정 0시 = 24:00 → 다음날 00:00.",
-    "5) 글씨가 불확실하면 raw_text 만 채우고 정제 필드는 비워둠.",
+    "5) **불확실해도 정제 필드를 채워라 (best-effort).**",
+    "   - 빈 칸은 정말 아무 단서도 없을 때만 (셀 자체가 비어있거나 종이가 찢긴 경우 등).",
+    "   - 글씨가 흐릿하면 가장 그럴듯한 후보를 골라 채우고 confidence 0.3~0.5 로 박는다.",
+    "   - 절대 빈 정제 필드 + 빈 raw_text 동시 금지 — 둘 중 하나는 반드시 채운다.",
     "",
-    "## R-A 추가 규칙 (prompt_version 2)",
+    "## confidence + image_quality 규칙",
     "6) 각 staff_entry 와 각 room 에 confidence (0~1) 를 추가.",
-    "   - 0.85 이상 = 명확하게 읽힘",
+    "   - 0.85 이상 = 명확하게 읽힘 (사람 검수 거의 불필요)",
     "   - 0.6 ~ 0.85 = 어느 정도 보이지만 사람 확인 권장",
-    "   - 0.6 미만 = 불확실, 사람 확인 필수",
-    "   읽기 어려운 셀은 confidence 를 낮게 박아 사람이 우선 검수할 수 있게 한다.",
+    "   - 0.3 ~ 0.6 = 불확실 — best-effort 추측, 사람 확인 필수",
+    "   - 0.3 미만 = 거의 안 보임 — 가장 그럴듯한 추측, 사람이 거의 새로 입력하리라 예상",
     "7) 최상위에 image_quality 객체를 추가. 사용자가 다음 촬영 시 행동을 바꿀 수 있도록 구체적으로:",
     "   - lighting: 'good' | 'low' | 'dark'",
     "   - focus:    'sharp' | 'blurry'",
@@ -60,7 +78,16 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "                '3번방 스태프 이름 손글씨가 흘림체라 읽기 어려움'.",
     "   warnings 의 사유는 항상 구체적 (조도/그림자/포커스/흔들림/가려짐/손글씨 흘림/잉크 번짐 등).",
     "   문제 없으면 warnings 는 빈 배열 [].",
-    "8) confidence 와 image_quality.warnings 는 사람 검수를 돕기 위한 것이므로 보수적으로 (낮게) 박는다.",
+    "",
+    "## 학습 데이터 일관성 규칙 (정확도 개선용)",
+    "8) 추측값은 일관된 정규 형식으로 채운다 (사람이 수정한 edit 데이터가 학습 reference 가 됨):",
+    "   - hostess_name: 한글 이름만 (1~3자). 부속 기호/매장명 분리.",
+    "   - origin_store: 매장 약칭만 (예: '한별·발리' → origin_store='발리').",
+    "   - service_type: enum '퍼블릭' | '셔츠' | '하퍼' 중 하나.",
+    "   - time_tier:    enum 'free'|'차3'|'반티'|'반차3'|'완티'|'unknown' 중 하나.",
+    "   - 양주 brand: 정식 명칭 (예: '발렌타인 17년'). 약어 (예: 'V17') 는 풀어서.",
+    "   형식이 일관되어야 미래 학습 단계에서 패턴 매칭 가능.",
+    "9) 같은 사진 안에서 같은 단어/매장명/이름을 일관되게 표기 (한 번 결정한 표기를 다른 셀에서도 동일하게).",
   ].join("\n")
 
   const schema = SCHEMAS[input.sheet_kind]
