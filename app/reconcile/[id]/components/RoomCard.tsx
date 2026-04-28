@@ -173,14 +173,8 @@ export default function RoomCard({
 
       {/* 스태프 */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-slate-300">스태프 ({room.staff_entries?.length ?? 0}명)</span>
-          {!readOnly && (
-            <button
-              onClick={addStaff}
-              className="text-[10px] text-cyan-300 hover:text-cyan-200 px-1.5"
-            >+ 추가</button>
-          )}
+        <div className="text-[11px] font-semibold text-slate-300">
+          스태프 ({room.staff_entries?.length ?? 0}명)
         </div>
         {(room.staff_entries ?? []).map((s, i) => (
           <StaffEntryRow
@@ -194,18 +188,18 @@ export default function RoomCard({
             datalistIdPrefix={datalistIdPrefix ? `${datalistIdPrefix}-s${i}` : `r-s${i}`}
           />
         ))}
+        {!readOnly && (
+          <button
+            onClick={addStaff}
+            className="w-full py-2 rounded-lg border border-dashed border-cyan-500/40 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/10 hover:border-cyan-400 active:scale-95 transition"
+          >+ 스태프 추가</button>
+        )}
       </div>
 
       {/* 양주 */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-slate-300">양주 ({room.liquor?.length ?? 0}병)</span>
-          {!readOnly && (
-            <button
-              onClick={addLiquor}
-              className="text-[10px] text-cyan-300 hover:text-cyan-200 px-1.5"
-            >+ 추가</button>
-          )}
+        <div className="text-[11px] font-semibold text-slate-300">
+          양주 ({room.liquor?.length ?? 0}병)
         </div>
         {(room.liquor ?? []).map((l, i) => (
           <LiquorRow
@@ -216,6 +210,12 @@ export default function RoomCard({
             readOnly={readOnly}
           />
         ))}
+        {!readOnly && (
+          <button
+            onClick={addLiquor}
+            className="w-full py-2 rounded-lg border border-dashed border-cyan-500/40 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/10 hover:border-cyan-400 active:scale-95 transition"
+          >+ 양주 추가</button>
+        )}
       </div>
 
       {/* raw_text */}

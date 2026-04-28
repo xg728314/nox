@@ -31,7 +31,12 @@ export type MatchStatus = "pending" | "match" | "partial" | "mismatch" | "no_db_
 // ─── 방별 시트 (rooms) ────────────────────────────────────────
 export type RoomLiquor = {
   brand: string             // "골든블루", "거제새벽" 등
-  amount_won: number        // 만원 단위 X — 원 단위로 정규화
+  /** 손님 청구 (판매가). 종이의 일반 양주 가격. 만원 단위 X — 원 단위로 정규화. */
+  amount_won: number
+  /** Phase A: 가게 입금가 (가게사입 등). 종이에 별도 적힌 경우만. 단위 원. */
+  paid_to_store_won?: number
+  /** Phase A: 수량 (종이에 명시 시). 미명시 = 1병 가정. */
+  qty?: number
 }
 
 export type RoomStaffEntry = {

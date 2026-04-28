@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 5
+export const PROMPT_VERSION = 6
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -139,6 +139,12 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "    V     → 발렌타인              맥set → 맥캘란 셋트",
     "    하파  → 하퍼                  마티 → 마티니",
     "    잔디 → 잭다니엘              ...     → 미상이면 raw 그대로",
+    "12-PRICE) 양주 가격 — 판매가 / 입금가 분리:",
+    "    - amount_won = 손님 청구 (판매가). 종이의 일반 양주 금액.",
+    "    - paid_to_store_won = 가게 입금가 (선택). 종이에 '가게사입' / '입금' / 별도 금액 표기 시.",
+    "    - 가게사입 = 가게가 대신 결제한 양주 (손님이 가게에 갚아야 함) → 둘 다 같은 값.",
+    "    - 손님이 다른 매장 양주를 가져온 경우 amount_won 만 (paid_to_store_won 비움).",
+    "    - qty = 수량 (종이에 명시 시. 예: '골든 ×2'). 미명시 = 1병 가정 (qty 비움).",
     "",
     "13) 하단 줄돈/받돈 박스 → daily_summary.owe[] / recv[]:",
     "    형식: '매장명 금액' 한 줄씩 (예: '신세계 16', '발리', '리브 7', '이으라', '파리').",
@@ -219,7 +225,7 @@ const SCHEMAS: Record<SheetKind, string> = {
         manager_name: "string|null",
         customer_name: "string|null",
         headcount: 0,
-        liquor: [{ brand: "string", amount_won: 0 }],
+        liquor: [{ brand: "string", amount_won: 0, paid_to_store_won: 0, qty: 1 }],
         rt_count: 0,
         waiter_tip_won: 0,
         staff_entries: [
