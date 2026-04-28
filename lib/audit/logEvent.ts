@@ -49,6 +49,7 @@ export type AuditEntityTable =
   | "manager_financial_permissions"
   | "paper_ledger_snapshots"
   | "paper_ledger_access_grants"
+  | "paper_ledger_edits"
 
 export type LogAuditInput = {
   auth: AuthContext

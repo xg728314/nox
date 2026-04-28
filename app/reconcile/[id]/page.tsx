@@ -10,6 +10,9 @@
 import { useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import type { PaperExtraction } from "@/lib/reconcile/types"
+import RoomsEditor from "./components/RoomsEditor"
+import ImageQualityPanel from "./components/ImageQualityPanel"
 
 type Detail = {
   snapshot: {
@@ -25,7 +28,7 @@ type Detail = {
   signed_url: string | null
   extraction: {
     id: string
-    extracted_json: unknown
+    extracted_json: PaperExtraction
     vlm_model: string
     prompt_version: number
     cost_usd: number | null
@@ -200,6 +203,21 @@ export default function ReconcileDetailPage({
             {computing ? "비교 중..." : "🔍 DB 와 비교"}
           </button>
         </div>
+
+        {/* R-A: AI 인식 한계 + 다음 촬영 가이드 */}
+        {data.extraction?.extracted_json?.image_quality && (
+          <ImageQualityPanel quality={data.extraction.extracted_json.image_quality} />
+        )}
+
+        {/* R-B: 방별 편집 (sheet_kind=rooms 만; staff 는 다음 라운드) */}
+        {data.extraction && s.sheet_kind === "rooms" && (
+          <RoomsEditor
+            snapshotId={s.id}
+            extraction={data.extraction.extracted_json}
+            baseExtractionId={data.extraction.id}
+            onSaved={async () => { await load() }}
+          />
+        )}
 
         {/* diff 요약 카드 */}
         {dif && (

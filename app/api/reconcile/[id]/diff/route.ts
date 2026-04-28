@@ -72,22 +72,43 @@ export async function POST(
       )
     }
 
-    // 2. 최신 extraction
-    const { data: ext } = await supabase
-      .from("paper_ledger_extractions")
-      .select("id, extracted_json")
+    // 2. source 결정 — R-B: 최신 edit 이 있으면 우선, 없으면 최신 extraction
+    let extraction: PaperExtraction
+    let extraction_id: string | null = null
+    let source_edit_id: string | null = null
+
+    const { data: latestEdit } = await supabase
+      .from("paper_ledger_edits")
+      .select("id, base_extraction_id, edited_json")
       .eq("snapshot_id", id)
-      .order("created_at", { ascending: false })
+      .order("edited_at", { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (!ext) {
-      return NextResponse.json(
-        { error: "NO_EXTRACTION", message: "먼저 추출(POST /extract) 을 실행하세요." },
-        { status: 409 },
-      )
+
+    if (latestEdit) {
+      const le = latestEdit as { id: string; base_extraction_id: string | null; edited_json: PaperExtraction }
+      extraction = le.edited_json
+      source_edit_id = le.id
+      extraction_id = le.base_extraction_id  // 추적용 — 어느 extraction 을 base 로 편집됐는지
+    } else {
+      // edit 없음 → 기존 흐름 (최신 extraction 사용)
+      const { data: ext } = await supabase
+        .from("paper_ledger_extractions")
+        .select("id, extracted_json")
+        .eq("snapshot_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!ext) {
+        return NextResponse.json(
+          { error: "NO_EXTRACTION", message: "먼저 추출(POST /extract) 을 실행하세요." },
+          { status: 409 },
+        )
+      }
+      const er = ext as { id: string; extracted_json: PaperExtraction }
+      extraction = er.extracted_json
+      extraction_id = er.id
     }
-    const extraction = (ext as { id: string; extracted_json: PaperExtraction }).extracted_json
-    const extraction_id = (ext as { id: string }).id
 
     // 3. paper totals
     const paper = computePaperTotals(extraction)
@@ -98,12 +119,13 @@ export async function POST(
     // 5. reconcile
     const result = computeReconcile(paper, dbAgg)
 
-    // 6. 저장
+    // 6. 저장 (source_edit_id 추가 — R-B)
     const { data: diff, error: insErr } = await supabase
       .from("paper_ledger_diffs")
       .insert({
         snapshot_id: id,
         extraction_id,
+        source_edit_id,
         paper_owe_total_won: result.paper_owe_total_won,
         paper_recv_total_won: result.paper_recv_total_won,
         db_owe_total_won: result.db_owe_total_won,

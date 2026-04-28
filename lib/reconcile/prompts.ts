@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 1
+export const PROMPT_VERSION = 2
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -45,6 +45,22 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "3) 숫자는 모두 '원' 단위로 정규화 (만원·천원 표기를 보면 ×10000 또는 ×1000 변환).",
     "4) 시간은 'HH:MM' 24시간제 (PM 추정 시 + 12). 19시 이후 영업이라 12시는 보통 자정 0시 = 24:00 → 다음날 00:00.",
     "5) 글씨가 불확실하면 raw_text 만 채우고 정제 필드는 비워둠.",
+    "",
+    "## R-A 추가 규칙 (prompt_version 2)",
+    "6) 각 staff_entry 와 각 room 에 confidence (0~1) 를 추가.",
+    "   - 0.85 이상 = 명확하게 읽힘",
+    "   - 0.6 ~ 0.85 = 어느 정도 보이지만 사람 확인 권장",
+    "   - 0.6 미만 = 불확실, 사람 확인 필수",
+    "   읽기 어려운 셀은 confidence 를 낮게 박아 사람이 우선 검수할 수 있게 한다.",
+    "7) 최상위에 image_quality 객체를 추가. 사용자가 다음 촬영 시 행동을 바꿀 수 있도록 구체적으로:",
+    "   - lighting: 'good' | 'low' | 'dark'",
+    "   - focus:    'sharp' | 'blurry'",
+    "   - handwriting: 'clean' | 'hard_to_read' | 'mixed'",
+    "   - warnings: 한국어 자연어 배열. 예: '1번방 받돈 부분이 그림자에 가려 흐림',",
+    "                '3번방 스태프 이름 손글씨가 흘림체라 읽기 어려움'.",
+    "   warnings 의 사유는 항상 구체적 (조도/그림자/포커스/흔들림/가려짐/손글씨 흘림/잉크 번짐 등).",
+    "   문제 없으면 warnings 는 빈 배열 [].",
+    "8) confidence 와 image_quality.warnings 는 사람 검수를 돕기 위한 것이므로 보수적으로 (낮게) 박는다.",
   ].join("\n")
 
   const schema = SCHEMAS[input.sheet_kind]
@@ -96,10 +112,17 @@ const SCHEMAS: Record<SheetKind, string> = {
     schema_version: 1,
     sheet_kind: "rooms",
     business_date: "YYYY-MM-DD",
+    image_quality: {
+      lighting: "good|low|dark",
+      focus: "sharp|blurry",
+      handwriting: "clean|hard_to_read|mixed",
+      warnings: ["string (한국어 자연어, 구체적 사유)"],
+    },
     rooms: [
       {
         room_no: "1T|2T|3T|4T",
         session_seq: 1,
+        confidence: 0.0,
         manager_name: "string|null",
         customer_name: "string|null",
         headcount: 0,
@@ -107,7 +130,7 @@ const SCHEMAS: Record<SheetKind, string> = {
         rt_count: 0,
         waiter_tip_won: 0,
         staff_entries: [
-          { time: "HH:MM", hostess_name: "string", origin_store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", raw_text: "string" },
+          { time: "HH:MM", hostess_name: "string", origin_store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", raw_text: "string", confidence: 0.0 },
         ],
         misu_won: 0,
         raw_text: "string",
@@ -127,11 +150,17 @@ const SCHEMAS: Record<SheetKind, string> = {
     schema_version: 1,
     sheet_kind: "staff",
     business_date: "YYYY-MM-DD",
+    image_quality: {
+      lighting: "good|low|dark",
+      focus: "sharp|blurry",
+      handwriting: "clean|hard_to_read|mixed",
+      warnings: ["string"],
+    },
     staff: [
       {
         hostess_name: "string",
         sessions: [
-          { time: "HH:MM", store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", status: "완료|진행중|unknown", raw_text: "string" },
+          { time: "HH:MM", store: "string", service_type: "퍼블릭|셔츠|하퍼|null", time_tier: "free|차3|반티|반차3|완티|unknown", status: "완료|진행중|unknown", raw_text: "string", confidence: 0.0 },
         ],
         daily_totals: [0, 0],
       },
@@ -145,6 +174,12 @@ const SCHEMAS: Record<SheetKind, string> = {
     schema_version: 1,
     sheet_kind: "other",
     business_date: "YYYY-MM-DD",
+    image_quality: {
+      lighting: "good|low|dark",
+      focus: "sharp|blurry",
+      handwriting: "clean|hard_to_read|mixed",
+      warnings: ["string"],
+    },
     daily_summary: {
       owe: [{ store_name: "string", amount_won: 0 }],
       recv: [{ store_name: "string", amount_won: 0 }],

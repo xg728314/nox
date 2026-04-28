@@ -23,6 +23,7 @@ export type SnapshotStatus =
   | "extracting"
   | "extracted"
   | "extract_failed"
+  | "edited"        // R-B (예정): 사람-편집 결과 저장 시 박힘
   | "reviewed"
 
 export type MatchStatus = "pending" | "match" | "partial" | "mismatch" | "no_db_data"
@@ -40,6 +41,8 @@ export type RoomStaffEntry = {
   service_type?: ServiceType
   time_tier?: TimeTier
   raw_text?: string         // 원본 셀 텍스트 (디버깅 + 사람 확인용)
+  /** R-A: VLM 자체 신뢰도 0~1. 사람 검수 우선순위 결정용. optional. */
+  confidence?: number
 }
 
 export type PaperRoomCell = {
@@ -54,6 +57,8 @@ export type PaperRoomCell = {
   staff_entries?: RoomStaffEntry[]
   misu_won?: number                        // 외상
   raw_text?: string
+  /** R-A: 방 단위 종합 신뢰도 0~1. UI 가 카드 색깔로 우선순위 표시. optional. */
+  confidence?: number
 }
 
 // ─── 스태프 시트 (staff) ──────────────────────────────────────
@@ -86,6 +91,17 @@ export type PaperDailySummary = {
   misu_total_won?: number                  // 미수 합계
 }
 
+// ─── 이미지 품질 / 인식 한계 (R-A) ────────────────────────────
+/** VLM 이 사진 자체의 품질을 평가. 사용자가 다음 촬영 행동을 바꿀 수 있도록
+ *  구체적 사유 (조도/포커스/손글씨) 와 자연어 warnings 를 함께 받음. */
+export type ImageQualityHints = {
+  lighting?: "good" | "low" | "dark"
+  focus?: "sharp" | "blurry"
+  handwriting?: "clean" | "hard_to_read" | "mixed"
+  /** 한국어 자연어. 예: "1번방 받돈 부분이 그림자에 가려 흐림". UI 가 그대로 표시. */
+  warnings?: string[]
+}
+
 // ─── VLM 추출 최상위 구조 ────────────────────────────────────
 export type PaperExtraction = {
   schema_version: 1
@@ -95,7 +111,9 @@ export type PaperExtraction = {
   staff?: PaperStaffRow[]                  // sheet_kind === "staff"
   daily_summary?: PaperDailySummary
   unknown_tokens: string[]                 // 분류 못한 심볼 — 사람 확인용
-  confidence_self_report?: number          // VLM 자체 신뢰도 0~1 (참고용)
+  confidence_self_report?: number          // VLM 자체 신뢰도 0~1 (참고용, 전체 평균)
+  /** R-A: 이미지 품질 평가 + 셀-단위 자연어 경고. 사용자 가이드 패널 표시용. optional. */
+  image_quality?: ImageQualityHints
 }
 
 // ─── DB 측 집계 (그날 NOX 데이터) ─────────────────────────────
