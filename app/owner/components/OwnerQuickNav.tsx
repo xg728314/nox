@@ -29,9 +29,12 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "채팅", path: "/chat", icon: "💬" },
   { label: "감시 대시보드", path: "/ops/watchdog", icon: "🛡️" },
   { label: "이슈 신고함", path: "/ops/issues", icon: "🐞" },
-  { label: "에러 모니터", path: "/ops/errors", icon: "⚠️" },
+  // "에러 모니터" 진입점 제거 — 감시 대시보드의 에러 카드 클릭으로 drill-down 가능 (중복 진입점 정리).
+  // /ops/errors 페이지 자체와 API 는 유지.
   { label: "종이장부 대조", path: "/reconcile", icon: "📑" },
   { label: "운영 설정", path: "/ops", icon: "⚙️" },
+  // super_admin 전용 — visualizeGate 가 비-super_admin 클릭은 401/403 처리.
+  { label: "네트워크 맵", path: "/super-admin/visualize/network", icon: "🕸️" },
 ]
 
 export default function OwnerQuickNav({ chatUnread }: { chatUnread: number }) {
