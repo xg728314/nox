@@ -94,21 +94,14 @@ function verifyBearer(authHeader: string | null, secret: string): boolean {
   try { return timingSafeEqual(a, b) } catch { return false }
 }
 
-function verifyVercelCronUA(ua: string | null): boolean {
-  // Vercel Cron invocations carry `user-agent: vercel-cron/1.0`.
-  return !!ua && /vercel-cron/i.test(ua)
-}
-
 export async function GET(request: Request) {
-  // ── 1. Auth ──────────────────────────────────────────────────────
+  // ── 1. Auth — Bearer CRON_SECRET 단일 조건 (UA 우회 제거, fail-closed)
   const cronSecret = process.env.CRON_SECRET ?? ""
   const authHeader = request.headers.get("authorization")
-  const uaHeader = request.headers.get("user-agent")
 
   const bearerOk = cronSecret !== "" && verifyBearer(authHeader, cronSecret)
-  const uaOk = verifyVercelCronUA(uaHeader)
 
-  if (!bearerOk && !uaOk) {
+  if (!bearerOk) {
     return NextResponse.json(
       { ok: false, error: "UNAUTHORIZED" },
       { status: 401 },

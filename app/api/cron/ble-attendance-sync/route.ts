@@ -62,9 +62,6 @@ function verifyBearer(authHeader: string | null, secret: string): boolean {
   if (a.length !== b.length) return false
   try { return timingSafeEqual(a, b) } catch { return false }
 }
-function verifyVercelCronUA(ua: string | null): boolean {
-  return !!ua && /vercel-cron/i.test(ua)
-}
 function supa(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -90,11 +87,10 @@ type Skip = {
 }
 
 export async function GET(request: Request) {
-  // ── 1. Auth ──────────────────────────────────────────────
+  // ── 1. Auth — Bearer CRON_SECRET 단일 조건 (UA 우회 제거, fail-closed)
   const cronSecret = process.env.CRON_SECRET ?? ""
   const authHeader = request.headers.get("authorization")
-  const uaHeader = request.headers.get("user-agent")
-  if (!verifyBearer(authHeader, cronSecret) && !verifyVercelCronUA(uaHeader)) {
+  if (!verifyBearer(authHeader, cronSecret)) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 })
   }
 
