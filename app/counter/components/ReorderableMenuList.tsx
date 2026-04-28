@@ -23,13 +23,16 @@ type Props = {
   onReorder: (newOrderIds: string[]) => void
 }
 
-const LONG_PRESS_MS = 250
+// 250→120ms — 사용자가 안 됨으로 판단하는 시간을 줄임. 그래도 일반 tap 과 구분.
+const LONG_PRESS_MS = 120
 
 export default function ReorderableMenuList({
   items, activePath, badgeFor, onItemClick, onReorder,
 }: Props) {
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  // 누르는 중인 핸들 idx (시각 피드백) — drag 시작 전 사용자에게 "누르는 중" 알림
+  const [pressingIdx, setPressingIdx] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startedAt = useRef<number>(0)
@@ -39,17 +42,20 @@ export default function ReorderableMenuList({
       clearTimeout(pressTimerRef.current)
       pressTimerRef.current = null
     }
+    setPressingIdx(null)
   }, [])
 
   const beginDrag = useCallback((idx: number, ev: React.PointerEvent<HTMLButtonElement>) => {
     ev.preventDefault()
     cancelPress()
     startedAt.current = Date.now()
+    setPressingIdx(idx)  // 즉시 시각 피드백 — 사용자에게 "누르는 중" 알림
     pressTimerRef.current = setTimeout(() => {
       setDraggingIdx(idx)
       setHoverIdx(idx)
+      setPressingIdx(null)
       // 드래그 시작 시 진동 피드백 (모바일).
-      try { (navigator as Navigator & { vibrate?: (ms: number) => void }).vibrate?.(15) } catch { /* noop */ }
+      try { (navigator as Navigator & { vibrate?: (ms: number) => void }).vibrate?.(20) } catch { /* noop */ }
       // pointer capture — 핸들 밖으로 나가도 이벤트 유지
       try { (ev.target as HTMLElement).setPointerCapture(ev.pointerId) } catch { /* noop */ }
     }, LONG_PRESS_MS)
@@ -150,22 +156,32 @@ export default function ReorderableMenuList({
                 )}
               </button>
 
-              {/* 드래그 핸들 — 꾹 눌러서 이동 */}
+              {/* 드래그 핸들 — 꾹 눌러서 이동. UX: 항상 cyan, 크기 ↑, press 시 강조 */}
               <button
                 type="button"
-                aria-label="순서 변경"
+                aria-label="순서 변경 — 꾹 눌러서 드래그"
                 onPointerDown={(ev) => beginDrag(idx, ev)}
                 onPointerUp={() => cancelPress()}
                 onPointerLeave={() => cancelPress()}
                 onContextMenu={(e) => e.preventDefault()}
-                className="px-2 py-2 text-slate-500 hover:text-cyan-300 cursor-grab active:cursor-grabbing select-none touch-none"
+                className={`
+                  flex items-center justify-center
+                  w-10 h-10 rounded-lg
+                  cursor-grab active:cursor-grabbing select-none touch-none
+                  transition-all duration-100
+                  ${pressingIdx === idx
+                    ? "bg-cyan-500/30 text-cyan-200 scale-110 ring-2 ring-cyan-400"
+                    : isDragging
+                      ? "bg-cyan-500/40 text-cyan-100"
+                      : "bg-white/[0.06] text-cyan-400/90 hover:bg-cyan-500/15 hover:text-cyan-300"}
+                `}
                 style={{ touchAction: "none" }}
-                title="꾹 누른 채로 드래그"
+                title="꾹 누른 채로 드래그하면 순서 변경"
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
-                  <rect x="2" y="3" width="10" height="1.5" rx="0.5" />
-                  <rect x="2" y="6.25" width="10" height="1.5" rx="0.5" />
-                  <rect x="2" y="9.5" width="10" height="1.5" rx="0.5" />
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden>
+                  <rect x="3" y="4" width="12" height="2" rx="0.7" />
+                  <rect x="3" y="8" width="12" height="2" rx="0.7" />
+                  <rect x="3" y="12" width="12" height="2" rx="0.7" />
                 </svg>
               </button>
             </div>
@@ -174,7 +190,14 @@ export default function ReorderableMenuList({
       })}
 
       {draggingIdx !== null && (
-        <div className="mt-2 text-[10px] text-cyan-300/80 text-center">↕ 드래그해서 위치 이동 — 손 떼면 저장</div>
+        <div className="mt-2 text-[11px] text-cyan-300 text-center font-semibold animate-pulse">
+          ↕ 드래그해서 위치 이동 — 손 떼면 저장
+        </div>
+      )}
+      {pressingIdx !== null && draggingIdx === null && (
+        <div className="mt-2 text-[10px] text-cyan-400/70 text-center">
+          ⏳ 누르는 중… 그대로 잡고 있으세요
+        </div>
       )}
     </div>
   )

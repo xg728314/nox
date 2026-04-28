@@ -279,6 +279,10 @@ export default function CounterSidebar({
                 title="커스터마이징"
               >⚙︎ 설정</button>
             </div>
+            {/* 사용자 안내 — 메뉴 위로 올림 + cyan 강조 */}
+            <div className="mb-2 px-2 py-1.5 rounded-lg bg-cyan-500/[0.07] border border-cyan-500/20 text-[10px] text-cyan-200/90 leading-relaxed">
+              💡 우측 <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-cyan-500/20 text-cyan-300 font-bold align-middle">≡</span> 핸들을 <span className="font-semibold">꾹 누른 채로</span> 드래그 = 순서 변경
+            </div>
             <ReorderableMenuList
               items={items}
               activePath={activePath}
@@ -289,7 +293,6 @@ export default function CounterSidebar({
               onItemClick={(m) => { onClose(); if (m.path !== "#") onNavigate(m.path) }}
               onReorder={handleReorder}
             />
-            <div className="px-2 mt-2 text-[10px] text-slate-600">우측 ≡ 핸들을 꾹 누른 채로 드래그하면 순서 변경</div>
           </nav>
         </div>
 
