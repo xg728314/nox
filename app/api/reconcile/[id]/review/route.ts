@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 
 /**
  * POST /api/reconcile/[id]/review
@@ -44,9 +45,6 @@ export async function POST(
       return NextResponse.json({ error: "BAD_REQUEST" }, { status: 400 })
     }
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
-    }
 
     const body = (await request.json().catch(() => ({}))) as {
       decision?: "confirm" | "reject" | "note_only"
@@ -63,16 +61,31 @@ export async function POST(
     const supabase = supa()
     const { data: snap } = await supabase
       .from("paper_ledger_snapshots")
-      .select("id, store_uuid, status")
+      .select("id, store_uuid, status, business_date")
       .eq("id", id)
       .is("archived_at", null)
       .maybeSingle()
     if (!snap) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
     }
-    const s = snap as { id: string; store_uuid: string; status: string }
+    const s = snap as { id: string; store_uuid: string; status: string; business_date: string }
     if (s.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+    }
+
+    // R-Auth: business_date 별 review 권한 검증 (사람-확정은 review action)
+    const access = await resolveFeatureAccess(supabase, auth, {
+      table: "paper_ledger_access_grants",
+      store_uuid: s.store_uuid,
+      business_date: s.business_date,
+      action: "review",
+      role_defaults: RECONCILE_ROLE_DEFAULTS,
+    })
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: "ACCESS_DENIED", message: "이 날짜의 종이장부 사람-확정 권한이 없습니다.", via: access.via },
+        { status: 403 },
+      )
     }
 
     const nowIso = new Date().toISOString()

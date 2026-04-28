@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { signedPaperLedgerUrl } from "@/lib/storage/paperLedgerBucket"
+import {
+  fetchActiveGrants,
+  resolveAccessFromGrants,
+  RECONCILE_ROLE_DEFAULTS,
+} from "@/lib/auth/featureAccess"
 
 /**
  * GET /api/reconcile/list?date=YYYY-MM-DD&limit=50
@@ -27,9 +32,10 @@ function supa() {
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
-    }
+    // R-Auth: role 기반 default + grant control layer.
+    //   role 거부 (role_default false + grant 없음) 시 빈 list 반환 (403 X)
+    //   = 사용자 화면이 "데이터 없음" 으로 그레이스풀 표시.
+    //   sensitive snapshot 별 정밀 필터는 아래에서 batch 로 적용.
 
     const url = new URL(request.url)
     const dateParam = url.searchParams.get("date")
@@ -54,8 +60,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "DB_ERROR", message: error.message }, { status: 500 })
     }
 
+    // R-Auth: 매장의 active grant 한 번 조회 → snapshot 별 view 권한 in-memory 평가
+    const grants = await fetchActiveGrants(supabase, auth, "paper_ledger_access_grants")
+    const allowedSnaps = (snaps ?? []).filter((s) => {
+      const access = resolveAccessFromGrants(auth, grants, {
+        business_date: (s as { business_date: string }).business_date,
+        action: "view",
+        role_defaults: RECONCILE_ROLE_DEFAULTS,
+      })
+      return access.allowed
+    })
+
     const items = await Promise.all(
-      (snaps ?? []).map(async (s) => {
+      allowedSnaps.map(async (s) => {
         const row = s as {
           id: string
           sheet_kind: string

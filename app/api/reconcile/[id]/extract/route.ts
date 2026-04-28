@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { downloadPaperLedger } from "@/lib/storage/paperLedgerBucket"
 import { extractFromImage } from "@/lib/reconcile/extract"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 import type { SheetKind } from "@/lib/reconcile/types"
 
 /**
@@ -46,9 +47,6 @@ export async function POST(
     }
 
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
-    }
 
     const supabase = supa()
 
@@ -68,6 +66,21 @@ export async function POST(
     }
     if (s.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+    }
+
+    // R-Auth: business_date 별 edit 권한 검증
+    const access = await resolveFeatureAccess(supabase, auth, {
+      table: "paper_ledger_access_grants",
+      store_uuid: s.store_uuid,
+      business_date: s.business_date,
+      action: "edit",
+      role_defaults: RECONCILE_ROLE_DEFAULTS,
+    })
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: "ACCESS_DENIED", message: "이 날짜의 종이장부 추출 권한이 없습니다.", via: access.via },
+        { status: 403 },
+      )
     }
 
     // 2. 매장별 dictionary

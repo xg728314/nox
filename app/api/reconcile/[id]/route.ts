@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { signedPaperLedgerUrl } from "@/lib/storage/paperLedgerBucket"
+import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 
 /**
  * GET /api/reconcile/[id]
@@ -35,9 +36,6 @@ export async function GET(
     }
 
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
-    }
 
     const supabase = supa()
     const { data: snap, error: snapErr } = await supabase
@@ -55,9 +53,28 @@ export async function GET(
     if (!snap) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
     }
-    const snapshot = snap as { store_uuid: string; storage_path: string } & Record<string, unknown>
+    const snapshot = snap as {
+      store_uuid: string
+      storage_path: string
+      business_date: string
+    } & Record<string, unknown>
     if (snapshot.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+    }
+
+    // R-Auth: business_date 별 view 권한 검증
+    const access = await resolveFeatureAccess(supabase, auth, {
+      table: "paper_ledger_access_grants",
+      store_uuid: snapshot.store_uuid,
+      business_date: snapshot.business_date,
+      action: "view",
+      role_defaults: RECONCILE_ROLE_DEFAULTS,
+    })
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: "ACCESS_DENIED", message: "이 날짜의 종이장부 보기 권한이 없습니다.", via: access.via },
+        { status: 403 },
+      )
     }
 
     const [signedUrl, { data: extraction }, { data: diff }] = await Promise.all([

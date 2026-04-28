@@ -3,6 +3,7 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { uploadPaperLedger } from "@/lib/storage/paperLedgerBucket"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 import type { SheetKind } from "@/lib/reconcile/types"
 
 /**
@@ -41,12 +42,6 @@ function supa() {
 export async function POST(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json(
-        { error: "ROLE_FORBIDDEN", message: "owner/manager 만 업로드 가능합니다." },
-        { status: 403 },
-      )
-    }
 
     const form = await request.formData().catch(() => null)
     if (!form) {
@@ -68,6 +63,22 @@ export async function POST(request: Request) {
     }
 
     const supabase = supa()
+
+    // R-Auth: business_date 별 edit 권한 검증 (snapshot 만들기 전)
+    const access = await resolveFeatureAccess(supabase, auth, {
+      table: "paper_ledger_access_grants",
+      store_uuid: auth.store_uuid,
+      business_date: businessDate,
+      action: "edit",
+      role_defaults: RECONCILE_ROLE_DEFAULTS,
+    })
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: "ACCESS_DENIED", message: "이 날짜의 종이장부 업로드 권한이 없습니다.", via: access.via },
+        { status: 403 },
+      )
+    }
+
     const snapshotId = crypto.randomUUID()
 
     // 1) Storage 업로드

@@ -5,6 +5,7 @@ import { computePaperTotals } from "@/lib/reconcile/paperTotals"
 import { aggregateDbForDay } from "@/lib/reconcile/dbAggregate"
 import { computeReconcile } from "@/lib/reconcile/match"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 import type { PaperExtraction } from "@/lib/reconcile/types"
 
 /**
@@ -38,9 +39,6 @@ export async function POST(
     }
 
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner" && auth.role !== "manager") {
-      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
-    }
 
     const supabase = supa()
 
@@ -57,6 +55,21 @@ export async function POST(
     const s = snap as { id: string; store_uuid: string; business_date: string }
     if (s.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+    }
+
+    // R-Auth: business_date 별 view 권한 검증 (diff 는 read 작업)
+    const access = await resolveFeatureAccess(supabase, auth, {
+      table: "paper_ledger_access_grants",
+      store_uuid: s.store_uuid,
+      business_date: s.business_date,
+      action: "view",
+      role_defaults: RECONCILE_ROLE_DEFAULTS,
+    })
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: "ACCESS_DENIED", message: "이 날짜의 종이장부 비교 권한이 없습니다.", via: access.via },
+        { status: 403 },
+      )
     }
 
     // 2. 최신 extraction
