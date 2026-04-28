@@ -577,7 +577,7 @@ export default function OwnerPage() {
                 <span className="text-slate-400 text-xs">
                   {expandStaff ? "▼" : "▶"}
                 </span>
-                <span className="text-sm font-medium text-slate-300">스태프 현황</span>
+                <span className="text-sm font-medium text-slate-300">직원명단</span>
               </div>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="text-slate-500">총 {staff.length}명</span>
