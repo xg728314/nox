@@ -8,6 +8,7 @@ import { useMenuConfig } from "../hooks/useMenuConfig"
 import type { CounterMenuRole, MenuItemId } from "@/lib/counter/menu"
 import CounterSettingsModal from "./settings/CounterSettingsModal"
 import ReorderableMenuList from "./ReorderableMenuList"
+import VersionBadge from "./VersionBadge"
 
 /**
  * CounterSidebar — Phase C.
@@ -165,6 +166,11 @@ export default function CounterSidebar({
         <div className="p-5 border-b border-white/10 flex items-center justify-between flex-shrink-0">
           <span className="text-base font-bold">NOX</span>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">×</button>
+        </div>
+
+        {/* R-Ver: 버전/배포 배지. 사이드바 상단 고정. flex-shrink-0 라 스크롤 영향 없음. */}
+        <div className="flex-shrink-0">
+          <VersionBadge />
         </div>
 
         {/* Scrollable body */}
