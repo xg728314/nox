@@ -185,6 +185,9 @@ export default function ReconcileGrantsPage() {
           <div>· 모든 권한은 만료일 필수 (영구 권한 금지, 최대 1년)</div>
         </div>
 
+        {/* R-Learn: 학습 trigger */}
+        <LearnPanel />
+
         {error && (
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">{error}</div>
         )}
@@ -274,6 +277,68 @@ function describeScope(g: Grant): string {
   if (g.scope_type === "single_date") return `날짜 ${g.business_date}`
   if (g.scope_type === "date_range") return `기간 ${g.date_start} ~ ${g.date_end}`
   return "전 기간"
+}
+
+// ─── R-Learn: 학습 trigger 패널 ─────────────────────────────────
+function LearnPanel() {
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [error, setError] = useState("")
+
+  async function runLearn(dryRun: boolean) {
+    setRunning(true); setError(""); setResult(null)
+    try {
+      const res = await apiFetch("/api/reconcile/learn", {
+        method: "POST",
+        body: JSON.stringify({ days: 30, dry_run: dryRun }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(d.message || d.error || "학습 실패")
+        return
+      }
+      const txt = dryRun
+        ? `🔍 드라이런: ${d.candidates?.length ?? 0}개 패턴 발견 (적용하면 ${d.would_add ?? 0}개 신규 등록)`
+        : `✅ 학습 완료: ${d.new_entries ?? 0}개 신규 등록 (총 사전 크기 ${d.total_dictionary_size ?? 0})`
+      setResult(txt)
+    } catch {
+      setError("네트워크 오류")
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+      <div className="text-sm font-semibold text-emerald-200">🧠 종이장부 자동 학습</div>
+      <p className="text-[11px] text-emerald-100/80 leading-relaxed">
+        최근 30일 사람-수정 기록에서 매장별 호스티스/매장명 패턴을 자동 추출 → 다음 추출 정확도 향상.
+        2회 이상 반복된 패턴만 등록 (false positive 방지). 기존 사전 항목은 보호됨.
+      </p>
+      {result && (
+        <div className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded p-2">
+          {result}
+        </div>
+      )}
+      {error && (
+        <div className="text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2">
+          {error}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => runLearn(true)}
+          disabled={running}
+          className="py-1.5 rounded text-[11px] bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] disabled:opacity-50"
+        >🔍 미리보기 (적용 X)</button>
+        <button
+          onClick={() => runLearn(false)}
+          disabled={running}
+          className="py-1.5 rounded text-[11px] bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 font-semibold hover:bg-emerald-500/30 disabled:opacity-50"
+        >{running ? "분석 중..." : "✅ 학습 실행"}</button>
+      </div>
+    </div>
+  )
 }
 
 // ─── 권한 부여 폼 (모달) ──────────────────────────────────────

@@ -28,10 +28,14 @@ export type RoomsEditorProps = {
   baseExtractionId?: string | null
   onSaved: () => void
   readOnly?: boolean
+  /** R-A v5: 매장 호스티스/매장명 후보 — RoomCard 의 datalist 로 forward */
+  knownHostesses?: string[]
+  knownStores?: string[]
 }
 
 export default function RoomsEditor({
   snapshotId, extraction, baseExtractionId, onSaved, readOnly,
+  knownHostesses, knownStores,
 }: RoomsEditorProps) {
   const [draft, setDraft] = useState<PaperExtraction>(() => deepClone(extraction))
   const [sortByConfidence, setSortByConfidence] = useState(false)
@@ -167,6 +171,9 @@ export default function RoomsEditor({
             onChange={(n) => updateRoom(idx, n)}
             onRemoveRoom={() => removeRoom(idx)}
             readOnly={readOnly}
+            knownHostesses={knownHostesses}
+            knownStores={knownStores}
+            datalistIdPrefix={`room-${idx}`}
           />
         ))
       )}

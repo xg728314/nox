@@ -61,6 +61,9 @@ export default function ReconcileDetailPage({
   const [computing, setComputing] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [reviewNotes, setReviewNotes] = useState("")
+  // R-A v5: 매장 호스티스/매장명 후보 — RoomsEditor 의 datalist 자동완성용
+  const [knownHostesses, setKnownHostesses] = useState<string[]>([])
+  const [knownStores, setKnownStores] = useState<string[]>([])
 
   async function load() {
     setLoading(true)
@@ -82,6 +85,30 @@ export default function ReconcileDetailPage({
   }
 
   useEffect(() => { load() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id])
+
+  // R-A v5: 매장 호스티스 + 매장명 후보 fetch (한 번만)
+  useEffect(() => {
+    let cancelled = false
+    async function loadKnown() {
+      try {
+        const res = await apiFetch("/api/store/staff")
+        if (!res.ok) return
+        const d = await res.json().catch(() => ({}))
+        if (cancelled) return
+        const staff = (d.staff ?? []) as { name?: string; role?: string; store_name?: string | null }[]
+        const hostessNames = Array.from(new Set(
+          staff.filter(s => s.role === "hostess").map(s => (s.name ?? "").trim()).filter(Boolean),
+        ))
+        const storeNames = Array.from(new Set(
+          staff.map(s => (s.store_name ?? "").trim()).filter(Boolean),
+        ))
+        setKnownHostesses(hostessNames)
+        setKnownStores(storeNames)
+      } catch { /* noop */ }
+    }
+    void loadKnown()
+    return () => { cancelled = true }
+  }, [])
 
   async function runExtraction() {
     setExtracting(true)
@@ -216,6 +243,8 @@ export default function ReconcileDetailPage({
             extraction={data.extraction.extracted_json}
             baseExtractionId={data.extraction.id}
             onSaved={async () => { await load() }}
+            knownHostesses={knownHostesses}
+            knownStores={knownStores}
           />
         )}
 

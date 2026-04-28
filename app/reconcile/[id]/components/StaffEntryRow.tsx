@@ -14,15 +14,27 @@ export type StaffEntryRowProps = {
   onChange: (next: RoomStaffEntry) => void
   onRemove: () => void
   readOnly?: boolean
+  /** R-A v5: 매장 호스티스 후보 — input datalist 자동완성. */
+  knownHostesses?: string[]
+  /** R-A v5: 매장 후보 — origin_store input 자동완성. */
+  knownStores?: string[]
+  /** datalist id 가 페이지 안에서 unique 해야 함. parent 가 row index 기반으로 prefix 줘야. */
+  datalistIdPrefix?: string
 }
 
 const SERVICE_OPTIONS: ServiceType[] = ["퍼블릭", "셔츠", "하퍼"]
 const TIER_OPTIONS: TimeTier[] = ["free", "차3", "반티", "반차3", "완티", "unknown"]
 
-export default function StaffEntryRow({ entry, onChange, onRemove, readOnly }: StaffEntryRowProps) {
+export default function StaffEntryRow({
+  entry, onChange, onRemove, readOnly,
+  knownHostesses, knownStores, datalistIdPrefix = "se",
+}: StaffEntryRowProps) {
   function patch<K extends keyof RoomStaffEntry>(key: K, value: RoomStaffEntry[K]) {
     onChange({ ...entry, [key]: value })
   }
+
+  const hostessListId = `${datalistIdPrefix}-hostess`
+  const storeListId = `${datalistIdPrefix}-store`
 
   return (
     <div className="rounded-lg border border-white/10 bg-[#0A1222]/60 p-2 space-y-1.5">
@@ -42,6 +54,7 @@ export default function StaffEntryRow({ entry, onChange, onRemove, readOnly }: S
           onChange={(e) => patch("hostess_name", e.target.value)}
           placeholder="이름"
           disabled={readOnly}
+          list={knownHostesses && knownHostesses.length > 0 ? hostessListId : undefined}
           className="flex-1 min-w-0 rounded bg-[#030814] border border-white/10 px-2 py-1 text-[11px] disabled:opacity-50"
         />
         {!readOnly && (
@@ -59,6 +72,7 @@ export default function StaffEntryRow({ entry, onChange, onRemove, readOnly }: S
           onChange={(e) => patch("origin_store", e.target.value)}
           placeholder="소속 매장"
           disabled={readOnly}
+          list={knownStores && knownStores.length > 0 ? storeListId : undefined}
           className="flex-1 min-w-0 rounded bg-[#030814] border border-white/10 px-2 py-1 text-[11px] disabled:opacity-50"
         />
         <select
@@ -82,6 +96,17 @@ export default function StaffEntryRow({ entry, onChange, onRemove, readOnly }: S
       </div>
       {entry.raw_text && (
         <div className="text-[10px] text-slate-500 italic truncate">원본: {entry.raw_text}</div>
+      )}
+      {/* R-A v5: 자동완성 datalist (브라우저 native, mobile 친화). */}
+      {knownHostesses && knownHostesses.length > 0 && (
+        <datalist id={hostessListId}>
+          {knownHostesses.map((n) => <option key={n} value={n} />)}
+        </datalist>
+      )}
+      {knownStores && knownStores.length > 0 && (
+        <datalist id={storeListId}>
+          {knownStores.map((n) => <option key={n} value={n} />)}
+        </datalist>
       )}
     </div>
   )

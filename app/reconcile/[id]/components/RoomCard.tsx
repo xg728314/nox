@@ -22,9 +22,17 @@ export type RoomCardProps = {
   onChange: (next: PaperRoomCell) => void
   onRemoveRoom: () => void
   readOnly?: boolean
+  /** R-A v5: 매장 호스티스 후보 (datalist 자동완성). */
+  knownHostesses?: string[]
+  knownStores?: string[]
+  /** datalist id 충돌 방지 — RoomsEditor 가 room index 기반 prefix 부여. */
+  datalistIdPrefix?: string
 }
 
-export default function RoomCard({ room, onChange, onRemoveRoom, readOnly }: RoomCardProps) {
+export default function RoomCard({
+  room, onChange, onRemoveRoom, readOnly,
+  knownHostesses, knownStores, datalistIdPrefix,
+}: RoomCardProps) {
   const lvl = confidenceLevel(room.confidence)
   const borderCls =
     lvl === "green" ? "border-l-emerald-500/60" :
@@ -181,6 +189,9 @@ export default function RoomCard({ room, onChange, onRemoveRoom, readOnly }: Roo
             onChange={(n) => updateStaff(i, n)}
             onRemove={() => removeStaff(i)}
             readOnly={readOnly}
+            knownHostesses={knownHostesses}
+            knownStores={knownStores}
+            datalistIdPrefix={datalistIdPrefix ? `${datalistIdPrefix}-s${i}` : `r-s${i}`}
           />
         ))}
       </div>

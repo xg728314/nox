@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 4
+export const PROMPT_VERSION = 5
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -22,6 +22,8 @@ export type PromptInput = {
   /** 매장별 dict — default 와 머지. */
   store_symbol_dictionary?: Record<string, unknown>
   store_known_stores?: string[]
+  /** R-A v5: 이 매장 소속 호스티스 이름 후보 — VLM 이 손글씨 추측 시 매칭 reference. PII 주의. */
+  store_known_hostesses?: string[]
 }
 
 /** Claude messages.create system + user 텍스트 한 쌍. */
@@ -30,6 +32,9 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
   const stores = (input.store_known_stores && input.store_known_stores.length > 0)
     ? input.store_known_stores
     : DEFAULT_KNOWN_STORES
+  const hostesses = (input.store_known_hostesses && input.store_known_hostesses.length > 0)
+    ? input.store_known_hostesses.slice(0, 200)   // 안전 cap
+    : []
 
   const dictTxt = Object.entries(dict)
     .map(([k, v]) => `  "${k}": ${JSON.stringify(v)}`)
@@ -58,11 +63,22 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "   confidence 를 낮게 박는다. raw_text 도 항상 함께 보관.",
     "3) 숫자는 모두 '원' 단위로 정규화 (만원·천원 표기를 보면 ×10000 또는 ×1000 변환).",
     "   숫자가 흐릿해도 가장 그럴듯한 숫자로 best-effort 채우고 confidence 를 낮게.",
+    "   같은 셀에 여러 시간이 적혀 있으면 각 시간을 별도 staff_entry 로 분리. 비슷한 시간으로 일관 채우지 말 것.",
     "4) 시간은 'HH:MM' 24시간제 (PM 추정 시 + 12). 19시 이후 영업이라 12시는 보통 자정 0시 = 24:00 → 다음날 00:00.",
+    "   각 셀의 시간은 정확히 그 셀에 적힌 값 그대로 (예: 9:31, 12:50, 21:00). 다른 셀의 시간으로 채우지 말 것.",
     "5) **불확실해도 정제 필드를 채워라 (best-effort).**",
     "   - 빈 칸은 정말 아무 단서도 없을 때만 (셀 자체가 비어있거나 종이가 찢긴 경우 등).",
     "   - 글씨가 흐릿하면 가장 그럴듯한 후보를 골라 채우고 confidence 0.3~0.5 로 박는다.",
     "   - 절대 빈 정제 필드 + 빈 raw_text 동시 금지 — 둘 중 하나는 반드시 채운다.",
+    "5-PII) **'불명' / '미정' / 'unknown' / '모름' / 'ㅇㅇ' / 'ㅁㅁ' 같은 placeholder 절대 금지.**",
+    "   - 한글 이름이 안 읽히면: raw_text 에서 보이는 한글 글자를 그대로 hostess_name 에 박기 (예: '신' 만 보이면 hostess_name='신').",
+    "   - 진짜 한 글자도 안 보이면 hostess_name 을 빈 문자열 또는 omit (절대 '불명' 같은 fallback 금지).",
+    "   - 사용자가 'hostess_name=불명' 셀을 일일이 다 지워야 함 → 최악의 UX. 차라리 빈 칸이 낫다.",
+    "5-CASH) **합계/금액 명시 분류**:",
+    "   - '현금 N' = 손님 결제 합계 → daily_summary.misu_total_won 아님. 셀에 cash_total 같은 별도 필드 없으니 raw_text 보존.",
+    "   - 'WT N' / 'W.t N' = 웨이터팁 → waiter_tip_won (단위 천원 의심 시 ×1000).",
+    "   - '양주 N' = 그 셀 양주 합계 → 개별 liquor[] 합과 일치해야 함 (정합성 확인용).",
+    "   - 빨간/주황 동그라미 강조 숫자는 합계임 — 셀 본문 staff_entries 의 시간으로 박지 말 것.",
     "",
     "## confidence + image_quality 규칙",
     "6) 각 staff_entry 와 각 room 에 confidence (0~1) 를 추가.",
@@ -144,6 +160,9 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     `- business_date: ${input.business_date}`,
     `- sheet_kind: ${input.sheet_kind}`,
     `- 알려진 협력 매장 화이트리스트: ${stores.join(", ")}`,
+    hostesses.length > 0
+      ? `- 이 매장 호스티스 후보 (손글씨 추측 시 우선 매칭. 후보에 없는 신규 이름이면 raw 그대로 박기):\n  ${hostesses.join(", ")}`
+      : `- 이 매장 호스티스 후보: (없음 — raw 한글 그대로 박기)`,
     "",
     `## 도메인 어휘 (이 의미만 사용. 다른 추측 금지)`,
     "```",

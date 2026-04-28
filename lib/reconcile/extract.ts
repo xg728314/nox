@@ -24,6 +24,8 @@ export type ExtractInput = {
   business_date: string
   store_symbol_dictionary?: Record<string, unknown>
   store_known_stores?: string[]
+  /** v5: 매장 호스티스 이름 후보. VLM 매칭 reference. PII — 서버 측만 fetch. */
+  store_known_hostesses?: string[]
 }
 
 export type ExtractResult =
@@ -53,6 +55,7 @@ export async function extractFromImage(input: ExtractInput): Promise<ExtractResu
     business_date: input.business_date,
     store_symbol_dictionary: input.store_symbol_dictionary,
     store_known_stores: input.store_known_stores,
+    store_known_hostesses: input.store_known_hostesses,
   })
 
   const client = new Anthropic({ apiKey })

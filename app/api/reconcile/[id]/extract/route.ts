@@ -83,16 +83,34 @@ export async function POST(
       )
     }
 
-    // 2. 매장별 dictionary
-    const { data: fmtRow } = await supabase
-      .from("store_paper_format")
-      .select("symbol_dictionary, known_stores")
-      .eq("store_uuid", auth.store_uuid)
-      .maybeSingle()
-    const fmt = fmtRow as {
+    // 2. 매장별 dictionary + 호스티스 후보 (v5)
+    //   - store_paper_format: 매장별 누적 학습 사전 (R-Learn 으로 누적)
+    //   - hostesses: 매장 활성 호스티스 이름 (VLM 매칭 reference, PII 서버측만)
+    const [fmtResult, hostessResult] = await Promise.all([
+      supabase
+        .from("store_paper_format")
+        .select("symbol_dictionary, known_stores")
+        .eq("store_uuid", auth.store_uuid)
+        .maybeSingle(),
+      supabase
+        .from("hostesses")
+        .select("name, stage_name")
+        .eq("store_uuid", auth.store_uuid)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .limit(200),
+    ])
+    const fmt = fmtResult.data as {
       symbol_dictionary?: Record<string, unknown>
       known_stores?: string[]
     } | null
+    const hostessRows = (hostessResult.data ?? []) as { name: string | null; stage_name: string | null }[]
+    // 예명 우선, 없으면 본명. 빈 값 / 중복 제거. 한글만 (특수문자 트림).
+    const knownHostesses = Array.from(new Set(
+      hostessRows
+        .map((h) => (h.stage_name ?? h.name ?? "").trim())
+        .filter((n) => n.length > 0 && n.length <= 5),
+    ))
 
     // 3. status=extracting 표시
     await supabase
@@ -121,6 +139,7 @@ export async function POST(
       business_date: s.business_date,
       store_symbol_dictionary: fmt?.symbol_dictionary,
       store_known_stores: fmt?.known_stores,
+      store_known_hostesses: knownHostesses,
     })
 
     if (!result.ok) {
