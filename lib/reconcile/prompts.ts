@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 3
+export const PROMPT_VERSION = 4
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -88,6 +88,53 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "   - 양주 brand: 정식 명칭 (예: '발렌타인 17년'). 약어 (예: 'V17') 는 풀어서.",
     "   형식이 일관되어야 미래 학습 단계에서 패턴 매칭 가능.",
     "9) 같은 사진 안에서 같은 단어/매장명/이름을 일관되게 표기 (한 번 결정한 표기를 다른 셀에서도 동일하게).",
+    "",
+    "## 종이장부 표준 레이아웃 (sheet_kind='rooms', prompt_version 4)",
+    "한국 유흥업소 종이장부는 보통 가로 4~5칼럼 × 세로 2~3 row 의 표 형태:",
+    "",
+    "  ┌─ R.No 1T ─┬─ R.No 2T ─┬─ R.No 3T ─┬─ R.No 4T ─┬─ R.No ─┐",
+    "  │ (실장명)  │ (실장명)  │ (실장명)  │ (실장명)  │       │",
+    "  │ 손님명 인원│ 손님명 인원│ 손님명 인원│ 손님명 인원│       │",
+    "  ├──────────┼──────────┼──────────┼──────────┼───────┤",
+    "  │ 양주 정보 │ 양주 정보 │ ...      │ ...      │       │",
+    "  │ 합계(빨강)│ 합계(빨강)│           │           │       │",
+    "  │ 시간 스태프│ 시간 스태프│           │           │       │",
+    "  └──────────┴──────────┴──────────┴──────────┴───────┘",
+    "  [하단 줄돈/받돈 박스] ← cross-store 정산. 매장별 금액.",
+    "",
+    "10) 각 칼럼 = 하나의 PaperRoomCell. 칼럼 헤더에서 추출:",
+    "    - room_no: 'R.No 1T' / '2T' / '3T' / '4T' 등 (T 는 'Table/Time' 식 접미사 — 그대로 보존)",
+    "    - manager_name: 칼럼 위쪽 괄호 안 한글 1~3자 (예: '(태혁)', '(명)', '(진성)')",
+    "    - customer_name: 괄호 다음의 한글/영숫자 (예: '화1', '다정', '세호', '대H')",
+    "    - headcount: 끝에 '人' 또는 '인' 앞 숫자 (예: '3人' → 3, '1人' → 1)",
+    "",
+    "11) 셀 본문 구조 (위→아래 순):",
+    "    - 양주 항목: '골든─', 'R─', '맥set T', 'WT 30─' 등 → liquor[]. 약자 사전 참조.",
+    "    - 강조 합계 (빨강/주황 글씨, 동그라미): '현금 460─', '양주 530─', 'WT50─' 등",
+    "      → 합계는 daily_summary 또는 misu_won/waiter_tip_won 매칭. 셀 본문에 그대로 두기보다",
+    "        의미적으로 분류 (현금=손님 결제, 양주=양주합계, WT=웨이터팁).",
+    "    - 시간 + 스태프: '9:31 선수 T', '12:50 예린 反' 등 → staff_entries[].",
+    "      한 글자~세 글자 한글 = hostess_name. 뒤의 'T' 접미는 종목 마커 (생략 가능).",
+    "      '反' / '反 T' = 반티 (time_tier='반티').",
+    "      'S' 접미 = 셔츠 (service_type='셔츠').",
+    "",
+    "12) 양주 약자 사전 (best-effort 추측 — 매장별 다를 수 있어 raw_text 도 함께 보존):",
+    "    골든  → 골든블루              R    → 레미마틴",
+    "    V     → 발렌타인              맥set → 맥캘란 셋트",
+    "    하파  → 하퍼                  마티 → 마티니",
+    "    잔디 → 잭다니엘              ...     → 미상이면 raw 그대로",
+    "",
+    "13) 하단 줄돈/받돈 박스 → daily_summary.owe[] / recv[]:",
+    "    형식: '매장명 금액' 한 줄씩 (예: '신세계 16', '발리', '리브 7', '이으라', '파리').",
+    "    - '줄돈' / '주는 돈' 라벨 아래 = owe (우리가 다른 매장에 줘야 할 정산금)",
+    "    - '받돈' / '받' 라벨 아래 = recv (받을 정산금)",
+    "    - 금액 단위가 만원 표기면 ×10000 (예: '신세계 16' = 160,000원)",
+    "    - 매장명만 적혀있고 금액 없으면 amount_won=0 + raw_text 보존 (사람이 채움)",
+    "",
+    "14) 한 글자 약자 / 약식 표기에 절대 멈추지 말 것:",
+    "    예) 'T' 단독 = 시간 마커일 가능성 (skip 또는 unknown_tokens).",
+    "    예) '예린 反 T' = hostess='예린', time_tier='반티'.",
+    "    추측 어려우면 raw_text 보존 + confidence 0.3 미만으로 박는다.",
   ].join("\n")
 
   const schema = SCHEMAS[input.sheet_kind]
