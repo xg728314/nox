@@ -88,19 +88,33 @@ export async function computeMonthlyPnl(
 ): Promise<MonthlyPnl> {
   const { start, end, daysInMonth } = monthRange(year_month)
 
-  // 1. 수익 - receipts.gross_total
-  const { data: receiptsData } = await supabase
-    .from("receipts")
-    .select("gross_total")
+  // 0. 영업일 ID 범위 — receipts/orders 는 business_day_id FK 만 가짐.
+  //    receipts 에 business_date 컬럼은 존재하지 않는다 (DB 실사 확인:
+  //    columns = id, session_id, store_uuid, business_day_id, ...).
+  //    따라서 store_operating_days 를 먼저 조회해 ID 목록을 만든다.
+  const { data: opDaysData } = await supabase
+    .from("store_operating_days")
+    .select("id")
     .eq("store_uuid", store_uuid)
-    .eq("status", "finalized")
-    .is("archived_at", null)
     .gte("business_date", start)
     .lte("business_date", end)
-  const receiptsTotal = (receiptsData ?? []).reduce(
-    (s: number, r: { gross_total: number | null }) => s + (r.gross_total ?? 0),
-    0,
-  )
+  const dayIds = ((opDaysData ?? []) as { id: string }[]).map((d) => d.id)
+
+  // 1. 수익 - receipts.gross_total (business_day_id IN dayIds)
+  let receiptsTotal = 0
+  if (dayIds.length > 0) {
+    const { data: receiptsData } = await supabase
+      .from("receipts")
+      .select("gross_total")
+      .eq("store_uuid", store_uuid)
+      .eq("status", "finalized")
+      .is("archived_at", null)
+      .in("business_day_id", dayIds)
+    receiptsTotal = (receiptsData ?? []).reduce(
+      (s: number, r: { gross_total: number | null }) => s + (r.gross_total ?? 0),
+      0,
+    )
+  }
 
   // 2. 변동비 - store_purchases
   const { data: purchaseData } = await supabase

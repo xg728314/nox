@@ -492,6 +492,8 @@ export const config = {
     "/super-admin/:path*",
     // Phase 4: cross-store settlement 검산 UI (owner / super_admin)
     "/settlements/:path*",
+    // R-Finance (2026-04-29): owner P&L hub.
+    "/finance/:path*",
     // Phase 5: mobile monitor tree.
     "/m/monitor/:path*",
     // R28-security: 신규 메뉴 + 디버그 페이지를 matcher 에 포함하여
