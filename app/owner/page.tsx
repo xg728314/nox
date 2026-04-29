@@ -341,18 +341,32 @@ export default function OwnerPage() {
   )
 
   async function handleSwitchStore(m: StoreMembership) {
-    // SECURITY (R-1 remediation): store_uuid/role cannot be stored client-side
-    // anymore — they live in the HttpOnly session. The server needs to be
-    // told which membership the caller wants to act as; we call a dedicated
-    // switch endpoint if it exists, otherwise instruct the operator to
-    // re-login with the target membership. (TODO: wire a proper
-    // /api/auth/switch-membership endpoint.)
+    // 2026-04-30: /api/auth/switch-membership 으로 is_primary swap → logout
+    //   → login 화면 자동 이동. 사용자가 다시 로그인하면 resolveAuthContext
+    //   가 새 primary membership 의 store_uuid 로 세션 시작.
     setSwitching(true)
     try {
-      // Fall back to a full logout + login round-trip to change scope.
+      const res = await apiFetch("/api/auth/switch-membership", {
+        method: "POST",
+        body: JSON.stringify({ target_membership_id: m.membership_id }),
+      })
+      if (res.status === 401 || res.status === 403) {
+        setError("매장 전환 권한이 없습니다. 다시 로그인 후 시도하세요.")
+        router.push("/login")
+        return
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.message || "매장 전환에 실패했습니다.")
+        return
+      }
+      // swap 성공 → 세션 종료 후 로그인 화면. 재로그인 시 새 매장으로 진입.
       await apiFetch("/api/auth/logout", { method: "POST" })
+      router.push("/login?switched=1")
+    } catch {
+      setError("서버 오류")
     } finally {
-      router.push("/login")
+      setSwitching(false)
     }
   }
 
