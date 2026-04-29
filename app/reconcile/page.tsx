@@ -4,6 +4,12 @@
  * /reconcile — 종이장부 ↔ NOX 대조 메인 페이지.
  *
  * R27: 리스트 + 업로드 폼 (스켈레톤). R28~30 에서 추출/비교 UI 추가.
+ *
+ * 2026-04-30: 실장 (manager) 도 본인 담당 스태프의 장부 사진을 직접
+ *   업로드 가능. role 별 기본 sheet_kind 자동 분기:
+ *     - manager → 'staff' (본인 담당 스태프 근무표)
+ *     - owner   → 'rooms' (방별 매출 장부)
+ *   누락 데이터 보정 + AI 인식률 향상을 위한 것.
  */
 
 import { useEffect, useState } from "react"
@@ -39,6 +45,19 @@ export default function ReconcilePage() {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  /** 사용자 role — 'manager' 일 때 sheet_kind 기본값 'staff' + 안내 표기. */
+  const [role, setRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        const r = d?.role ?? null
+        setRole(r)
+        if (r === "manager") setSheetKind("staff")
+      })
+      .catch(() => { /* role 모르면 기본값 유지 */ })
+  }, [])
 
   async function load(targetDate: string) {
     setLoading(true)
@@ -111,6 +130,17 @@ export default function ReconcilePage() {
       <div className="px-4 py-4 space-y-4 max-w-3xl mx-auto">
         {error && (
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">{error}</div>
+        )}
+
+        {role === "manager" && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3 text-[12px] text-emerald-200 leading-relaxed">
+            <div className="font-semibold mb-1">📑 실장용 장부 등록</div>
+            본인이 담당하는 스태프의 종이장부를 사진으로 등록하세요.
+            누락 없이 매일 올리면 AI 인식률이 향상되고, 정산 비교도 더 정확해집니다.
+            <span className="block mt-1 text-[11px] text-emerald-300/80">
+              매장 전체 방별 장부는 사장이 별도로 관리합니다.
+            </span>
+          </div>
         )}
 
         {/* 업로드 */}
