@@ -3,14 +3,14 @@
 /**
  * /finance/expenses — 일반 일별 지출 등록 + 목록.
  *
- * 카테고리: 공과금/과일/급여/팁/교통/추가월세/기타
- *   ※ 매장의 정기 월세/공과금/잡비 고정비는 store_settings.monthly_*
- *      에 별도 등록하며, 본 화면은 일별 변동 지출만.
+ * 2026-04-29 v2: 분류 자유 입력. 운영자가 "월세 / 카드값 / 공과금 / 잡비"
+ *   등 매장 운영 어휘 그대로 입력. 자주 쓰는 라벨은 datalist suggestion
+ *   으로 재사용 (이미 등록된 카테고리 자동 추천).
  *
  * 권한: owner only.
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { fmtWon } from "@/lib/format"
@@ -27,15 +27,10 @@ type ExpenseRow = {
   created_at: string
 }
 
-const CATEGORIES: { value: string; label: string }[] = [
-  { value: "utility", label: "공과금" },
-  { value: "fruit", label: "과일" },
-  { value: "salary", label: "급여" },
-  { value: "tip", label: "팁/봉사료" },
-  { value: "transport", label: "교통" },
-  { value: "rent_extra", label: "추가 월세" },
-  { value: "other", label: "기타" },
-]
+const CATEGORY_MAX_LEN = 40
+
+/** 자주 쓰일 만한 기본 추천 라벨 — 단순 hint 용도. */
+const SUGGESTED_LABELS = ["월세", "카드값", "공과금", "전기료", "수도료", "가스료", "급여", "팁/봉사료", "과일", "교통", "잡비"]
 
 function todayKstDate(): string {
   const now = new Date()
@@ -53,7 +48,7 @@ export default function ExpensesPage() {
   const [filterCategory, setFilterCategory] = useState("")
 
   const [fmDate, setFmDate] = useState(todayKstDate())
-  const [fmCategory, setFmCategory] = useState("utility")
+  const [fmCategory, setFmCategory] = useState("")
   const [fmAmount, setFmAmount] = useState("")
   const [fmDesc, setFmDesc] = useState("")
   const [fmMemo, setFmMemo] = useState("")
@@ -92,6 +87,15 @@ export default function ExpensesPage() {
 
   async function submit() {
     setError("")
+    const cat = fmCategory.trim()
+    if (!cat) {
+      setError("분류를 입력하세요. (예: 월세, 카드값, 공과금, 잡비)")
+      return
+    }
+    if (cat.length > CATEGORY_MAX_LEN) {
+      setError(`분류는 ${CATEGORY_MAX_LEN}자 이내로 입력하세요.`)
+      return
+    }
     const amount = Number(fmAmount)
     if (!Number.isFinite(amount) || amount <= 0) {
       setError("금액을 정확히 입력하세요.")
@@ -103,7 +107,7 @@ export default function ExpensesPage() {
         method: "POST",
         body: JSON.stringify({
           business_date: fmDate,
-          category: fmCategory,
+          category: cat,
           amount_won: amount,
           description: fmDesc.trim() || undefined,
           memo: fmMemo.trim() || undefined,
@@ -142,6 +146,21 @@ export default function ExpensesPage() {
 
   const totalSum = rows.reduce((s, r) => s + Number(r.amount_won ?? 0), 0)
 
+  // datalist 추천: 이미 등록된 row 의 카테고리 + 기본 라벨 합집합.
+  //   같은 라벨을 빠르게 재선택할 수 있게 해 분류 일관성 유지.
+  const categorySuggestions = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const r of rows) {
+      const c = (r.category ?? "").trim()
+      if (c && !seen.has(c)) { seen.add(c); out.push(c) }
+    }
+    for (const c of SUGGESTED_LABELS) {
+      if (!seen.has(c)) { seen.add(c); out.push(c) }
+    }
+    return out
+  }, [rows])
+
   return (
     <div className="min-h-screen bg-[#030814] text-slate-200">
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
@@ -171,15 +190,19 @@ export default function ExpensesPage() {
               />
             </Field>
             <Field label="분류">
-              <select
+              <input
                 value={fmCategory}
                 onChange={(e) => setFmCategory(e.target.value)}
+                list="expense-category-list"
+                maxLength={CATEGORY_MAX_LEN}
+                placeholder="예: 월세, 카드값, 공과금"
                 className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
+              />
+              <datalist id="expense-category-list">
+                {categorySuggestions.map((c) => (
+                  <option key={c} value={c} />
                 ))}
-              </select>
+              </datalist>
             </Field>
             <Field label="금액 (원)">
               <input
@@ -237,16 +260,13 @@ export default function ExpensesPage() {
             />
           </Field>
           <Field label="분류">
-            <select
+            <input
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-sm"
-            >
-              <option value="">전체</option>
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
+              list="expense-category-list"
+              placeholder="전체"
+              className="bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-sm w-32"
+            />
           </Field>
           <button
             onClick={fetchList}
@@ -281,7 +301,7 @@ export default function ExpensesPage() {
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                     <td className="px-4 py-2 text-slate-400">{r.business_date}</td>
-                    <td className="px-4 py-2">{CATEGORIES.find((c) => c.value === r.category)?.label ?? r.category}</td>
+                    <td className="px-4 py-2">{r.category}</td>
                     <td className="px-4 py-2">{r.description ?? ""}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-amber-300">{fmtWon(r.amount_won)}</td>
                     <td className="px-4 py-2 text-right">
