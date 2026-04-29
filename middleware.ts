@@ -65,6 +65,8 @@ const OWNER_ONLY_PREFIXES = [
   "/audit-events",
   // Phase 4: cross-store settlement 검산 UI. 운영자만 금액 추적.
   "/settlements",
+  // R-Finance (2026-04-29): 사장 P&L · 매입/지출 ledger.
+  "/finance",
   // R28-security (2026-04-26): debug / dev-only 라우트.
   //   배포 후 사용자가 우연히 진입해도 운영 정보가 노출되면 안 됨.
   "/ble",

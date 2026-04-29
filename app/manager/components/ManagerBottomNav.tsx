@@ -17,6 +17,7 @@ const TABS: readonly Tab[] = [
   { label: "카운터", icon: "⊞", path: "/counter" },
   { label: "배정", icon: "📋", path: "/attendance" },
   { label: "내 정산", icon: "💰", path: "/manager/settlement" },
+  { label: "내 수익", icon: "📒", path: "/manager/ledger" },
   { label: "지급", icon: "💸", path: "/payouts" },
   { label: "고객·외상", icon: "👥", path: "/customers" },
   { label: "채팅", icon: "💬", path: "/chat" },
@@ -27,7 +28,7 @@ export default function ManagerBottomNav({ chatUnread }: { chatUnread: number })
   const router = useRouter()
   return (
     <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#030814]/95 backdrop-blur-sm">
-      <div className="grid grid-cols-7 py-2">
+      <div className="grid grid-cols-8 py-2">
         {TABS.map((item) => (
           <button
             key={item.label}
