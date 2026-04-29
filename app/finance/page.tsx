@@ -216,14 +216,22 @@ export default function FinanceHubPage() {
               )}
             </section>
 
-            {/* 3. 빠른 진입 */}
+            {/* 3. 빠른 진입 — 각 타일이 답하는 질문을 한 줄 설명으로 명시.
+                매장 정산 / 지급 관리 / 정산 이력 은 라벨이 비슷해 운영자가
+                혼동하기 쉬운 곳이라 기능 차이를 명확히 한다. */}
             <section className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <NavTile icon="📦" label="매입 등록" path="/finance/purchases" router={router} />
-              <NavTile icon="💸" label="지출 등록" path="/finance/expenses" router={router} />
-              <NavTile icon="📊" label="매장 정산 (오늘)" path="/owner/settlement" router={router} />
-              <NavTile icon="📒" label="정산 이력" path="/settlement/history" router={router} />
-              <NavTile icon="💰" label="지급 관리" path="/payouts" router={router} />
-              <NavTile icon="⚙️" label="고정비 설정" path="/store/settings" router={router} />
+              <NavTile icon="📦" label="매입 등록"
+                hint="박스 매입 + 재고 자동 증가" path="/finance/purchases" router={router} />
+              <NavTile icon="💸" label="지출 등록"
+                hint="월세 · 공과금 · 카드값 등" path="/finance/expenses" router={router} />
+              <NavTile icon="📊" label="매장 정산 (오늘)"
+                hint="오늘 매출 · 세션 정산 상태" path="/owner/settlement" router={router} />
+              <NavTile icon="💰" label="지급 관리"
+                hint="실장 · 스태프 미지급 잔액" path="/payouts" router={router} />
+              <NavTile icon="📒" label="정산 이력"
+                hint="과거 영수증 일자별 검색" path="/settlement/history" router={router} />
+              <NavTile icon="⚙️" label="고정비 설정"
+                hint="store_settings 보조 입력" path="/store/settings" router={router} />
             </section>
           </>
         )}
@@ -271,8 +279,11 @@ function DetailRow({
 }
 
 function NavTile({
-  icon, label, path, router,
-}: { icon: string; label: string; path: string; router: ReturnType<typeof useRouter> }) {
+  icon, label, hint, path, router,
+}: {
+  icon: string; label: string; hint?: string; path: string;
+  router: ReturnType<typeof useRouter>;
+}) {
   return (
     <button
       onClick={() => router.push(path)}
@@ -280,6 +291,7 @@ function NavTile({
     >
       <div className="text-xl mb-2">{icon}</div>
       <div className="text-sm font-medium text-slate-200">{label}</div>
+      {hint && <div className="text-[11px] text-slate-500 mt-1">{hint}</div>}
     </button>
   )
 }

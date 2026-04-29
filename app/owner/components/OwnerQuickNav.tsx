@@ -20,10 +20,12 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "카운터", path: "/counter", icon: "🖥️" },
   { label: "배정", path: "/attendance", icon: "📋" },
   { label: "감사 로그", path: "/audit", icon: "📜" },
+  // 2026-04-30: 재무 관련 진입점 일원화. 매장 정산 / 지급 관리 / 정산 이력
+  //   3개 직접 진입 타일을 제거하고 /finance 허브에서만 분기하도록 함.
+  //   페이지 자체 (/owner/settlement, /payouts, /settlement/history) 는
+  //   그대로 유지 — 검증된 기존 화면이고 답하는 질문/도메인이 분리되어
+  //   있어 통합은 부적절. 진입점만 단일화로 운영자 멘탈 모델 단순.
   { label: "재무", path: "/finance", icon: "💰" },
-  { label: "매장 정산", path: "/owner/settlement", icon: "📊" },
-  { label: "지급 관리", path: "/payouts", icon: "💸" },
-  { label: "정산 이력", path: "/settlement/history", icon: "📒" },
   { label: "고객·외상", path: "/customers", icon: "👥" },
   { label: "이적 관리", path: "/transfer", icon: "🔄" },
   { label: "재고", path: "/inventory", icon: "📦" },
