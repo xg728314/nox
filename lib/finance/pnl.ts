@@ -11,25 +11,37 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 export type RevenueBreakdown = {
+  /** finalized receipts 합 — PnL 공식 매출. */
   total: number
+  /** 정산 미확정 (draft) receipts 합 — 잠정 매출. UI 안내용. */
+  draft_total: number
   by_source: {
-    /** receipts.gross_total 합 */
     receipts: number
   }
 }
 
+/**
+ * Cost 구조 (v2, 2026-04-29):
+ *   사용자 멘탈 모델 = "모든 지출 한 번에" → 변동/고정 split 폐기.
+ *
+ *   - purchases: store_purchases (박스 매입)
+ *   - expenses:  store_expenses (운영자 입력 임의 라벨 = 월세/카드값/...)
+ *   - settings_fixed: store_settings.monthly_* (옛날 방식 보조 입력)
+ *   - total: 위 3개 합
+ *
+ *   Owner 가 store_expenses 에 "월세" 를 등록하면 자연히 expenses 에
+ *   포함되어 총 지출에 반영. store_settings.monthly_* 는 0/NULL 이어도
+ *   문제 없음 (보조 채널).
+ */
 export type CostBreakdown = {
   total: number
-  variable: {
+  purchases: number
+  expenses: number
+  settings_fixed: {
     total: number
-    purchases: number       // store_purchases.total_won 합
-    expenses: number        // store_expenses.amount_won 합
-  }
-  fixed: {
-    total: number
-    rent: number            // store_settings.monthly_rent
-    utilities: number       // store_settings.monthly_utilities
-    misc: number            // store_settings.monthly_misc
+    rent: number
+    utilities: number
+    misc: number
   }
 }
 
@@ -100,21 +112,35 @@ export async function computeMonthlyPnl(
     .lte("business_date", end)
   const dayIds = ((opDaysData ?? []) as { id: string }[]).map((d) => d.id)
 
-  // 1. 수익 - receipts.gross_total (business_day_id IN dayIds)
-  let receiptsTotal = 0
+  // 1. 수익 - receipts.gross_total
+  //    - 'finalized' 만 합산 (draft 는 미확정).
+  //    - archived_at 필터는 사용 X. archive 는 인쇄 표식일 뿐
+  //      (CLAUDE.md: archive-on-print, hard delete 아님). 회계상 매출은
+  //      인쇄 여부와 무관하므로 PnL 합산에 포함되어야 한다.
+  //    - finalized 가 0 이고 draft 만 있을 때를 대비해 두 번째 fallback
+  //      쿼리: 세션당 최신 version 의 draft + finalized 를 모두 합산해
+  //      "잠정 매출" 로 노출.
+  let receiptsFinalized = 0
+  let receiptsDraft = 0
   if (dayIds.length > 0) {
-    const { data: receiptsData } = await supabase
+    const { data: rcAll } = await supabase
       .from("receipts")
-      .select("gross_total")
+      .select("session_id, status, gross_total, version")
       .eq("store_uuid", store_uuid)
-      .eq("status", "finalized")
-      .is("archived_at", null)
       .in("business_day_id", dayIds)
-    receiptsTotal = (receiptsData ?? []).reduce(
-      (s: number, r: { gross_total: number | null }) => s + (r.gross_total ?? 0),
-      0,
-    )
+    type RcRow = { session_id: string; status: string; gross_total: number | null; version: number }
+    const latestPerSession = new Map<string, RcRow>()
+    for (const r of (rcAll ?? []) as RcRow[]) {
+      const prev = latestPerSession.get(r.session_id)
+      if (!prev || r.version > prev.version) latestPerSession.set(r.session_id, r)
+    }
+    for (const r of latestPerSession.values()) {
+      const v = r.gross_total ?? 0
+      if (r.status === "finalized") receiptsFinalized += v
+      else if (r.status === "draft") receiptsDraft += v
+    }
   }
+  const receiptsTotal = receiptsFinalized  // PnL 회계 합계는 finalized 만
 
   // 2. 변동비 - store_purchases
   const { data: purchaseData } = await supabase
@@ -155,9 +181,8 @@ export async function computeMonthlyPnl(
   const utilities = (settings as { monthly_utilities?: number } | null)?.monthly_utilities ?? 0
   const misc = (settings as { monthly_misc?: number } | null)?.monthly_misc ?? 0
 
-  const variableTotal = purchasesTotal + expensesTotal
-  const fixedTotal = rent + utilities + misc
-  const costTotal = variableTotal + fixedTotal
+  const settingsFixedTotal = rent + utilities + misc
+  const costTotal = purchasesTotal + expensesTotal + settingsFixedTotal
   const netProfit = receiptsTotal - costTotal
 
   // 5. BEP 분석 - 평균 양주 마진 (최근 30일)
@@ -171,7 +196,6 @@ export async function computeMonthlyPnl(
     .eq("store_uuid", store_uuid)
     .in("order_type", ["주류", "양주"])
     .is("deleted_at", null)
-    .is("archived_at", null)
     .gte("created_at", since)
   let totalMargin = 0
   let totalBottles = 0
@@ -218,17 +242,15 @@ export async function computeMonthlyPnl(
     month_end: end,
     revenue: {
       total: receiptsTotal,
+      draft_total: receiptsDraft,
       by_source: { receipts: receiptsTotal },
     },
     cost: {
       total: costTotal,
-      variable: {
-        total: variableTotal,
-        purchases: purchasesTotal,
-        expenses: expensesTotal,
-      },
-      fixed: {
-        total: fixedTotal,
+      purchases: purchasesTotal,
+      expenses: expensesTotal,
+      settings_fixed: {
+        total: settingsFixedTotal,
         rent,
         utilities,
         misc,

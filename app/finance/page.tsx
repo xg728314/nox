@@ -24,11 +24,16 @@ type Pnl = {
   year_month: string
   month_start: string
   month_end: string
-  revenue: { total: number; by_source: { receipts: number } }
+  revenue: {
+    total: number
+    draft_total: number
+    by_source: { receipts: number }
+  }
   cost: {
     total: number
-    variable: { total: number; purchases: number; expenses: number }
-    fixed: { total: number; rent: number; utilities: number; misc: number }
+    purchases: number
+    expenses: number
+    settings_fixed: { total: number; rent: number; utilities: number; misc: number }
   }
   net_profit: number
   break_even_analysis: {
@@ -115,13 +120,17 @@ export default function FinanceHubPage() {
 
         {pnl && !loading && (
           <>
-            {/* 1. P&L 요약 */}
+            {/* 1. P&L 요약 — 4 tile: 수익 / 매입 / 지출 / 순이익 */}
             <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <h2 className="text-sm text-slate-400 mb-4">월 손익 ({pnl.month_start} ~ {pnl.month_end})</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <PnlTile label="수익" value={pnl.revenue.total} accent="text-emerald-300" />
-                <PnlTile label="변동비" value={-pnl.cost.variable.total} accent="text-amber-300" />
-                <PnlTile label="고정비" value={-pnl.cost.fixed.total} accent="text-orange-300" />
+                <PnlTile label="수익 (확정)" value={pnl.revenue.total} accent="text-emerald-300" />
+                <PnlTile label="매입" value={-pnl.cost.purchases} accent="text-amber-300" />
+                <PnlTile
+                  label="지출"
+                  value={-(pnl.cost.expenses + pnl.cost.settings_fixed.total)}
+                  accent="text-orange-300"
+                />
                 <PnlTile
                   label="순이익"
                   value={pnl.net_profit}
@@ -130,13 +139,25 @@ export default function FinanceHubPage() {
                 />
               </div>
 
+              {pnl.revenue.draft_total > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-4 py-2 text-xs text-amber-200">
+                  ⚠ 정산 미확정 (draft) {fmtMan(pnl.revenue.draft_total)} 이 추가로 발생 — 확정되면 수익에 반영됩니다.
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-5 text-xs">
-                <DetailRow label="영수증" value={pnl.revenue.by_source.receipts} />
-                <DetailRow label="매입(박스)" value={pnl.cost.variable.purchases} />
-                <DetailRow label="일반 지출" value={pnl.cost.variable.expenses} />
-                <DetailRow label="월세" value={pnl.cost.fixed.rent} />
-                <DetailRow label="공과금" value={pnl.cost.fixed.utilities} />
-                <DetailRow label="잡비" value={pnl.cost.fixed.misc} />
+                <DetailRow label="영수증 (확정)" value={pnl.revenue.by_source.receipts} />
+                <DetailRow label="매입 (박스)" value={pnl.cost.purchases} />
+                <DetailRow label="지출 (등록)" value={pnl.cost.expenses} hint="월세·카드값·관리비 등 지출 등록 합" />
+                {pnl.cost.settings_fixed.rent > 0 && (
+                  <DetailRow label="설정 월세" value={pnl.cost.settings_fixed.rent} hint="store_settings.monthly_rent" />
+                )}
+                {pnl.cost.settings_fixed.utilities > 0 && (
+                  <DetailRow label="설정 공과금" value={pnl.cost.settings_fixed.utilities} hint="store_settings.monthly_utilities" />
+                )}
+                {pnl.cost.settings_fixed.misc > 0 && (
+                  <DetailRow label="설정 잡비" value={pnl.cost.settings_fixed.misc} hint="store_settings.monthly_misc" />
+                )}
               </div>
             </section>
 
@@ -182,6 +203,17 @@ export default function FinanceHubPage() {
                   hint={`= ${fmtNumber(pnl.break_even_analysis.daily_target_bottles)} 병/일`}
                 />
               </div>
+              {pnl.break_even_analysis.avg_margin_per_bottle === 0 && (
+                <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2 text-[11px] text-amber-200">
+                  최근 30일 양주(주류) 판매 이력이 없어 "양주 잔여 병수" 가 계산되지 않았습니다.
+                  카운터에서 양주 주문이 들어오면 자동으로 평균 마진이 산출됩니다.
+                </div>
+              )}
+              {pnl.revenue.total === 0 && pnl.cost.total > 0 && (
+                <div className="mt-2 rounded-lg border border-slate-500/30 bg-black/20 px-3 py-2 text-[11px] text-slate-300">
+                  현재 확정 매출 0 — draft 영수증은 정산 확정(매장 정산) 후 BEP 에 반영됩니다.
+                </div>
+              )}
             </section>
 
             {/* 3. 빠른 진입 */}
