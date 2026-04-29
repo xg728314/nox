@@ -66,7 +66,12 @@ export async function extractFromImage(input: ExtractInput): Promise<ExtractResu
   try {
     const resp = await client.messages.create({
       model: VLM_MODEL,
-      max_tokens: 4096,
+      // 2026-04-30: 4096 → 16384.
+      //   스태프 장부는 10명+ × 7시간슬롯 × (시간/매장/종목/시간티어/raw_text/
+      //   confidence) → 1장에 800-1500 줄 JSON 발생. 4096 tokens (~12KB) 에서
+      //   잘려 "Unterminated string in JSON at position 11451" 보고. 16384
+      //   (~50KB) 면 여유.
+      max_tokens: 16384,
       system,
       messages: [
         {
@@ -148,8 +153,71 @@ function safeParseJson(raw: string): { ok: true; value: unknown } | { ok: false;
   try {
     return { ok: true, value: JSON.parse(cleaned) }
   } catch (e) {
+    // 2026-04-30: VLM 응답이 max_tokens 한계로 중간 잘림 시 복구 시도.
+    //   "Unterminated string" / "Unexpected end of JSON" 같은 케이스를
+    //   대상으로, 마지막 안전한 closing brace 까지 잘라내고 재파싱한다.
+    //   완전 복구 X — 잘린 row 는 누락되지만, 앞쪽 row 들은 살린다.
+    const repaired = repairTruncatedJson(cleaned)
+    if (repaired) {
+      try {
+        return { ok: true, value: JSON.parse(repaired) }
+      } catch { /* 복구도 실패하면 원본 에러 반환 */ }
+    }
     return { ok: false, error: (e as Error).message }
   }
+}
+
+/**
+ * 잘린 JSON 응답 best-effort 복구.
+ *
+ * 전략:
+ *   1. 문자열 안 / 밖 추적 (escape 처리).
+ *   2. 마지막 "완성된 row 직후" 위치 기록 = depth 가 ≥1 일 때 객체/배열이
+ *      닫혀서 다음 separator(,) 또는 닫힘 괄호 직전이 되는 시점.
+ *   3. 그 시점까지 자르고, 남은 open contexts 의 닫힘 괄호를 stack 순서대로
+ *      덧붙임.
+ *
+ * 한계:
+ *   - 잘린 마지막 row 는 누락 (재구성 X). 그 이전 row 들은 살림.
+ *   - 복구 불가 (애초에 truncate 가 매우 이른 지점) → null.
+ */
+function repairTruncatedJson(s: string): string | null {
+  // open context 의 stack ('{' or '[' 만 push). 닫히면 pop.
+  const stack: Array<"{" | "["> = []
+  let inStr = false
+  let escape = false
+  // 마지막으로 안전하게 잘라도 되는 지점 (직전 char 가 '}' 또는 ']' 이고
+  // string 밖이면 저장).
+  let lastSafeCut = -1
+  let stackAtSafe: Array<"{" | "["> = []
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (escape) { escape = false; continue }
+    if (c === "\\") { escape = true; continue }
+    if (c === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+
+    if (c === "{") stack.push("{")
+    else if (c === "[") stack.push("[")
+    else if (c === "}" || c === "]") {
+      stack.pop()
+      // 이 지점 이후가 안전한 자르기 위치 (객체/배열 1개 완전 닫힘 직후).
+      lastSafeCut = i + 1
+      stackAtSafe = stack.slice()
+    }
+  }
+
+  if (lastSafeCut <= 0) return null
+
+  let truncated = s.slice(0, lastSafeCut)
+  // 끝의 trailing comma 제거 (JSON spec 위반).
+  truncated = truncated.replace(/,(\s*[}\]])/g, "$1")
+  // 남은 open context 닫힘 — stack 역순.
+  for (let j = stackAtSafe.length - 1; j >= 0; j--) {
+    truncated += stackAtSafe[j] === "{" ? "}" : "]"
+  }
+  return truncated
 }
 
 function validateExtraction(
