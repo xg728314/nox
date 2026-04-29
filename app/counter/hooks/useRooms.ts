@@ -303,7 +303,20 @@ export function useRooms(): UseRoomsReturn {
     //   6~8층 확장 후 메시지량 폭증 방지. 이전에는 전체 매장 이벤트를
     //   client 가 받아 필터링 → 불필요한 트래픽/배터리 소모.
     const storeFilter = `store_uuid=eq.${currentStoreUuid}`
-    const client = createAuthedClient(realtimeToken)
+    // 2026-04-30 P0: createAuthedClient 는 NEXT_PUBLIC_SUPABASE_URL /
+    //   NEXT_PUBLIC_SUPABASE_ANON_KEY 부재 시 throw. Cloud Run 빌드 args
+    //   누락된 배포에서 카운터 페이지 전체가 죽는 사고 발생 (system_errors
+    //   테이블 26회+ 기록). 여기서는 realtime degrade (구독 안 함) 로만
+    //   처리하고 페이지는 계속 동작. 폴링이 1초 간격으로 데이터 갱신.
+    let client: ReturnType<typeof createAuthedClient>
+    try {
+      client = createAuthedClient(realtimeToken)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // eslint-disable-next-line no-console
+      console.warn(`[useRooms] realtime client init failed — disabled. ${msg}`)
+      return
+    }
     const channel = client
       .channel(`counter-v2-rt-${currentStoreUuid}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "room_sessions", filter: storeFilter }, (p) => {
