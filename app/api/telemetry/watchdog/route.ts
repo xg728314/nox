@@ -32,6 +32,13 @@ import { getCronHealth } from "@/lib/automation/cronHeartbeat"
  *       long_running_sessions,     // 6시간 넘은 active
  *       duplicate_active_per_room,
  *     },
+ *     ops_anomalies: {                // R-watchdog-v2 (2026-04-30)
+ *       unclosed_old_days,            // 어제 이전 status='open' day
+ *       stale_draft_receipts,         // 24h 초과 draft receipts
+ *       old_unpaid_credits,           // 30일 초과 미수금
+ *       negative_stock,               // current_stock < 0
+ *       below_min_stock,              // current_stock <= min_stock
+ *     },
  *     open_issues_by_severity,
  *   }
  */
@@ -130,6 +137,57 @@ export async function GET(request: Request) {
     }
     const duplicateActivePerRoom = [...roomCounts.values()].filter(c => c > 1).length
 
+    // ── 4-4) 운영 이상 (R-watchdog-v2, 2026-04-30) ───────────────
+    //   매일 운영자가 봐야 할 도메인 시그널. 회계/정산 누락을 사일런트로
+    //   놓치지 않도록.
+    const todayKst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }))
+      .toISOString().slice(0, 10)
+    const oneDayAgoIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+
+    // 4-4a. 마감 누락 영업일 — 어제 이전 status='open' 인 day.
+    //   카운터에서 '영업일 마감' 깜빡 시 PnL 합산이 누락됨.
+    const { count: unclosedOldDays } = await supabase
+      .from("store_operating_days")
+      .select("*", { count: "exact", head: true })
+      .eq("store_uuid", auth.store_uuid)
+      .eq("status", "open")
+      .lt("business_date", todayKst)
+      .is("deleted_at", null)
+
+    // 4-4b. 24h 초과 draft 영수증 — 정산 미확정 상태가 1일 이상 지속.
+    //   PnL 수익 합산에서 빠지므로 회계상 누락 위험.
+    const { count: staleDraftReceipts } = await supabase
+      .from("receipts")
+      .select("*", { count: "exact", head: true })
+      .eq("store_uuid", auth.store_uuid)
+      .eq("status", "draft")
+      .lt("created_at", oneDayAgoIso)
+      .is("archived_at", null)
+
+    // 4-4c. 30일 초과 미수금 — credits 미회수 누적.
+    const { count: oldUnpaidCredits } = await supabase
+      .from("credits")
+      .select("*", { count: "exact", head: true })
+      .eq("store_uuid", auth.store_uuid)
+      .in("status", ["unpaid", "open", "active"])
+      .lt("created_at", thirtyDaysAgoIso)
+      .is("archived_at", null)
+
+    // 4-4d. 음수/저재고 — 재고 음수 (매입-판매 동기화 어긋남) 또는 min_stock 미만.
+    const { data: invRows } = await supabase
+      .from("inventory_items")
+      .select("current_stock, min_stock")
+      .eq("store_uuid", auth.store_uuid)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+    let negativeStock = 0
+    let belowMinStock = 0
+    for (const it of (invRows ?? []) as { current_stock: number; min_stock: number }[]) {
+      if (it.current_stock < 0) negativeStock++
+      else if (it.min_stock > 0 && it.current_stock <= it.min_stock) belowMinStock++
+    }
+
     // ── 5) 이슈 심각도 집계 ──
     const { data: issueRows } = await supabase
       .from("issue_reports")
@@ -209,6 +267,14 @@ export async function GET(request: Request) {
         long_running_sessions: longRunning ?? 0,
         sessions_without_manager: noManager ?? 0,
         duplicate_active_per_room: duplicateActivePerRoom,
+      },
+      ops_anomalies: {
+        // R-watchdog-v2: 운영자가 매일 봐야 할 회계/운영 신호.
+        unclosed_old_days: unclosedOldDays ?? 0,
+        stale_draft_receipts: staleDraftReceipts ?? 0,
+        old_unpaid_credits: oldUnpaidCredits ?? 0,
+        negative_stock: negativeStock,
+        below_min_stock: belowMinStock,
       },
       open_issues_by_severity: openIssuesBySev,
     })

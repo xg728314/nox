@@ -49,6 +49,14 @@ type Watchdog = {
     sessions_without_manager: number
     duplicate_active_per_room: number
   }
+  /** R-watchdog-v2 (2026-04-30): 매일 운영자가 봐야 할 회계/운영 신호. */
+  ops_anomalies?: {
+    unclosed_old_days: number
+    stale_draft_receipts: number
+    old_unpaid_credits: number
+    negative_stock: number
+    below_min_stock: number
+  }
   open_issues_by_severity: { critical: number; high: number; medium: number; low: number }
 }
 
@@ -111,11 +119,12 @@ export default function WatchdogPage() {
   const a = data?.auth_anomalies_24h
   const d = data?.data_anomalies
   const i = data?.open_issues_by_severity
+  const ops = data?.ops_anomalies
 
   const cronStaleCount = data?.cron_signals?.stale_count ?? 0
   const cronList = data?.cron_signals?.crons ?? []
 
-  // 전체 상태 판단
+  // 전체 상태 판단 — 운영 이상도 포함
   const hasAnyIssue = !!data && (
     (a?.membership_invalid ?? 0) > 0 ||
     (a?.forbidden_access ?? 0) > 5 ||
@@ -124,7 +133,11 @@ export default function WatchdogPage() {
     (i?.critical ?? 0) > 0 ||
     (i?.high ?? 0) > 0 ||
     (data?.errors.total_24h ?? 0) > 20 ||
-    cronStaleCount > 0
+    cronStaleCount > 0 ||
+    (ops?.unclosed_old_days ?? 0) > 0 ||
+    (ops?.stale_draft_receipts ?? 0) > 0 ||
+    (ops?.old_unpaid_credits ?? 0) > 0 ||
+    (ops?.negative_stock ?? 0) > 0
   )
 
   return (
@@ -339,6 +352,53 @@ export default function WatchdogPage() {
               />
             </div>
           </div>
+
+          {/* R-watchdog-v2: 운영 이상 — 회계/정산 누락 가시화 */}
+          {ops && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs text-slate-400">운영 이상 감지</div>
+                <div className="text-[10px] text-slate-600">매일 1회 점검 권장</div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <DataAnomalyRow
+                  label="마감 누락 영업일"
+                  value={ops.unclosed_old_days}
+                  actionLabel="마감 처리"
+                  actionHref="/operating-days"
+                  onClick={(href) => router.push(href)}
+                />
+                <DataAnomalyRow
+                  label="24h 초과 draft 영수증"
+                  value={ops.stale_draft_receipts}
+                  actionLabel="정산 확정"
+                  actionHref="/owner/settlement"
+                  onClick={(href) => router.push(href)}
+                />
+                <DataAnomalyRow
+                  label="30일 초과 미수금"
+                  value={ops.old_unpaid_credits}
+                  actionLabel="외상 회수"
+                  actionHref="/credits"
+                  onClick={(href) => router.push(href)}
+                />
+                <DataAnomalyRow
+                  label="음수 재고"
+                  value={ops.negative_stock}
+                  actionLabel="재고 조정"
+                  actionHref="/inventory"
+                  onClick={(href) => router.push(href)}
+                />
+                <DataAnomalyRow
+                  label="저재고 (min_stock 미만)"
+                  value={ops.below_min_stock}
+                  actionLabel="매입 등록"
+                  actionHref="/finance/purchases"
+                  onClick={(href) => router.push(href)}
+                />
+              </div>
+            </div>
+          )}
 
           {/* 에러 24시간 */}
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
