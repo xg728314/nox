@@ -33,3 +33,12 @@ test-results/
 playwright-report/
 playwright/.cache/
 .playwright/
+
+.vercel
+.env*.local
+
+service.yaml
+service.*.yaml
+
+service.yaml
+service.*.yaml

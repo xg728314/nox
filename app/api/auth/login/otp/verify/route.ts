@@ -347,6 +347,9 @@ export async function POST(request: Request) {
     //    gating on page navigation.
     const accessToken = otpData.session.access_token
     const expiresIn = typeof otpData.session.expires_in === "number" ? otpData.session.expires_in : 3600
+    // 2026-04-28: 4h 운영 정책 — login/route.ts 와 동일 로직.
+    const FOUR_HOURS_S = 4 * 60 * 60
+    const cookieMaxAge = Math.min(FOUR_HOURS_S, expiresIn)
 
     const res = NextResponse.json({
       access_token: accessToken,
@@ -362,7 +365,7 @@ export async function POST(request: Request) {
       sameSite: "lax",
       path: "/",
       secure: process.env.NODE_ENV === "production",
-      maxAge: expiresIn,
+      maxAge: cookieMaxAge,
     })
     return res
   } catch {

@@ -19,6 +19,16 @@
  *       should redirect to `/login` in that case.
  *     - No fallback to localStorage. Clients that formerly relied on
  *       synchronous localStorage reads must tolerate an async state.
+ *
+ * 2026-04-28 (perf round):
+ *   /counter 첫 진입에서 useCurrentProfile 호출자 3곳
+ *   (CounterPageV2, CounterBleMinimapWidget, IssueReportButton 의 직접
+ *    fetch) 이 동시에 /api/auth/me 를 3회 친 사실 확인. 모듈 레벨
+ *   in-flight 공유 + 30s TTL 캐시로 1회로 수렴. invalidate() 는
+ *   로그아웃/membership 변경 시 호출자가 명시적으로 호출.
+ *
+ *   캐시는 process(=tab) 내부 메모리. SSR 영향 없음 (모듈 자체는
+ *   client-only).
  */
 
 import { useEffect, useRef, useState } from "react"
@@ -40,38 +50,94 @@ type State =
 
 const INITIAL: State = { loading: true, profile: null, needsLogin: false, error: null }
 
+const TTL_MS = 30_000
+
+let cached: { state: State; ts: number } | null = null
+let inFlight: Promise<State> | null = null
+const subscribers = new Set<(s: State) => void>()
+
+function publish(s: State) {
+  cached = { state: s, ts: Date.now() }
+  for (const fn of subscribers) {
+    try { fn(s) } catch { /* ignore */ }
+  }
+}
+
+async function doFetch(): Promise<State> {
+  try {
+    const r = await apiFetch("/api/auth/me")
+    if (r.status === 401 || r.status === 403) {
+      return { loading: false, profile: null, needsLogin: true, error: null }
+    }
+    if (!r.ok) {
+      return { loading: false, profile: null, needsLogin: false, error: `HTTP ${r.status}` }
+    }
+    const data = (await r.json()) as CurrentProfile
+    return { loading: false, profile: data, needsLogin: false, error: null }
+  } catch (e) {
+    return {
+      loading: false, profile: null, needsLogin: false,
+      error: e instanceof Error ? e.message : "network error",
+    }
+  }
+}
+
+function getOrFetch(): Promise<State> {
+  if (cached && Date.now() - cached.ts < TTL_MS) {
+    return Promise.resolve(cached.state)
+  }
+  if (inFlight) return inFlight
+  inFlight = doFetch()
+    .then((s) => {
+      publish(s)
+      return s
+    })
+    .finally(() => {
+      inFlight = null
+    })
+  return inFlight
+}
+
+/**
+ * Force-refresh the cached profile. Call after logout / membership change /
+ * password reset so subsequent reads see fresh state.
+ */
+export function invalidateCurrentProfile(): void {
+  cached = null
+}
+
 /**
  * Full-state variant. Preferred for new code.
  */
 export function useCurrentProfileState(): State {
-  const [state, setState] = useState<State>(INITIAL)
+  // Synchronous initial state — if cache hit, render immediately with data
+  // (eliminates the loading flash for second mounts within TTL window).
+  const [state, setState] = useState<State>(() => {
+    if (cached && Date.now() - cached.ts < TTL_MS) return cached.state
+    return INITIAL
+  })
   const mounted = useRef(true)
+
   useEffect(() => {
     mounted.current = true
-    void (async () => {
-      try {
-        const r = await apiFetch("/api/auth/me")
-        if (!mounted.current) return
-        if (r.status === 401 || r.status === 403) {
-          setState({ loading: false, profile: null, needsLogin: true, error: null })
-          return
-        }
-        if (!r.ok) {
-          setState({ loading: false, profile: null, needsLogin: false, error: `HTTP ${r.status}` })
-          return
-        }
-        const data = (await r.json()) as CurrentProfile
-        setState({ loading: false, profile: data, needsLogin: false, error: null })
-      } catch (e) {
-        if (!mounted.current) return
-        setState({
-          loading: false, profile: null, needsLogin: false,
-          error: e instanceof Error ? e.message : "network error",
-        })
-      }
-    })()
-    return () => { mounted.current = false }
+
+    // Subscriber: cache 가 갱신될 때 (다른 호출자가 fetch 완료) 즉시 반영.
+    const onPublish = (s: State) => {
+      if (mounted.current) setState(s)
+    }
+    subscribers.add(onPublish)
+
+    // 초기 fetch (캐시 hit 면 동기 resolve).
+    void getOrFetch().then((s) => {
+      if (mounted.current) setState(s)
+    })
+
+    return () => {
+      mounted.current = false
+      subscribers.delete(onPublish)
+    }
   }, [])
+
   return state
 }
 

@@ -1,0 +1,69 @@
+# R29 (2026-04-26): 외부 cron — Vercel Hobby plan 의 일 1회 제한 우회.
+#
+# 사용 시점:
+#   - BLE 본 배포 후 ble-attendance-sync 가 분 단위 필요할 때
+#   - 운영 안정화 후 ops-alerts-scan 5분 단위가 필요할 때
+#   - Pro plan 으로 업그레이드 안 하고 무료로 해결하고 싶을 때
+#
+# 동작:
+#   GitHub Actions 가 정해진 schedule 에 cron 엔드포인트를 HTTP GET 으로 호출.
+#   Vercel function 입장에선 user-agent 가 GitHub-Actions 라 vercel-cron 검사 실패 →
+#   Authorization: Bearer <CRON_SECRET> 로 통과.
+#
+# 사전 설정:
+#   1) GitHub repo Settings → Secrets and variables → Actions → New secret:
+#        - PROD_BASE_URL    예: https://nox.vercel.app
+#        - CRON_SECRET      Vercel env 의 CRON_SECRET 와 동일 값
+#   2) 이 파일 commit + push → 자동 활성
+#
+# 한도: GitHub Actions 무료 2,000 분/월 (개인 repo). 매 호출 ~10초 → 매 5분 = 8.6시간/월
+#       → 충분.
+#
+# 비활성: workflow_dispatch 만 남기고 schedule 주석 처리.
+
+name: NOX External Cron
+
+on:
+  schedule:
+    # 5분마다 ops-alerts-scan + 2분마다 ble-* 를 모두 한 workflow 에 묶어 호출.
+    # GitHub schedule 최소 단위는 5분. 2분은 5분에 포함 (작은 비효율 OK).
+    - cron: "*/5 * * * *"
+  # 수동 실행 (테스트)
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: ops-alerts-scan
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/ops-alerts-scan" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-external-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: ble-attendance-sync
+        # BLE 배포 전엔 noop 처리되도록 endpoint 자체가 graceful (insert 실패 시 skip).
+        # 호출만 해두면 BLE 배포 후 자동 활성.
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/ble-attendance-sync" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-external-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: ble-session-inference
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/ble-session-inference" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-external-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  # 일 1회 cron (vercel.json 의 daily 와 중복) — vercel.json 을 비우고 모두 외부로 옮기는
+  # 옵션도 가능. 현재는 vercel.json 의 daily 그대로 두고 GitHub 는 고빈도만 담당.

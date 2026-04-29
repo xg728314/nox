@@ -25,6 +25,7 @@ export type CronName =
   | "ble-history-reaper"
   | "audit-archive"
   | "settlement-tree-advance"
+  | "system-errors-cleanup"
 
 /** cron 등록 정보 + stale 임계치 (분). vercel.json 의 schedule 과 동기화. */
 export const CRON_REGISTRY: Record<CronName, {
@@ -33,20 +34,23 @@ export const CRON_REGISTRY: Record<CronName, {
   staleThresholdMin: number
   description: string
 }> = {
+  // R29-fix: Vercel Hobby plan 은 cron 일 1회 제한. 고빈도는 Pro plan 또는
+  //   외부 cron (.github/workflows/external-cron.yml) 필요.
+  //   BLE 미배포 + 첫 주는 일 1회로 충분. 추후 Pro 업그레이드 시 원복.
   "ops-alerts-scan": {
-    schedule: "*/5 * * * *",
-    staleThresholdMin: 15,
-    description: "근태 이상 스캔 + Telegram 알림",
+    schedule: "0 5 * * *",
+    staleThresholdMin: 26 * 60,
+    description: "근태 이상 스캔 + Telegram 알림 (Hobby: 일 1회)",
   },
   "ble-attendance-sync": {
-    schedule: "*/2 * * * *",
-    staleThresholdMin: 10,
-    description: "BLE 출퇴근 동기화",
+    schedule: "0 4 * * *",
+    staleThresholdMin: 26 * 60,
+    description: "BLE 출퇴근 동기화 (Hobby: 일 1회. BLE 배포 시 Pro 필요)",
   },
   "ble-session-inference": {
-    schedule: "*/2 * * * *",
-    staleThresholdMin: 10,
-    description: "BLE 기반 세션 자동 추론",
+    schedule: "0 6 * * *",
+    staleThresholdMin: 26 * 60,
+    description: "BLE 기반 세션 자동 추론 (Hobby: 일 1회)",
   },
   "ble-history-reaper": {
     schedule: "0 3 * * *",
@@ -62,6 +66,11 @@ export const CRON_REGISTRY: Record<CronName, {
     schedule: "0 8 * * *", // 17:00 KST
     staleThresholdMin: 26 * 60,
     description: "정산 트리 1→2→3 단계 진행 + 만료/완료 삭제 (일 1회)",
+  },
+  "system-errors-cleanup": {
+    schedule: "0 19 * * *", // 04:00 KST
+    staleThresholdMin: 26 * 60,
+    description: "system_errors stale auto-resolve + 30일 초과 resolved 영구 삭제 (일 1회)",
   },
 }
 

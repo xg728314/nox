@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
 import { captureException } from "@/lib/telemetry/captureException"
+import { useCurrentProfileState } from "@/lib/auth/useCurrentProfile"
 
 const POS_KEY = "nox.as_button.pos"
 const LONG_PRESS_MS = 220
@@ -139,22 +140,12 @@ export default function IssueReportButton() {
   const onPointerCancel = useCallback(() => { finishDrag() }, [finishDrag])
 
   // 2026-04-25: 로그인 상태 확인 — 미로그인 시 버튼 숨김.
-  //   /api/auth/me 로 HttpOnly 쿠키 기반 인증 여부 확인.
-  //   실패해도 조용히 숨김 (로그인 페이지 등 공개 경로에서 발생).
-  const [authed, setAuthed] = useState<boolean | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    async function check() {
-      try {
-        const res = await apiFetch("/api/auth/me")
-        if (!cancelled) setAuthed(res.ok)
-      } catch {
-        if (!cancelled) setAuthed(false)
-      }
-    }
-    check()
-    return () => { cancelled = true }
-  }, [])
+  // 2026-04-28 (perf round): 자체 /api/auth/me 호출 제거. 글로벌
+  //   useCurrentProfile cache (lib/auth/useCurrentProfile) 와 공유 →
+  //   /counter 진입 시 /api/auth/me 호출 합산 1회.
+  const profileState = useCurrentProfileState()
+  const authed: boolean | null =
+    profileState.loading ? null : profileState.profile !== null
 
   function reset() {
     setCategory("other")

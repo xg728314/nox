@@ -27,6 +27,15 @@
 export async function register() {
   // R28-sentry (2026-04-26): @sentry/nextjs 통합 활성.
   //   SENTRY_DSN 미설정 시 sentry.*.config.ts 가 init 스킵 → silent.
+  //
+  // 2026-04-28 (perf round): DSN 부재 시 모듈 import 자체를 skip.
+  //   기존엔 import 만 해도 @sentry/node + @prisma/instrumentation +
+  //   @opentelemetry/instrumentation 체인이 로드되어 cold-start 에 불필요한
+  //   비용(빌드 경고 + 첫 요청 latency) 추가됨. DSN 없으면 init 도 안 하니
+  //   import 도 안 하는 게 맞음. 키 값 자체는 읽지 않고 존재 여부만 본다.
+  const dsnPresent = !!process.env.SENTRY_DSN || !!process.env.NEXT_PUBLIC_SENTRY_DSN
+  if (!dsnPresent) return
+
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config")
   }

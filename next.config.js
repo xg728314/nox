@@ -12,6 +12,13 @@ const connectSrc = [
   SUPABASE_URL_HOST ? `wss://${SUPABASE_URL_HOST}` : null,
   "https://*.sentry.io",
   "https://api.anthropic.com",
+  // 2026-04-29: app/globals.css 의 Pretendard @import 가 jsdelivr 의
+  //   CSS 를 가져오고, 그 CSS 안 sourceMappingURL 이 같은 도메인 /sm/*.map
+  //   을 가리킨다. 브라우저(특히 DevTools 가 열린 상태) 가 sourcemap 을
+  //   fetch 로 가져오려 하면 connect-src 검사를 받아 차단되어 콘솔 에러
+  //   발생. style-src/font-src 에는 이미 허용된 도메인이라 비대칭 해소.
+  //   GET-only 텍스트 자원이라 보안 표면 확장 영향은 작음.
+  FONT_CDN,
 ]
   .filter(Boolean)
   .join(" ")

@@ -1,0 +1,49 @@
+# R29: Cloud Run Docker build 제외 목록. 빌드 속도 + 이미지 크기 최적화.
+
+# 의존성 (Dockerfile 안에서 npm ci 로 설치)
+node_modules
+.next
+out
+dist
+
+# 환경
+.env
+.env.local
+.env*.local
+
+# Git
+.git
+.gitignore
+
+# 개발 도구
+.vscode
+.idea
+*.swp
+*.swo
+
+# 테스트 / E2E
+test-results
+playwright-report
+playwright/.cache
+.playwright
+coverage
+
+# 운영 디버그 산출물
+.next_old_*
+CLEANUP_AUDIT_FULL.json
+monitoring/state
+
+# 백업/임시
+_ble_wip
+*.bak
+*.tmp
+
+# CI / Vercel 잔재
+.vercel
+.github
+
+# 문서 (런타임 불필요)
+docs
+README.md
+DEPLOY_CHECKLIST_R20.md
+CLAUDE.md

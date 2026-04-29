@@ -224,6 +224,14 @@ export async function POST(request: Request) {
         store_uuid: membership.store_uuid,
       })
 
+      // 2026-04-28: 운영 정책 — 로그인 유지시간 4시간. cookie maxAge
+      // 는 access_token JWT 의 expires_in 을 한도로 사용 (Supabase
+      // 프로젝트 JWT 만료 ≥ 4h 로 dashboard 에서 설정 필요. 미설정 시
+      // JWT 가 1h 에 만료돼 4h 쿠키여도 서버 검증 실패함).
+      const FOUR_HOURS_S = 4 * 60 * 60
+      const sessionExpires = typeof data.session.expires_in === "number"
+        ? data.session.expires_in
+        : 3600
       res.cookies.set({
         name: "nox_access_token",
         value: data.session.access_token,
@@ -231,7 +239,7 @@ export async function POST(request: Request) {
         sameSite: "lax",
         path: "/",
         secure: process.env.NODE_ENV === "production",
-        maxAge: typeof data.session.expires_in === "number" ? data.session.expires_in : 3600,
+        maxAge: Math.min(FOUR_HOURS_S, sessionExpires),
       })
 
       return res

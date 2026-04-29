@@ -301,6 +301,11 @@ export async function POST(request: Request) {
       used_backup_code: usedBackupCode,
       backup_codes_remaining: backupCodesRemaining,
     })
+    // 2026-04-28: 4h 운영 정책 — login/route.ts 와 동일 로직.
+    const FOUR_HOURS_S = 4 * 60 * 60
+    const sessionExpires = typeof signIn.session.expires_in === "number"
+      ? signIn.session.expires_in
+      : 3600
     res.cookies.set({
       name: "nox_access_token",
       value: signIn.session.access_token,
@@ -308,7 +313,7 @@ export async function POST(request: Request) {
       sameSite: "lax",
       path: "/",
       secure: process.env.NODE_ENV === "production",
-      maxAge: typeof signIn.session.expires_in === "number" ? signIn.session.expires_in : 3600,
+      maxAge: Math.min(FOUR_HOURS_S, sessionExpires),
     })
     return res
   } catch {
