@@ -57,10 +57,13 @@ export async function GET(request: Request) {
     const telegramConfigured = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID)
 
     // ── 2) 에러 집계 ──
+    //   resolved_at 마킹된 행은 운영자가 "이미 수정됨" 으로 처리한 것 → 제외.
+    //   원본 row 는 보존 (감사 추적). active 만 watchdog 에 카운트.
     const { data: errorRows } = await supabase
       .from("system_errors")
       .select("id, tag, error_name, error_message, created_at")
       .gte("created_at", since24h)
+      .is("resolved_at", null)
       .order("created_at", { ascending: false })
     const errorList = errorRows ?? []
     const errorByTag = new Map<string, number>()
