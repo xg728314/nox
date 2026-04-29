@@ -4,12 +4,17 @@
  * /finance/purchases — 박스 단위 매입 등록 + 목록.
  *
  * 카테고리: 양주(liquor) / 소주(soju) / 맥주(beer) / 와인(wine) / 과일(fruit) / 기타(other)
- *   ※ 양주(liquor) 는 발렌타인/조니워커 등 brand 양주, soju/beer 와는 별도 분류.
  *
- * 등록 = 발생주의 매입 시점에 즉시 변동비 인식.
- *   PnL 화면에서는 month_start ~ month_end 범위 합으로 자동 합산.
+ * 2026-04-29 v2: 재고 연동.
+ *   - 재고 품목 dropdown 에서 선택하면 매입 등록 시 그 품목 current_stock
+ *     이 (qty × units_per_box) 만큼 자동 증가.
+ *   - "재고 미연결" 선택 시 store_purchases 만 기록 (변동비 인식만).
+ *   - 매입처(vendor) 필드는 제거 — 운영 단순화 요청.
  *
- * 권한: owner only (middleware + API 가드).
+ * 발생주의: store_purchases.total_won 합 = 변동비.
+ *   PnL 화면에서 month_start ~ month_end 범위 합으로 자동 합산.
+ *
+ * 권한: owner only.
  */
 
 import { useEffect, useState } from "react"
@@ -25,12 +30,21 @@ type PurchaseRow = {
   unit_price_won: number
   qty: number
   total_won: number
-  vendor: string | null
   memo: string | null
   receipt_url: string | null
   status: string
   created_by: string
   created_at: string
+  inventory_item_id: string | null
+}
+
+type InventoryItem = {
+  id: string
+  name: string
+  unit: string
+  current_stock: number
+  units_per_box: number | null
+  cost_per_box: number | null
 }
 
 const CATEGORIES: { value: string; label: string }[] = [
@@ -63,13 +77,45 @@ export default function PurchasesPage() {
   const [fmItem, setFmItem] = useState("")
   const [fmUnit, setFmUnit] = useState("")
   const [fmQty, setFmQty] = useState("1")
-  const [fmVendor, setFmVendor] = useState("")
+  const [fmInventoryId, setFmInventoryId] = useState("")  // 재고 연동 (빈 = 미연결)
   const [fmMemo, setFmMemo] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
 
   useEffect(() => {
     fetchList()
+    fetchInventory()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchInventory() {
+    try {
+      const res = await apiFetch("/api/inventory/items")
+      if (!res.ok) return
+      const data = await res.json()
+      const items: InventoryItem[] = (data.items ?? []).map((it: {
+        id: string; name: string; unit: string; current_stock: number;
+        units_per_box: number | null; cost_per_box: number | null;
+      }) => ({
+        id: it.id,
+        name: it.name,
+        unit: it.unit,
+        current_stock: it.current_stock,
+        units_per_box: it.units_per_box,
+        cost_per_box: it.cost_per_box,
+      }))
+      setInventoryItems(items)
+    } catch { /* noop — dropdown empty 이라도 매입 등록은 가능 */ }
+  }
+
+  /** 선택된 inventory_item — 재고 미연결 시 null. */
+  const selectedItem = fmInventoryId
+    ? inventoryItems.find((it) => it.id === fmInventoryId) ?? null
+    : null
+
+  /** 재고 증가량 미리보기. units_per_box 가 0/null 이면 1 로 fallback. */
+  const stockAddPreview = selectedItem
+    ? Number(fmQty) * Math.max(1, selectedItem.units_per_box ?? 1)
+    : 0
 
   async function fetchList() {
     setLoading(true)
@@ -124,7 +170,7 @@ export default function PurchasesPage() {
           item_name: fmItem.trim(),
           unit_price_won: unit,
           qty,
-          vendor: fmVendor.trim() || undefined,
+          inventory_item_id: fmInventoryId || undefined,
           memo: fmMemo.trim() || undefined,
         }),
       })
@@ -141,9 +187,10 @@ export default function PurchasesPage() {
       setFmItem("")
       setFmUnit("")
       setFmQty("1")
-      setFmVendor("")
+      setFmInventoryId("")
       setFmMemo("")
       fetchList()
+      fetchInventory()  // current_stock 변경 반영
     } catch {
       setError("서버 오류가 발생했습니다.")
     } finally {
@@ -203,19 +250,36 @@ export default function PurchasesPage() {
                 ))}
               </select>
             </Field>
-            <Field label="매입처">
-              <input
-                value={fmVendor}
-                onChange={(e) => setFmVendor(e.target.value)}
-                placeholder="예: ○○ 유통"
+            <Field label="재고 연동 (선택)">
+              <select
+                value={fmInventoryId}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setFmInventoryId(v)
+                  // 선택 시 품목명/단가 자동 채움 — 사용자 수정 가능.
+                  if (v) {
+                    const it = inventoryItems.find((x) => x.id === v)
+                    if (it) {
+                      if (!fmItem) setFmItem(it.name)
+                      if (!fmUnit && it.cost_per_box) setFmUnit(String(it.cost_per_box))
+                    }
+                  }
+                }}
                 className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
-              />
+              >
+                <option value="">재고 미연결 (장부만 기록)</option>
+                {inventoryItems.map((it) => (
+                  <option key={it.id} value={it.id}>
+                    {it.name} (현재 {it.current_stock}{it.unit})
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="품목명" col="md:col-span-3">
               <input
                 value={fmItem}
                 onChange={(e) => setFmItem(e.target.value)}
-                placeholder="예: 발렌타인 17년 1박스 (12병)"
+                placeholder="예: 골든블루 1박스 6병"
                 className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
               />
             </Field>
@@ -241,6 +305,16 @@ export default function PurchasesPage() {
                 {fmtWon(Number(fmUnit) * Number(fmQty) || 0)}
               </div>
             </Field>
+            {selectedItem && (
+              <Field label="재고 증가 (예상)" col="md:col-span-3">
+                <div className="px-3 py-2 text-sm text-cyan-300 tabular-nums bg-cyan-500/[0.06] border border-cyan-500/30 rounded-lg">
+                  {selectedItem.name}: {selectedItem.current_stock} → {selectedItem.current_stock + stockAddPreview} {selectedItem.unit}
+                  <span className="text-slate-500 ml-2 text-[11px]">
+                    (수량 {fmQty} 박스 × {Math.max(1, selectedItem.units_per_box ?? 1)} {selectedItem.unit}/박스)
+                  </span>
+                </div>
+              </Field>
+            )}
             <Field label="메모" col="md:col-span-3">
               <input
                 value={fmMemo}
@@ -319,7 +393,7 @@ export default function PurchasesPage() {
                   <th className="px-4 py-2 text-right">단가</th>
                   <th className="px-4 py-2 text-right">수량</th>
                   <th className="px-4 py-2 text-right">합계</th>
-                  <th className="px-4 py-2 text-left">매입처</th>
+                  <th className="px-4 py-2 text-left">재고 연동</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -332,7 +406,11 @@ export default function PurchasesPage() {
                     <td className="px-4 py-2 text-right tabular-nums">{fmtWon(r.unit_price_won)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{r.qty}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-emerald-300">{fmtWon(r.total_won)}</td>
-                    <td className="px-4 py-2 text-slate-400">{r.vendor ?? ""}</td>
+                    <td className="px-4 py-2 text-[11px]">
+                      {r.inventory_item_id
+                        ? <span className="text-cyan-300">✓ 연동</span>
+                        : <span className="text-slate-600">미연결</span>}
+                    </td>
                     <td className="px-4 py-2 text-right">
                       <button
                         onClick={() => remove(r.id)}
