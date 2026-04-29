@@ -24,7 +24,9 @@ const TABS: readonly Tab[] = [
   { label: "내 수익", icon: "📒", path: "/manager/ledger" },
   { label: "지급", icon: "💸", path: "/payouts" },
   { label: "고객·외상", icon: "👥", path: "/customers" },
-  { label: "종이장부", icon: "📑", path: "/reconcile" },
+  // 실장 주 use-case = 본인 담당 스태프의 일별 근무표 등록 → /reconcile/staff 로 직행.
+  // 방별 장부 (/reconcile) 가 필요하면 그 화면 헤더에서 토글 가능.
+  { label: "스태프장부", icon: "📑", path: "/reconcile/staff" },
   { label: "채팅", icon: "💬", path: "/chat" },
   { label: "내 정보", icon: "👤", path: "/me" },
 ]

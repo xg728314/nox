@@ -3,7 +3,9 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { computePaperTotals } from "@/lib/reconcile/paperTotals"
 import { aggregateDbForDay } from "@/lib/reconcile/dbAggregate"
+import { aggregateStaffForDay } from "@/lib/reconcile/dbAggregateStaff"
 import { computeReconcile } from "@/lib/reconcile/match"
+import { computeStaffReconcile } from "@/lib/reconcile/matchStaff"
 import { logAuditEvent } from "@/lib/audit/logEvent"
 import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 import type { PaperExtraction } from "@/lib/reconcile/types"
@@ -45,14 +47,14 @@ export async function POST(
     // 1. snapshot
     const { data: snap } = await supabase
       .from("paper_ledger_snapshots")
-      .select("id, store_uuid, business_date")
+      .select("id, store_uuid, business_date, sheet_kind")
       .eq("id", id)
       .is("archived_at", null)
       .maybeSingle()
     if (!snap) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
     }
-    const s = snap as { id: string; store_uuid: string; business_date: string }
+    const s = snap as { id: string; store_uuid: string; business_date: string; sheet_kind: string }
     if (s.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
     }
@@ -110,16 +112,61 @@ export async function POST(
       extraction_id = er.id
     }
 
-    // 3. paper totals
+    // 3. sheet_kind 별 diff 분기.
+    //    'staff' → 스태프 1일치 비교 (per-hostess TC 건수 + 지급액).
+    //    'rooms'/'other' → 기존 cross-store owe/recv + liquor/misu 합계.
+    if (s.sheet_kind === "staff") {
+      const staffAgg = await aggregateStaffForDay(supabase, s.store_uuid, s.business_date)
+      const staffResult = computeStaffReconcile(extraction, staffAgg)
+
+      const { data: diff, error: insErr } = await supabase
+        .from("paper_ledger_diffs")
+        .insert({
+          snapshot_id: id,
+          extraction_id,
+          source_edit_id,
+          // staff diff 는 owe/recv 의미가 없어 0 으로 저장.
+          paper_owe_total_won: 0,
+          paper_recv_total_won: staffResult.paper_total_payout_won,
+          db_owe_total_won: 0,
+          db_recv_total_won: staffResult.db_total_payout_won,
+          item_diffs: staffResult.item_diffs,
+          match_status: staffResult.match_status,
+        })
+        .select("id")
+        .single()
+      if (insErr) {
+        return NextResponse.json({ error: "DB_INSERT_FAILED", message: insErr.message }, { status: 500 })
+      }
+
+      await logAuditEvent(supabase, {
+        auth,
+        action: "paper_ledger_diff_computed",
+        entity_table: "paper_ledger_snapshots",
+        entity_id: id,
+        status: "success",
+        metadata: {
+          diff_id: (diff as { id: string }).id,
+          match_status: staffResult.match_status,
+          sheet_kind: "staff",
+          paper_total_tc: staffResult.paper_total_tc,
+          db_total_tc: staffResult.db_total_tc,
+          item_count: staffResult.item_diffs.length,
+        },
+      }).catch(() => { /* audit best-effort */ })
+
+      return NextResponse.json({
+        diff_id: (diff as { id: string }).id,
+        sheet_kind: "staff",
+        ...staffResult,
+      })
+    }
+
+    // === rooms / other 경로 (기존 동작 유지) ===
     const paper = computePaperTotals(extraction)
-
-    // 4. DB aggregate
     const dbAgg = await aggregateDbForDay(supabase, s.store_uuid, s.business_date)
-
-    // 5. reconcile
     const result = computeReconcile(paper, dbAgg)
 
-    // 6. 저장 (source_edit_id 추가 — R-B)
     const { data: diff, error: insErr } = await supabase
       .from("paper_ledger_diffs")
       .insert({
@@ -148,12 +195,14 @@ export async function POST(
       metadata: {
         diff_id: (diff as { id: string }).id,
         match_status: result.match_status,
+        sheet_kind: s.sheet_kind,
         item_count: result.item_diffs.length,
       },
     })
 
     return NextResponse.json({
       diff_id: (diff as { id: string }).id,
+      sheet_kind: s.sheet_kind,
       ...result,
     })
   } catch (e) {
