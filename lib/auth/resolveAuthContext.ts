@@ -128,6 +128,93 @@ function extractAccessToken(req: Request): string {
   return ""
 }
 
+/**
+ * R-super-admin-view (2026-04-30): super_admin 전용 active context override.
+ *
+ *   nox_active_store : 활성 매장 store_uuid override (super_admin 만)
+ *   nox_active_role  : 활성 역할 enum override (super_admin 만, owner/manager/staff/hostess/waiter)
+ *
+ * 비-super_admin 의 cookie 는 무시. 검증/오버라이드 적용은 resolveAuthContext
+ * 의 마지막 단계에서.
+ */
+function extractOverrideCookies(req: Request): {
+  active_store?: string
+  active_role?: string
+} {
+  const cookieHeader = req.headers.get("cookie") ?? ""
+  const out: { active_store?: string; active_role?: string } = {}
+  for (const pair of cookieHeader.split(";")) {
+    const trimmed = pair.trim()
+    if (trimmed.startsWith("nox_active_store=")) {
+      const v = decodeURIComponent(trimmed.slice("nox_active_store=".length)).trim()
+      if (/^[0-9a-f-]{36}$/i.test(v)) out.active_store = v
+    } else if (trimmed.startsWith("nox_active_role=")) {
+      const v = decodeURIComponent(trimmed.slice("nox_active_role=".length)).trim()
+      if (["owner", "manager", "waiter", "staff", "hostess"].includes(v)) out.active_role = v
+    }
+  }
+  return out
+}
+
+/**
+ * super_admin 의 active context override 적용.
+ *   - active_store 있으면: 해당 store 에 본인 approved membership 이 있는지
+ *     검증 후 store_uuid + membership_id 교체.
+ *   - active_role  있으면: role enum 만 교체. membership_id 는 store override
+ *     의 결과 그대로 (impersonation — audit 용 actor_membership_id 는 실제
+ *     row 를 가리키되 actor_role 은 override 값).
+ *   - 비-super_admin 이거나 cookie 없으면 ctx 그대로 반환.
+ *
+ * 실패 정책:
+ *   - active_store 가 있는데 해당 매장에 본인 approved membership 부재 →
+ *     원본 ctx 반환 (override 무시). 사용자가 잘못된 cookie 를 들고 있어도
+ *     기본 정상 매장 경로로 fall-through.
+ */
+async function applySuperAdminOverride(
+  ctx: AuthContext,
+  override: { active_store?: string; active_role?: string },
+  supabase: ReturnType<typeof getServiceClient>,
+): Promise<AuthContext> {
+  if (!ctx.is_super_admin) return ctx
+  if (!override.active_store && !override.active_role) return ctx
+
+  let next: AuthContext = { ...ctx }
+
+  if (override.active_store && override.active_store !== ctx.store_uuid) {
+    const { data: m } = await supabase
+      .from("store_memberships")
+      .select("id, store_uuid, role, status")
+      .eq("profile_id", ctx.user_id)
+      .eq("store_uuid", override.active_store)
+      .eq("status", "approved")
+      .is("deleted_at", null)
+      .order("role", { ascending: true })  // owner 가 먼저 오도록 (alphabetical: manager < owner — 실제로는 둘 다 있으면 owner 우선 원함)
+      .limit(1)
+      .maybeSingle()
+
+    if (m) {
+      const row = m as { id: string; store_uuid: string; role: string; status: string }
+      next = {
+        ...next,
+        store_uuid: row.store_uuid,
+        membership_id: row.id,
+        role: row.role as AuthContext["role"],
+      }
+    }
+    // membership 부재 → override 무시. 원본 매장 그대로.
+  }
+
+  if (override.active_role && override.active_role !== next.role) {
+    // role 만 enum 교체. membership_id 는 store override 결과 유지.
+    next = {
+      ...next,
+      role: override.active_role as AuthContext["role"],
+    }
+  }
+
+  return next
+}
+
 export async function resolveAuthContext(req: Request): Promise<AuthContext> {
   // 1+2. Token extraction — cookie preferred, Bearer fallback.
   const token = extractAccessToken(req)
@@ -159,7 +246,7 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
         )
       }
     }
-    return {
+    const baseCtx: AuthContext = {
       user_id: cached.user_id,
       membership_id: cached.membership_id,
       store_uuid: cached.store_uuid,
@@ -169,6 +256,17 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
       is_super_admin: cached.is_super_admin,
       must_change_password: cached.must_change_password,
     }
+    // R-super-admin-view: super_admin override cookie 적용 (cache hit 경로).
+    const override = extractOverrideCookies(req)
+    if (cached.is_super_admin && (override.active_store || override.active_role)) {
+      try {
+        const sb = getServiceClient()
+        return await applySuperAdminOverride(baseCtx, override, sb)
+      } catch {
+        return baseCtx
+      }
+    }
+    return baseCtx
   }
 
   // 3. Supabase 서버 클라이언트 (P0-1: module singleton instead of per-call)
@@ -312,6 +410,12 @@ export async function resolveAuthContext(req: Request): Promise<AuthContext> {
         "비밀번호를 먼저 변경해야 합니다.",
       )
     }
+  }
+
+  // R-super-admin-view: super_admin override cookie 적용 (cache miss 경로).
+  const override = extractOverrideCookies(req)
+  if (ctx.is_super_admin && (override.active_store || override.active_role)) {
+    return await applySuperAdminOverride(ctx, override, supabase)
   }
 
   return ctx

@@ -40,6 +40,8 @@ export type CurrentProfile = {
   store_uuid: string
   role: "owner" | "manager" | "waiter" | "staff" | "hostess"
   membership_status: "approved" | "pending" | "rejected" | "suspended"
+  /** R-super-admin-view: 운영자 권한 여부. /api/auth/me 가 자체적으로 노출. */
+  is_super_admin?: boolean
 }
 
 type State =

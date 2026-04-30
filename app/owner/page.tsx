@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
-import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import { useCurrentProfile, invalidateCurrentProfile } from "@/lib/auth/useCurrentProfile"
 import { usePagePerf } from "@/lib/debug/usePagePerf"
 import OwnerQuickNav from "./components/OwnerQuickNav"
 import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
@@ -90,6 +90,9 @@ export default function OwnerPage() {
 
   const me = useCurrentProfile()
   const currentStoreUuid = me?.store_uuid ?? ""
+  const isSuperAdmin = me?.is_super_admin === true
+  const [viewRole, setViewRole] = useState<string>("")  // 비어있으면 본인 role 그대로
+  const [contextSwitching, setContextSwitching] = useState(false)
 
   usePagePerf("owner")
 
@@ -341,11 +344,33 @@ export default function OwnerPage() {
   )
 
   async function handleSwitchStore(m: StoreMembership) {
-    // 2026-04-30: /api/auth/switch-membership 으로 is_primary swap → logout
-    //   → login 화면 자동 이동. 사용자가 다시 로그인하면 resolveAuthContext
-    //   가 새 primary membership 의 store_uuid 로 세션 시작.
+    // 2026-04-30 (R-super-admin-view):
+    //   super_admin 은 /api/auth/active-context 로 cookie override 만 설정 →
+    //   logout 없이 즉시 새 매장 컨텍스트로 진입.
+    //   비-super_admin (단일 매장 owner) 는 기존 switch-membership swap 후
+    //   logout 흐름 유지.
     setSwitching(true)
     try {
+      if (isSuperAdmin) {
+        // 운영자 경로: cookie 만 갈아끼움. logout 없음.
+        const res = await apiFetch("/api/auth/active-context", {
+          method: "PUT",
+          body: JSON.stringify({ store_uuid: m.store_uuid }),
+        })
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}))
+          setError(d.message || "매장 전환에 실패했습니다.")
+          return
+        }
+        // /api/auth/me 의 in-memory 캐시 즉시 무효화. router.refresh() 로 RSC 재요청.
+        invalidateCurrentProfile()
+        router.refresh()
+        // 또한 /counter 등 다른 화면에서 보이도록 페이지 reload.
+        window.location.reload()
+        return
+      }
+
+      // 비-super_admin: 기존 swap + logout 경로
       const res = await apiFetch("/api/auth/switch-membership", {
         method: "POST",
         body: JSON.stringify({ target_membership_id: m.membership_id }),
@@ -360,13 +385,42 @@ export default function OwnerPage() {
         setError(d.message || "매장 전환에 실패했습니다.")
         return
       }
-      // swap 성공 → 세션 종료 후 로그인 화면. 재로그인 시 새 매장으로 진입.
       await apiFetch("/api/auth/logout", { method: "POST" })
       router.push("/login?switched=1")
     } catch {
       setError("서버 오류")
     } finally {
       setSwitching(false)
+    }
+  }
+
+  /** R-super-admin-view: 역할 view override. super_admin 만. */
+  async function handleSetViewRole(role: string) {
+    if (!isSuperAdmin) return
+    setContextSwitching(true)
+    try {
+      if (role === "") {
+        // 해제 — cookie 둘 다 삭제
+        await apiFetch("/api/auth/active-context", { method: "DELETE" })
+        setViewRole("")
+      } else {
+        const res = await apiFetch("/api/auth/active-context", {
+          method: "PUT",
+          body: JSON.stringify({ role }),
+        })
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}))
+          setError(d.message || "역할 전환 실패")
+          return
+        }
+        setViewRole(role)
+      }
+      invalidateCurrentProfile()
+      window.location.reload()
+    } catch {
+      setError("서버 오류")
+    } finally {
+      setContextSwitching(false)
     }
   }
 
@@ -408,6 +462,46 @@ export default function OwnerPage() {
         )}
 
         <div className="px-4 py-4 space-y-4">
+          {/* R-super-admin-view: super_admin 전용 컨텍스트 컨트롤 */}
+          {isSuperAdmin && (
+            <div className="rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-200 font-semibold">🛡️ 운영자 모드</span>
+                <span className="text-[11px] text-fuchsia-300/80">super_admin · 모든 매장 + 권한 view</span>
+              </div>
+
+              <div>
+                <div className="text-[11px] text-slate-400 mb-1.5">권한 view (메뉴/UI 가 어떻게 보이는지 확인용)</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { v: "owner",   label: "사장" },
+                    { v: "manager", label: "실장" },
+                    { v: "staff",   label: "스태프" },
+                    { v: "",        label: "원래" },
+                  ].map((r) => {
+                    const active = (viewRole || "_default") === (r.v || "_default")
+                    return (
+                      <button
+                        key={r.label}
+                        onClick={() => handleSetViewRole(r.v)}
+                        disabled={contextSwitching}
+                        className={`py-2 rounded-lg text-xs border ${
+                          active
+                            ? "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-200 font-semibold"
+                            : "bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]"
+                        } disabled:opacity-50`}
+                      >{r.label}</button>
+                    )
+                  })}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1.5">
+                  현재 view: <b className="text-fuchsia-300">{me?.role === "owner" ? "사장" : me?.role === "manager" ? "실장" : me?.role === "staff" ? "스태프" : me?.role ?? "-"}</b>
+                  {viewRole && <span className="ml-1 text-fuchsia-400">(override)</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 매장 정보 */}
           {profile ? (
             <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-2">
