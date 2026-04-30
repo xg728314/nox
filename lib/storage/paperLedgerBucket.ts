@@ -106,3 +106,23 @@ function mimeToExt(mime: string): string {
   if (m.includes("webp")) return "webp"
   return "jpg"
 }
+
+/**
+ * R-Paper-Retention (2026-05-01): Storage 사진 파일 삭제.
+ *   cascade 삭제 시 호출. 실패 catch — DB row 삭제는 진행.
+ *   (Storage orphan 은 별도 cleanup 가능. DB 가 truth.)
+ */
+export async function removePaperLedger(
+  supabase: SupabaseClient,
+  storage_path: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const { error } = await supabase.storage
+      .from(PAPER_LEDGER_BUCKET)
+      .remove([storage_path])
+    if (error) return { ok: false, reason: error.message }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message }
+  }
+}

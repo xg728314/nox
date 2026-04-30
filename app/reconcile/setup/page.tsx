@@ -143,6 +143,10 @@ export default function ReconcileSetupPage() {
           여기 등록한 항목이 우선합니다. 새 사진을 자동 분석할 때 prompt 에 포함됩니다.
         </div>
 
+        {/* 2026-05-01 R-Paper-Retention: 사진 자동 만료 기간 설정 */}
+        <RetentionSettings />
+
+
         {/* 심볼 추가 */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
           <div className="text-sm font-semibold">새 심볼 등록</div>
@@ -247,6 +251,93 @@ export default function ReconcileSetupPage() {
           <pre className="mt-2 text-[10px] text-slate-400 overflow-x-auto">{JSON.stringify(data?.defaults.symbol_dictionary, null, 2)}</pre>
         </details>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RetentionSettings — 매장별 종이장부 사진 자동 만료 일수 설정
+// ─────────────────────────────────────────────────────────────────
+
+function RetentionSettings() {
+  const [days, setDays] = useState<number>(30)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await apiFetch("/api/store/settings/paper-ledger-retention")
+        if (cancelled) return
+        if (r.ok) {
+          const d = await r.json()
+          if (typeof d.paper_ledger_retention_days === "number") {
+            setDays(d.paper_ledger_retention_days)
+          }
+        }
+      } catch { /* default */ }
+      finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    setMsg("")
+    try {
+      const r = await apiFetch("/api/store/settings/paper-ledger-retention", {
+        method: "PUT",
+        body: JSON.stringify({ paper_ledger_retention_days: days }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setMsg(d.message || d.error || "저장 실패")
+        return
+      }
+      setMsg(days === 0 ? "자동 만료 없음으로 설정됨" : `${days}일 후 자동 삭제로 설정됨`)
+    } catch {
+      setMsg("네트워크 오류")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">설정 로딩...</div>
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-amber-200">🛡️ 사진 자동 만료 정책</div>
+      </div>
+      <div className="text-[11px] text-amber-100/70 leading-relaxed">
+        업로드된 종이장부 사진을 N일 후 자동 삭제합니다. <br/>
+        <span className="text-emerald-300">✓ 보존:</span> 학습 corpus (이름·전화는 자동 hash). 다음 사진 인식 정확도 유지. <br/>
+        <span className="text-red-300">✗ 삭제:</span> 사진 + OCR 결과 + 사람 편집본 (PII 포함).
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          max={365}
+          value={days}
+          onChange={(e) => setDays(Math.max(0, Math.min(365, parseInt(e.target.value || "0", 10))))}
+          className="w-24 rounded-lg border border-white/10 bg-[#0A1222]/80 px-3 py-2 text-sm tabular-nums"
+        />
+        <span className="text-xs text-slate-400">일</span>
+        <span className="text-[10px] text-slate-500 ml-2">
+          {days === 0 ? "(0 = 자동 만료 없음, 수동 삭제만)" : `(업로드 후 ${days}일)`}
+        </span>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="ml-auto px-3 py-2 text-xs rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 hover:bg-amber-500/30 disabled:opacity-50"
+        >{saving ? "저장 중..." : "저장"}</button>
+      </div>
+      {msg && <div className="text-[11px] text-emerald-300">{msg}</div>}
     </div>
   )
 }

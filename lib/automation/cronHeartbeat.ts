@@ -26,6 +26,7 @@ export type CronName =
   | "audit-archive"
   | "settlement-tree-advance"
   | "system-errors-cleanup"
+  | "paper-ledger-expire"
 
 /** cron 등록 정보 + stale 임계치 (분). vercel.json 의 schedule 과 동기화. */
 export const CRON_REGISTRY: Record<CronName, {
@@ -71,6 +72,11 @@ export const CRON_REGISTRY: Record<CronName, {
     schedule: "0 19 * * *", // 04:00 KST
     staleThresholdMin: 26 * 60,
     description: "system_errors stale auto-resolve + 30일 초과 resolved 영구 삭제 (일 1회)",
+  },
+  "paper-ledger-expire": {
+    schedule: "0 19 * * *", // 04:00 KST (system-errors-cleanup 와 같은 시간)
+    staleThresholdMin: 26 * 60,
+    description: "종이장부 사진 자동 만료 cascade 삭제 (사진+OCR+편집본, learning_signals 보존)",
   },
 }
 

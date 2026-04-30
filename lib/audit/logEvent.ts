@@ -52,6 +52,7 @@ export type AuditEntityTable =
   | "paper_ledger_edits"
   | "store_purchases"
   | "store_expenses"
+  | "store_settings"
 
 export type LogAuditInput = {
   auth: AuthContext

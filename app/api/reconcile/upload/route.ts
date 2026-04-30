@@ -110,6 +110,27 @@ export async function POST(request: Request) {
       business_day_id = (data as { id?: string } | null)?.id ?? null
     } catch { /* best-effort */ }
 
+    // 2026-05-01 R-Paper-Retention: 매장별 보관 기간 조회 후 expires_at 계산.
+    //   store_settings.paper_ledger_retention_days = 0 또는 null → 자동 만료 X.
+    //   default 30 일.
+    let expiresAt: string | null = null
+    try {
+      const { data: settings } = await supabase
+        .from("store_settings")
+        .select("paper_ledger_retention_days")
+        .eq("store_uuid", auth.store_uuid)
+        .maybeSingle()
+      const days = (settings as { paper_ledger_retention_days?: number } | null)
+        ?.paper_ledger_retention_days
+      if (typeof days === "number" && days > 0) {
+        expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+      } else if (days === undefined) {
+        // settings row 없으면 default 30일.
+        expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      }
+      // days === 0 또는 null → expiresAt = null (자동 만료 안 함).
+    } catch { /* best-effort, expiresAt null 로 진행 */ }
+
     // 3) snapshot row 생성
     const { error: insErr } = await supabase
       .from("paper_ledger_snapshots")
@@ -125,6 +146,7 @@ export async function POST(request: Request) {
         size_bytes: file.size,
         status: "uploaded",
         uploaded_by: auth.user_id,
+        expires_at: expiresAt,
       })
     if (insErr) {
       return NextResponse.json(

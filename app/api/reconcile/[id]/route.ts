@@ -3,6 +3,8 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { signedPaperLedgerUrl } from "@/lib/storage/paperLedgerBucket"
 import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
+import { cascadeDeletePaperLedger } from "@/lib/reconcile/deleteCascade"
+import { logAuditEvent } from "@/lib/audit/logEvent"
 
 /**
  * GET /api/reconcile/[id]
@@ -121,6 +123,108 @@ export async function GET(
       extraction,
       latest_edit,
       diff,
+    })
+  } catch (e) {
+    if (e instanceof AuthError) {
+      const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
+      return NextResponse.json({ error: e.type, message: e.message }, { status })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
+  }
+}
+
+/**
+ * DELETE /api/reconcile/[id]
+ *
+ * R-Paper-Retention (2026-05-01): 종이장부 사진 cascade 삭제.
+ *
+ * 정책:
+ *   ✗ 삭제: Storage 사진 + paper_ledger_snapshots / extractions / edits / diffs
+ *   ✓ 보존: learning_signals (PII auto-hash), store_paper_format
+ *   → 사진의 PII 는 사라지지만 운영자가 만든 학습 데이터는 유지.
+ *
+ * 권한:
+ *   - owner / super_admin 만 삭제 가능 (manager / waiter 차단).
+ *     사진은 손님 PII 포함 — 매장 책임자만 삭제 결정.
+ *   - 본인 매장 snapshot 만 (super_admin 제외).
+ */
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await context.params
+    if (!/^[0-9a-f-]{36}$/.test(id)) {
+      return NextResponse.json({ error: "BAD_REQUEST" }, { status: 400 })
+    }
+
+    const auth = await resolveAuthContext(request)
+
+    // owner / super_admin only
+    if (auth.role !== "owner" && !auth.is_super_admin) {
+      return NextResponse.json(
+        { error: "ROLE_FORBIDDEN", message: "사진 삭제는 사장 또는 운영자만 가능합니다." },
+        { status: 403 },
+      )
+    }
+
+    const supabase = supa()
+
+    // snapshot 조회 + 매장 검증
+    const { data: snap } = await supabase
+      .from("paper_ledger_snapshots")
+      .select("id, store_uuid, business_date, sheet_kind, file_name, storage_path")
+      .eq("id", id)
+      .maybeSingle()
+
+    if (!snap) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
+    }
+    const s = snap as {
+      id: string
+      store_uuid: string
+      business_date: string
+      sheet_kind: string
+      file_name: string | null
+      storage_path: string
+    }
+
+    // super_admin 이 아닌 owner 는 본인 매장만
+    if (!auth.is_super_admin && s.store_uuid !== auth.store_uuid) {
+      return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+    }
+
+    // cascade 실행
+    const result = await cascadeDeletePaperLedger(supabase, id, s.store_uuid)
+
+    // audit
+    try {
+      await logAuditEvent(supabase, {
+        auth,
+        action: "paper_ledger_deleted",
+        entity_table: "paper_ledger_snapshots",
+        entity_id: id,
+        metadata: {
+          business_date: s.business_date,
+          sheet_kind: s.sheet_kind,
+          file_name: s.file_name,
+          storage_removed: result.storage_removed,
+          storage_error: result.storage_error,
+          diffs_deleted: result.diffs_deleted,
+          edits_deleted: result.edits_deleted,
+          extractions_deleted: result.extractions_deleted,
+          snapshot_deleted: result.snapshot_deleted,
+          errors: result.errors,
+          policy: "사진+OCR+편집본 삭제. learning_signals(PII hash) 보존.",
+        },
+      })
+    } catch {
+      // audit 실패는 삭제 완료에 영향 X.
+    }
+
+    return NextResponse.json({
+      ok: result.snapshot_deleted,
+      result,
     })
   } catch (e) {
     if (e instanceof AuthError) {

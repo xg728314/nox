@@ -204,7 +204,32 @@ export default function ReconcileDetailPage({
       <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <button onClick={() => router.back()} className="text-cyan-400 text-sm">← 뒤로</button>
         <span className="font-semibold">📑 {s.business_date} · {s.sheet_kind === "rooms" ? "방별" : s.sheet_kind === "staff" ? "스태프" : "기타"}</span>
-        <div className="w-16" />
+        <button
+          onClick={async () => {
+            const ok1 = window.confirm(
+              "이 사진을 정말 삭제하시겠습니까?\n\n" +
+              "✗ 삭제: 사진 / OCR 결과 / 사람 편집본\n" +
+              "✓ 보존: 학습 corpus (PII 자동 hash 처리됨)"
+            )
+            if (!ok1) return
+            const ok2 = window.confirm("되돌릴 수 없습니다. 정말 삭제하시겠습니까?")
+            if (!ok2) return
+            try {
+              const r = await apiFetch(`/api/reconcile/${id}`, { method: "DELETE" })
+              const d = await r.json().catch(() => ({}))
+              if (!r.ok) {
+                alert(d.message || d.error || "삭제 실패")
+                return
+              }
+              alert("삭제 완료. 학습 데이터는 보존됨.")
+              router.push("/reconcile")
+            } catch {
+              alert("네트워크 오류")
+            }
+          }}
+          className="text-red-400 text-xs hover:text-red-300"
+          title="사진 삭제 (학습 corpus 는 보존)"
+        >🗑 삭제</button>
       </div>
 
       {error && (
