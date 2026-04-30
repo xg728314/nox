@@ -209,6 +209,77 @@ export async function POST(
       reason: editReason,
     })
 
+    // 10. 2026-04-30 (R-staff-learn): 매장 known_stores / known_hostesses
+    //   즉시 누적. 운영자가 입력한 매장명/이름은 신뢰 데이터 → 다음 추출
+    //   prompt 에 자동 주입 (lib/reconcile/extract.ts → buildExtractionPrompt).
+    //   /api/reconcile/learn 의 dictionary 학습은 MIN_OCCURRENCES=2 로 보수
+    //   적이라 첫 1회 편집은 반영 안 됐는데, known_stores 는 list 합집합
+    //   이라 1회만으로도 즉시 효과. 학습 실패는 edit save 자체에 영향 X.
+    try {
+      const learnedStores = new Set<string>()
+      const learnedHostesses = new Set<string>()
+      // staff sheet 학습
+      const editedStaff = (validated.value.staff ?? []) as Array<{
+        hostess_name?: string
+        sessions?: Array<{ store?: string }>
+      }>
+      for (const row of editedStaff) {
+        if (row.hostess_name && row.hostess_name.length >= 2) {
+          learnedHostesses.add(row.hostess_name.trim())
+        }
+        for (const s of row.sessions ?? []) {
+          if (s.store && s.store.length >= 2) {
+            learnedStores.add(s.store.trim())
+          }
+        }
+      }
+      // rooms sheet 학습
+      const editedRooms = (validated.value.rooms ?? []) as Array<{
+        manager_name?: string
+        staff_entries?: Array<{ hostess_name?: string; origin_store?: string }>
+      }>
+      for (const room of editedRooms) {
+        for (const se of room.staff_entries ?? []) {
+          if (se.hostess_name && se.hostess_name.length >= 2) {
+            learnedHostesses.add(se.hostess_name.trim())
+          }
+          if (se.origin_store && se.origin_store.length >= 2) {
+            learnedStores.add(se.origin_store.trim())
+          }
+        }
+      }
+
+      if (learnedStores.size > 0 || learnedHostesses.size > 0) {
+        const { data: fmt } = await supabase
+          .from("store_paper_format")
+          .select("known_stores, symbol_dictionary")
+          .eq("store_uuid", s.store_uuid)
+          .maybeSingle()
+        const fmtRow = fmt as {
+          known_stores?: string[] | null
+          symbol_dictionary?: Record<string, unknown>
+        } | null
+        const existingStores = new Set<string>(fmtRow?.known_stores ?? [])
+        for (const s of learnedStores) existingStores.add(s)
+        const merged = Array.from(existingStores).sort()
+
+        await supabase
+          .from("store_paper_format")
+          .upsert(
+            {
+              store_uuid: s.store_uuid,
+              known_stores: merged,
+              symbol_dictionary: fmtRow?.symbol_dictionary ?? {},
+              updated_by: auth.user_id,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "store_uuid" },
+          )
+      }
+    } catch {
+      // 학습 실패는 edit 응답에 영향 X (best-effort)
+    }
+
     return NextResponse.json({
       edit_id: e.id,
       edited_at: e.edited_at,
