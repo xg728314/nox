@@ -1,0 +1,62 @@
+# R29 (2026-04-30): Cloud Build 업로드 제외 목록.
+#
+# 효과: gcloud builds submit 시 source 폴더 zip 업로드 크기 감소.
+#   기본은 모든 파일 포함 → node_modules (수백 MB), .next (수백 MB),
+#   .git (수십 MB) 까지 매번 전송. 5분 이상 걸리는 경우 흔함.
+#
+# 본 파일 적용 후 일반적 NOX repo: ~20-30MB (소스만) → 30초~1분.
+#
+# Dockerfile 의 multi-stage build 가 npm ci + next build 를 컨테이너 안에서
+# 다시 하므로 외부에서 node_modules / .next 를 보낼 필요 없음.
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Next.js build artifacts (Dockerfile 안에서 다시 build)
+.next/
+.next_old_*/
+out/
+
+# Git
+.git/
+.gitignore
+
+# 환경 / 비밀
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 문서 / 운영 가이드 (배포 이미지에 불필요)
+*.md
+!README.md
+docs/
+orchestration/
+reference/
+contracts/
+
+# 테스트 / 부하 테스트
+scripts/load-test/
+scripts/visualize-seed/
+scripts/test-*.py
+e2e/
+playwright-report/
+test-results/
+
+# DB SQL (배포 이미지에 들어가면 안 됨 — Supabase 에서 별도 적용)
+database/
+
+# Logs
+*.log
+
+# 본 파일 자체는 빌드와 무관한 백업 / 임시
+_ble_wip/
+printer-server/

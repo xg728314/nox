@@ -39,6 +39,21 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}
 
   # 3️⃣ Deploy
+  #
+  # 2026-04-30 Cloud Run perf tuning:
+  #   기존: 1Gi RAM / 1 CPU / min=0 / concurrency=80
+  #   - min=0 → cold start 5~30초 (NOX 운영 시 첫 손님 응대 지연)
+  #   - 1 CPU → 14매장 380명 동시 부하 + monitor route 17쿼리 + Claude
+  #     Vision (sharp 리사이즈) 동시 처리 시 CPU 100% 막힘
+  #   - concurrency 80 → 1 CPU 로는 과부하, 응답 큐잉 발생
+  #
+  #   권장: 2Gi / 1 CPU / min=1 / concurrency=50
+  #   - min=1: cold start 제거 (월 ~$15 추가, 운영 가치 큼)
+  #   - 2Gi: monitor 응답 + Vision payload 안정성 (peak memory 보장)
+  #   - concurrency 50: 1 CPU 기준 안전 큐 (Vercel/CF 가이드와 일치)
+  #
+  #   비용 영향: 월 $20~30 추가. 14매장 운영 가치 대비 작음.
+  #   더 빠르게: --cpu=2 (월 추가 $30~50), Vision 호출 많을 때 효과 큼.
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: Deploy
     entrypoint: gcloud
@@ -50,12 +65,16 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
-      - --memory=1Gi
+      - --memory=2Gi
       - --cpu=1
-      - --min-instances=0
+      - --min-instances=1
       - --max-instances=10
-      - --concurrency=80
+      - --concurrency=50
       - --timeout=300s
+      # 2026-04-30: CPU always-allocated (background work / Sentry flush 안정성).
+      #   기본은 request-based — 요청 사이 CPU throttle. cron / realtime / sentry
+      #   같은 background activity 가 영향받음.
+      - --cpu-boost
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}
