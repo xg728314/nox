@@ -22,7 +22,13 @@ export async function GET(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    const rooms = await getRoomList(supabase, authContext.store_uuid, authContext.membership_id)
+    // 2026-05-01 R-Hostess-Home: role 전달. staff/hostess 면 global/group 제외.
+    const rooms = await getRoomList(
+      supabase,
+      authContext.store_uuid,
+      authContext.membership_id,
+      authContext.role,
+    )
 
     return NextResponse.json({ rooms })
   } catch (error) {

@@ -9,6 +9,7 @@ import ChatRoomList from "./components/ChatRoomList"
 import NewDmModal from "./components/NewDmModal"
 import GroupCreateModal from "./components/GroupCreateModal"
 import ChatUnreadBadge from "./components/ChatUnreadBadge"
+import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
 
 /**
  * ChatListPage — composition container.
@@ -18,6 +19,12 @@ import ChatUnreadBadge from "./components/ChatUnreadBadge"
 
 export default function ChatListPage() {
   const router = useRouter()
+  // 2026-05-01 R-Hostess-Home: 스태프(staff/hostess) 시점에서는 그룹 생성 X.
+  //   서버 (POST /api/chat/rooms type=global / group) 가 ROLE_FORBIDDEN 으로
+  //   차단하지만 UI 도 진입점 자체 숨겨서 일관된 UX 제공.
+  const profile = useCurrentProfile()
+  const isStaffRole =
+    profile?.role === "hostess" || profile?.role === "staff"
   const {
     rooms, loading, error, setError,
     needsLogin,
@@ -93,12 +100,15 @@ export default function ChatListPage() {
             <ChatUnreadBadge count={totalUnread} />
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => group.openCreate()}
-              className="text-cyan-400 text-sm"
-            >
-              + 그룹
-            </button>
+            {/* 2026-05-01: 스태프는 그룹 생성 X (서버 가드 + UI 진입점 숨김). */}
+            {!isStaffRole && (
+              <button
+                onClick={() => group.openCreate()}
+                className="text-cyan-400 text-sm"
+              >
+                + 그룹
+              </button>
+            )}
             <button
               onClick={() => { showNewDm ? closeNewDm() : openNewDm() }}
               className="text-cyan-400 text-sm"
