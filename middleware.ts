@@ -349,6 +349,50 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // 4d. R-super-admin-view (2026-04-30): super_admin 의 role override cookie
+  //     적용. resolveAuthContext (API 측) 와 동일한 정책을 middleware 에도
+  //     반영해 page-level guard 가 override 된 role 로 동작하도록 한다.
+  //     - nox_active_role cookie 가 있고 사용자가 super_admin 이면 enum 교체.
+  //     - 비-super_admin 의 cookie 는 무시 (보안).
+  //     - cookie 부재 시 변경 없음 (정상 사용자 영향 X).
+  {
+    const cookieHeader = req.headers.get("cookie") ?? ""
+    let overrideRole: string | null = null
+    for (const pair of cookieHeader.split(";")) {
+      const trimmed = pair.trim()
+      if (trimmed.startsWith("nox_active_role=")) {
+        try {
+          const v = decodeURIComponent(trimmed.slice("nox_active_role=".length)).trim()
+          if (["owner", "manager", "waiter", "staff", "hostess"].includes(v)) {
+            overrideRole = v
+          }
+        } catch { /* ignore */ }
+        break
+      }
+    }
+    if (overrideRole && overrideRole !== role) {
+      // super_admin 검증 — cache hit 또는 user_global_roles 조회
+      let isSuperAdmin = cached?.is_super_admin === true
+      if (!isSuperAdmin) {
+        try {
+          const sb = supabase ?? getServiceClient()
+          const { data: gr } = await sb
+            .from("user_global_roles")
+            .select("role")
+            .eq("user_id", userId)
+            .eq("role", "super_admin")
+            .eq("status", "approved")
+            .is("deleted_at", null)
+            .limit(1)
+          isSuperAdmin = !!(gr && gr.length > 0)
+        } catch { isSuperAdmin = false }
+      }
+      if (isSuperAdmin) {
+        role = overrideRole as Role
+      }
+    }
+  }
+
   // 4c. Members-create carve-out: `/admin/members/create` accepts
   //     owner, manager, AND super_admin. Evaluated BEFORE the hostess
   //     redirect and BEFORE the strict OWNER_ONLY check on `/admin`, so

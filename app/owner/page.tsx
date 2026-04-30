@@ -394,13 +394,25 @@ export default function OwnerPage() {
     }
   }
 
-  /** R-super-admin-view: 역할 view override. super_admin 만. */
+  /**
+   * R-super-admin-view: 역할 view override. super_admin 만.
+   *
+   * 2026-04-30: 단순 reload 가 아니라 role 별 홈 페이지로 이동.
+   *   /owner 는 owner-only 라 manager/staff view 로 바꾸면 middleware 가
+   *   /counter 로 리다이렉트하는 어색한 상태가 됐다. 명시적으로 해당 role
+   *   의 home 으로 라우팅해 메뉴/UI 가 자연스럽게 보이게 한다.
+   *
+   *   owner   → /owner
+   *   manager → /manager
+   *   staff   → /counter   (스태프는 카운터 위주 사용)
+   *   hostess → /me
+   *   ""(원래) → /owner    (cookie 삭제 후 본인 사장 권한)
+   */
   async function handleSetViewRole(role: string) {
     if (!isSuperAdmin) return
     setContextSwitching(true)
     try {
       if (role === "") {
-        // 해제 — cookie 둘 다 삭제
         await apiFetch("/api/auth/active-context", { method: "DELETE" })
         setViewRole("")
       } else {
@@ -416,7 +428,13 @@ export default function OwnerPage() {
         setViewRole(role)
       }
       invalidateCurrentProfile()
-      window.location.reload()
+      // role 별 home 으로 hard navigation (캐시·middleware 양쪽 동시 갱신).
+      const target =
+        role === "manager" ? "/manager" :
+        role === "staff"   ? "/counter" :
+        role === "hostess" ? "/me" :
+                             "/owner"
+      window.location.href = target
     } catch {
       setError("서버 오류")
     } finally {
@@ -502,13 +520,13 @@ export default function OwnerPage() {
             </div>
           )}
 
-          {/* 매장 정보 */}
+          {/* 매장 정보 — UUID 는 super_admin 에게만 노출 */}
           {profile ? (
             <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-2">
               <div className="text-xs text-slate-400">매장 정보</div>
               <div className="text-lg font-semibold text-cyan-300">{profile.store_name}</div>
               <div className="flex items-center gap-4 text-xs text-slate-400">
-                <span>UUID: {profile.store_uuid.slice(0, 8)}</span>
+                {isSuperAdmin && <span>UUID: {profile.store_uuid.slice(0, 8)}</span>}
                 <span>가입: {new Date(profile.created_at).toLocaleDateString("ko-KR")}</span>
               </div>
             </div>
@@ -539,7 +557,10 @@ export default function OwnerPage() {
                     >
                       <div className="text-left">
                         <div className="text-sm font-medium text-slate-200">{m.store_name}</div>
-                        <div className="text-xs text-slate-500">UUID: {m.store_uuid.slice(0, 8)} · {m.role === "owner" ? "사장" : m.role === "manager" ? "실장" : "스태프"}</div>
+                        <div className="text-xs text-slate-500">
+                          {isSuperAdmin && <span>UUID: {m.store_uuid.slice(0, 8)} · </span>}
+                          {m.role === "owner" ? "사장" : m.role === "manager" ? "실장" : "스태프"}
+                        </div>
                       </div>
                       <span className="text-xs text-cyan-400">{switching ? "전환 중..." : "전환 →"}</span>
                     </button>
