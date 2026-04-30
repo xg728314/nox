@@ -22,6 +22,17 @@ export const metadata = {
     title: "NOX",
     statusBarStyle: "black-translucent",
   },
+  // 2026-04-30 R-NoTranslate: Chrome 자동 번역 영구 차단.
+  //   증상: Chrome 이 한국어 페이지를 한국어→영어→한국어 왕복 번역해서
+  //     "재무"→"뭐", "재고"→"존재", "채팅"→"만나다", "감시 대시보드"→
+  //     "디스플레이 대시보드", "이슈 신고함"→"고민함" 등으로 깨짐.
+  //   증거: Network 에 translateHtml × 8 + m=el_main + gen204 = Google
+  //     Translate 의 element-level 번역 호출.
+  //   대응: notranslate meta + <html translate="no">. NOX 는 100% 한국
+  //     운영자/직원용 → 전역 번역 차단이 맞음.
+  other: {
+    google: "notranslate",
+  },
 }
 
 export const viewport = {
@@ -37,7 +48,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ko">
+    // R-NoTranslate (2026-04-30): translate="no" 가 강제 차단 핵심.
+    //   meta notranslate 만으로는 Chrome 일부 버전에서 무시됨. html 자체에
+    //   translate="no" + class="notranslate" 둘 다 적용해야 안전.
+    <html lang="ko" translate="no" className="notranslate">
       <body>
         {/* Sentry client init — server component 내 직접 import 는 client bundle 에
             포함되지 않으므로 별도 client component 로 감싸 body 첫 자식으로 렌더. */}
