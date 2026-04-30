@@ -139,6 +139,13 @@ export default function DailyOpsCheckGate() {
   const blockingList = summary ? listBlockingDetails(anomalyCounts) : []
   const warningList = summary ? listWarningDetails(anomalyCounts) : []
 
+  // 2026-04-30 fix: 영업일 미개방은 사람 (BLE) 유무와 무관하게 체크 모달의
+  //   "조치 필요" 신호로 표기. 기존 anomaly 분류는 BLE 사람 있을 때만
+  //   no_business_day>0 으로 잡혀서 (cron 알림 임계치) 사람 없는 시간대엔
+  //   "✓ 이상 없음" 으로 잘못 표시되던 문제 보정. anomaly 분류 자체는
+  //   변경하지 않음 — 모달 UI 만 보정.
+  const noBizDay = !!summary && !summary.business_day_id
+
   const allChecked = cBizDay && cAttendance && cBle && cNoAnomaly
   const canSubmit = allChecked && !blocking && !submitting && summary !== null
 
@@ -191,7 +198,7 @@ export default function DailyOpsCheckGate() {
               "rounded-lg border px-3 py-2 text-[12px] " +
               (blocking
                 ? "border-red-500/40 bg-red-500/10 text-red-200"
-                : warning
+                : (warning || noBizDay)
                 ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
                 : "border-emerald-500/25 bg-emerald-500/10 text-emerald-200")
             }
@@ -238,6 +245,18 @@ export default function DailyOpsCheckGate() {
                     · {d.label} {d.count}건
                   </div>
                 ))}
+                {noBizDay && (
+                  <div className="text-[11px] opacity-90">· 영업일 미개방</div>
+                )}
+              </div>
+            ) : noBizDay ? (
+              <div className="mt-1.5 space-y-0.5">
+                <div className="text-[11px] font-semibold">
+                  ⚠ 영업일 미개방
+                </div>
+                <div className="text-[11px] opacity-90">
+                  영업 시작 전이라면 정상. 영업 중인데 미개방이면 [운영 메뉴 → 영업일 마감/개방] 에서 처리하세요.
+                </div>
               </div>
             ) : (
               <div className="mt-1 text-[11px] opacity-80">✓ 이상 없음</div>
