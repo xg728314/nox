@@ -104,6 +104,45 @@ export default function StaffEditor({
     arr[rowIdx] = { ...arr[rowIdx], sessions }
     setDraft({ ...draft, staff: arr })
   }
+  /** 2026-04-30: 운영자 요청 — AI 가 못 잡은 시간 row 수동 추가. */
+  function addSession(rowIdx: number) {
+    const arr = [...(draft.staff ?? [])]
+    const sessions = [...(arr[rowIdx]?.sessions ?? [])]
+    sessions.push({
+      time: "",
+      store: "",
+      service_type: undefined,
+      time_tier: "unknown",
+      raw_text: "(수동 추가)",
+      confidence: 1.0,
+    })
+    arr[rowIdx] = { ...arr[rowIdx], sessions }
+    setDraft({ ...draft, staff: arr })
+  }
+  function removeSession(rowIdx: number, sIdx: number) {
+    if (!confirm("이 시간 행을 삭제하시겠습니까?")) return
+    const arr = [...(draft.staff ?? [])]
+    const sessions = [...(arr[rowIdx]?.sessions ?? [])]
+    sessions.splice(sIdx, 1)
+    arr[rowIdx] = { ...arr[rowIdx], sessions }
+    setDraft({ ...draft, staff: arr })
+  }
+  /** 새 hostess row 추가 (AI 가 hostess 자체를 빠뜨린 케이스). */
+  function addStaffRow() {
+    const arr = [...(draft.staff ?? [])]
+    arr.push({
+      hostess_name: "",
+      sessions: [],
+      daily_totals: [],
+    })
+    setDraft({ ...draft, staff: arr })
+  }
+  function removeStaffRow(idx: number) {
+    if (!confirm("이 스태프 행을 삭제하시겠습니까?")) return
+    const arr = [...(draft.staff ?? [])]
+    arr.splice(idx, 1)
+    setDraft({ ...draft, staff: arr })
+  }
   function discard() {
     if (!confirm("모든 변경을 취소하시겠습니까?")) return
     setDraft(deepClone(extraction))
@@ -176,8 +215,21 @@ export default function StaffEditor({
             readOnly={readOnly}
             onChange={(n) => updateRow(idx, n)}
             onChangeSession={(sIdx, n) => updateSession(idx, sIdx, n)}
+            onAddSession={() => addSession(idx)}
+            onRemoveSession={(sIdx) => removeSession(idx, sIdx)}
+            onRemoveRow={() => removeStaffRow(idx)}
           />
         ))
+      )}
+
+      {/* 새 스태프 row 추가 — AI 가 hostess 자체를 빠뜨린 경우 */}
+      {!readOnly && (
+        <button
+          onClick={addStaffRow}
+          className="w-full py-2.5 rounded-xl border border-dashed border-cyan-500/40 bg-cyan-500/[0.04] text-cyan-300 text-sm hover:bg-cyan-500/[0.08]"
+        >
+          + 스태프 추가
+        </button>
       )}
 
       {/* 저장 영역 */}
@@ -216,7 +268,7 @@ export default function StaffEditor({
 
 function HostessCard({
   row, idx, managers, knownHostesses, knownStores, readOnly,
-  onChange, onChangeSession,
+  onChange, onChangeSession, onAddSession, onRemoveSession, onRemoveRow,
 }: {
   row: PaperStaffRow
   idx: number
@@ -226,6 +278,9 @@ function HostessCard({
   readOnly?: boolean
   onChange: (next: PaperStaffRow) => void
   onChangeSession: (sIdx: number, next: StaffSession) => void
+  onAddSession: () => void
+  onRemoveSession: (sIdx: number) => void
+  onRemoveRow: () => void
 }) {
   const dlHostess = `dl-hostess-${idx}`
   const dlStore = `dl-store-${idx}`
@@ -323,13 +378,14 @@ function HostessCard({
               <th className="text-left px-3 py-1.5 w-24">티어</th>
               <th className="text-left px-3 py-1.5">원본 (참고)</th>
               <th className="text-right px-3 py-1.5 w-12">신뢰</th>
+              {!readOnly && <th className="px-2 py-1.5 w-8"></th>}
             </tr>
           </thead>
           <tbody>
             {row.sessions.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-3 text-center text-slate-600">
-                  세션 없음
+                <td colSpan={readOnly ? 6 : 7} className="px-3 py-3 text-center text-slate-600">
+                  세션 없음 — 아래 [+ 시간 추가] 버튼으로 직접 입력
                 </td>
               </tr>
             ) : (
@@ -341,11 +397,32 @@ function HostessCard({
                   knownStoreList={knownStores}
                   dlStoreId={dlStore}
                   onChange={(n) => onChangeSession(sIdx, n)}
+                  onRemove={() => onRemoveSession(sIdx)}
                 />
               ))
             )}
           </tbody>
         </table>
+
+        {/* + 시간 추가 + 스태프 row 삭제 */}
+        {!readOnly && (
+          <div className="px-3 py-2 flex items-center gap-2 border-t border-white/5 bg-black/20">
+            <button
+              onClick={onAddSession}
+              className="px-3 py-1 rounded bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 text-xs font-semibold hover:bg-cyan-500/25"
+            >
+              + 시간 추가
+            </button>
+            <div className="flex-1" />
+            <button
+              onClick={onRemoveRow}
+              className="px-2 py-1 rounded text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              title="이 스태프 행 전체 삭제"
+            >
+              스태프 삭제
+            </button>
+          </div>
+        )}
       </div>
       <datalist id={dlStore}>
         {knownStores.map((s) => <option key={s} value={s} />)}
@@ -355,13 +432,14 @@ function HostessCard({
 }
 
 function SessionRow({
-  s, readOnly, knownStoreList: _knownStoreList, dlStoreId, onChange,
+  s, readOnly, knownStoreList: _knownStoreList, dlStoreId, onChange, onRemove,
 }: {
   s: StaffSession
   readOnly?: boolean
   knownStoreList: string[]
   dlStoreId: string
   onChange: (next: StaffSession) => void
+  onRemove?: () => void
 }) {
   return (
     <tr className="border-b border-white/[0.03]">
@@ -416,6 +494,17 @@ function SessionRow({
       <td className="px-3 py-1.5 text-right">
         {typeof s.confidence === "number" && <ConfidenceBadge value={s.confidence} />}
       </td>
+      {!readOnly && onRemove && (
+        <td className="px-2 py-1.5 text-center">
+          <button
+            onClick={onRemove}
+            className="text-red-400 hover:text-red-300 text-sm leading-none w-6 h-6 rounded hover:bg-red-500/15"
+            title="이 시간 행 삭제"
+          >
+            ×
+          </button>
+        </td>
+      )}
     </tr>
   )
 }
