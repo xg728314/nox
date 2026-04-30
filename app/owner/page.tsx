@@ -52,6 +52,14 @@ export default function OwnerPage() {
   const [switching, setSwitching] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
 
+  // 2026-05-01 R-StoreSwitch 복구: super_admin 의 전 매장 list (멤버십 없는
+  //   매장도 cookie override 로 전환 가능). 운영자가 14매장 다 보던 기능 복구.
+  const [allStores, setAllStores] = useState<Array<{
+    store_uuid: string
+    store_name: string
+    floor_no: number | null
+  }>>([])
+
   // 미배정 스태프 배정 섹션 (T2 round)
   type UnassignedHostess = {
     membership_id: string
@@ -217,6 +225,22 @@ export default function OwnerPage() {
       }
     } catch { /* ignore */ }
   }
+
+  // 2026-05-01 R-StoreSwitch 복구: super_admin 이면 전 매장 list 도 fetch.
+  //   /api/auth/memberships 는 본인 멤버십 매장만. super_admin 은 멤버십 없어도
+  //   cookie override (active_store) 로 전환 가능 → 모든 매장 보여줘야 함.
+  async function fetchAllStoresForSuperAdmin() {
+    try {
+      const res = await apiFetch("/api/super-admin/stores-list")
+      if (res.ok) {
+        const data = await res.json()
+        setAllStores(data.stores ?? [])
+      }
+    } catch { /* silent */ }
+  }
+  useEffect(() => {
+    if (isSuperAdmin) void fetchAllStoresForSuperAdmin()
+  }, [isSuperAdmin])
 
   // 미배정 스태프 조회 — 대시보드 진입 시 1회 + 배정 직후 재조회.
   async function fetchUnassigned() {
@@ -463,6 +487,14 @@ export default function OwnerPage() {
   })()
   const otherStores = dedupedMemberships.filter((m) => m.store_uuid !== currentStoreUuid)
 
+  // 2026-05-01 R-StoreSwitch 복구: super_admin 이면 본인 멤버십 외 매장도 표시.
+  //   본인 멤버십 매장 (otherStores) 는 위쪽에. 멤버십 없는 매장은 아래 별도
+  //   섹션. 둘 다 "전환" 클릭 시 cookie override 로 전환 (super_admin 분기).
+  const otherStoreUuidSet = new Set([currentStoreUuid, ...otherStores.map((m) => m.store_uuid)])
+  const superAdminExtraStores = isSuperAdmin
+    ? allStores.filter((s) => !otherStoreUuidSet.has(s.store_uuid))
+    : []
+
   const managerCount = staff.filter((s) => s.role === "manager").length
   const hostessCount = staff.filter((s) => s.role === "hostess").length
   const finalizedCount = overview.filter((o) => o.status === "finalized").length
@@ -555,15 +587,17 @@ export default function OwnerPage() {
             </div>
           )}
 
-          {/* 매장 전환 */}
-          {otherStores.length > 0 && (
+          {/* 매장 전환 — 본인 멤버십 매장 + (super_admin 면) 전 매장 */}
+          {(otherStores.length > 0 || superAdminExtraStores.length > 0) && (
             <div className="space-y-2">
               <button
                 onClick={() => setShowSwitcher(!showSwitcher)}
                 className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-3 flex items-center justify-between hover:bg-white/[0.08] transition-colors"
               >
                 <span className="text-sm text-slate-300">다른 매장으로 전환</span>
-                <span className="text-xs text-slate-500">{otherStores.length}개 매장 ▾</span>
+                <span className="text-xs text-slate-500">
+                  {otherStores.length + superAdminExtraStores.length}개 매장 ▾
+                </span>
               </button>
               {showSwitcher && (
                 <div className="space-y-2">
@@ -584,6 +618,46 @@ export default function OwnerPage() {
                       <span className="text-xs text-cyan-400">{switching ? "전환 중..." : "전환 →"}</span>
                     </button>
                   ))}
+
+                  {/* 2026-05-01 R-StoreSwitch 복구:
+                      super_admin 면 본인 멤버십 없는 매장도 cookie override 로
+                      전환 가능. 14매장 전체 운영 모니터 정책. */}
+                  {superAdminExtraStores.length > 0 && (
+                    <div className="pt-2 mt-2 border-t border-fuchsia-500/20">
+                      <div className="text-[10px] text-fuchsia-300/80 mb-2 px-1">
+                        🛡️ 운영자 — 멤버십 없는 매장 (cookie override 전환)
+                      </div>
+                      {superAdminExtraStores.map((s) => (
+                        <button
+                          key={s.store_uuid}
+                          onClick={() =>
+                            handleSwitchStore({
+                              membership_id: s.store_uuid,
+                              store_uuid: s.store_uuid,
+                              store_name: s.store_name,
+                              role: "owner",
+                              is_primary: false,
+                            } as StoreMembership)
+                          }
+                          disabled={switching}
+                          className="w-full rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/[0.05] p-4 flex items-center justify-between hover:bg-fuchsia-500/10 hover:border-fuchsia-500/40 transition-colors disabled:opacity-50 mb-2"
+                        >
+                          <div className="text-left">
+                            <div className="text-sm font-medium text-fuchsia-100">
+                              {s.floor_no ? `${s.floor_no}층 ` : ""}
+                              {s.store_name}
+                            </div>
+                            <div className="text-xs text-fuchsia-400/70">
+                              UUID: {s.store_uuid.slice(0, 8)} · 멤버십 없음 (운영자 권한)
+                            </div>
+                          </div>
+                          <span className="text-xs text-fuchsia-300">
+                            {switching ? "전환 중..." : "전환 →"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

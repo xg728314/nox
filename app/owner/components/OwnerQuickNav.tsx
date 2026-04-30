@@ -48,6 +48,10 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "운영 설정", path: "/ops", icon: "⚙️" },
   // 2026-04-30: 운영자 전용 (super_admin only). 일반 사장에게는 메뉴 자체
   //   숨김. 페이지 자체는 visualizeGate 가 비-super_admin 401/403 처리.
+  // 2026-05-01 R-StoreSwitch 복구: 전 매장 모니터 진입점 추가.
+  //   "운영자 → 다른 매장 볼 수 있던 게 사라졌다" 사용자 보고. 이전엔
+  //   /super-admin 으로 14매장 전체 dashboard 진입했던 메뉴가 누락.
+  { label: "전 매장 모니터", path: "/super-admin", icon: "🌐", requireSuperAdmin: true },
   { label: "네트워크 맵", path: "/super-admin/visualize/network", icon: "🕸️", requireSuperAdmin: true },
   { label: "학습 Corpus", path: "/admin/learn", icon: "🧠", requireSuperAdmin: true },
 ]
