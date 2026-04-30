@@ -110,6 +110,9 @@ const COUNTER_ROLE_PREFIXES = [
   // hostess 는 기존 /me redirect 로직에 따름.
   // super_admin 은 is_super_admin 플래그로 모든 범위 조회 가능.
   "/m/monitor",
+  // R-Staff-Board (2026-05-01): 매장간 스태프 요청·가용 보드.
+  // 운영자 전용 (owner / manager / waiter). hostess / staff 는 /me/home.
+  "/staff-board",
 ]
 
 // STEP-super-admin: prefixes that require the global `super_admin` role
@@ -560,6 +563,10 @@ export const config = {
     "/ble/:path*",
     "/receipt/:path*",
     "/test-offline/:path*",
+    // R-Staff-Board (2026-05-01): 매장간 스태프 요청·가용 보드.
+    //   COUNTER_ROLE_PREFIXES 와 동일 정책 (owner / manager / waiter 만).
+    //   hostess / staff 는 /me/home 으로 redirect.
+    "/staff-board/:path*",
     // Phase 6: 공용 진입 라우터. 페이지 자체가 server redirect 을
     // 수행하므로 middleware 는 인증만 확인한 뒤 통과시킨다.
     "/monitor",

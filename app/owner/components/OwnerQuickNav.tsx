@@ -35,6 +35,8 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "재무", path: "/finance", icon: "💰" },
   { label: "고객·외상", path: "/customers", icon: "👥" },
   { label: "이적 관리", path: "/transfer", icon: "🔄" },
+  // 2026-05-01 R-Staff-Board: 매장간 스태프 요청·가용 보드 (카톡 그룹채팅 대체).
+  { label: "스태프 보드", path: "/staff-board", icon: "📋" },
   { label: "재고", path: "/inventory", icon: "📦" },
   { label: "채팅", path: "/chat", icon: "💬" },
   { label: "감시 대시보드", path: "/ops/watchdog", icon: "🛡️" },
