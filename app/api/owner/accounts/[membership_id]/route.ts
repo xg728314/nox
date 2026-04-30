@@ -49,11 +49,22 @@ export async function GET(
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
     }
 
+    // 2026-04-30 fix: profiles 테이블에 email 컬럼 없음 (auth.users 만 가짐).
+    //   기존 .select(..., email) 은 PostgREST 에러 → profile null →
+    //   UI 가 모든 row 를 user_id prefix 로 fallback. email 은 별도 lookup.
     const { data: profile } = await supabase
       .from("profiles")
-      .select("id, full_name, nickname, phone, email, created_at, updated_at")
+      .select("id, full_name, nickname, phone, created_at, updated_at")
       .eq("id", membership.profile_id)
       .maybeSingle()
+
+    let email: string | null = null
+    try {
+      const { data: userData } = await supabase.auth.admin.getUserById(
+        membership.profile_id as string,
+      )
+      email = userData?.user?.email ?? null
+    } catch { /* email 조회 실패 시 null fallback */ }
 
     return NextResponse.json({
       membership: {
@@ -74,7 +85,7 @@ export async function GET(
             full_name: profile.full_name,
             nickname: profile.nickname,
             phone: profile.phone,
-            email: profile.email,
+            email,
             created_at: profile.created_at,
             updated_at: profile.updated_at,
           }

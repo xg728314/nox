@@ -84,15 +84,35 @@ export async function GET(request: Request) {
     const rows = (memberships ?? []) as MembershipRow[]
 
     // ─── Profile join ───────────────────────────────────────────
+    //   2026-04-30 fix: profiles 테이블에 email 컬럼이 없음 (auth.users 에만
+    //   존재). 이전엔 .select(..., email) 호출 시 PostgREST 가 에러 반환
+    //   → profiles 가 빈 배열 → 모든 row 의 full_name 이 null 로 fallback
+    //   (UI 가 user_id prefix 표시) — "신명호 가입 기록 없음" 처럼 보이는
+    //   증상의 진짜 원인. profiles 는 full_name/nickname/phone 만 fetch,
+    //   email 은 별도 auth.users 에서 lookup.
     const profileIds = [...new Set(rows.map((r) => r.profile_id))]
-    type ProfileLite = { id: string; full_name: string | null; nickname: string | null; phone: string | null; email: string | null }
+    type ProfileLite = { id: string; full_name: string | null; nickname: string | null; phone: string | null }
     const profileMap = new Map<string, ProfileLite>()
+    const emailMap = new Map<string, string>()
     if (profileIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, nickname, phone, email")
+        .select("id, full_name, nickname, phone")
         .in("id", profileIds)
       for (const p of (profiles ?? []) as ProfileLite[]) profileMap.set(p.id, p)
+
+      // email 은 auth.users 에서. listUsers 는 페이지네이션이므로 listUsers
+      //   대신 직접 admin SDK 의 getUserById 를 ID 별 호출은 RTT 폭증.
+      //   profile_id 가 auth.users.id 와 동일하므로 Promise.all 로 일괄 조회.
+      try {
+        const userResults = await Promise.all(
+          profileIds.map((id) => supabase.auth.admin.getUserById(id)),
+        )
+        for (const r of userResults) {
+          const u = r.data?.user
+          if (u?.id && u?.email) emailMap.set(u.id, u.email)
+        }
+      } catch { /* email 조회 실패 시 null fallback (UI 영향 X) */ }
     }
 
     // ─── q filter (post-fetch, since fields live across tables) ─
@@ -106,7 +126,7 @@ export async function GET(request: Request) {
           full_name: p?.full_name ?? null,
           nickname: p?.nickname ?? null,
           phone: p?.phone ?? null,
-          email: p?.email ?? null,
+          email: emailMap.get(m.profile_id) ?? null,
           role: m.role,
           status: m.status,
           created_at: m.created_at,
