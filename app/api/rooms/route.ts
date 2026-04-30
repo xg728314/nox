@@ -99,6 +99,20 @@ export async function POST(request: Request) {
     const roomNo = String(nextNum)
     const roomName = defaultRoomName(nextNum)
 
+    // 2026-04-30: store.floor 에서 floor_no 자동 채움. 이전에는 NULL 로 들어가
+    //   scopeResolver / 층별 리포트 / BLE 모니터가 6/7/8층 매장 데이터를
+    //   누락. 신규 매장 14개 × 약 5방 = 70+ rooms 가 floor_no NULL 상태였음.
+    //   본 라운드 SQL 로 전체 backfill 했고, 향후 추가 방도 자동 정상화되도록
+    //   여기서 store.floor 를 lookup 해서 박는다.
+    const { data: storeRow } = await supabase
+      .from("stores")
+      .select("floor")
+      .eq("id", authContext.store_uuid)
+      .maybeSingle()
+    const storeFloor = (storeRow as { floor?: number } | null)?.floor ?? null
+    const floorNo = (typeof storeFloor === "number" && storeFloor >= 5 && storeFloor <= 8)
+      ? storeFloor : null
+
     const { data: room, error: insertError } = await supabase
       .from("rooms")
       .insert({
@@ -107,8 +121,9 @@ export async function POST(request: Request) {
         room_name: roomName,
         sort_order: nextNum,
         is_active: true,
+        floor_no: floorNo,
       })
-      .select("id, room_no, room_name, is_active, sort_order")
+      .select("id, room_no, room_name, is_active, sort_order, floor_no")
       .single()
 
     if (insertError || !room) {
