@@ -73,17 +73,38 @@ export function useMonitorData(intervalMs: number = DEFAULT_INTERVAL_MS): UseMon
   }, [])
 
   useEffect(() => {
+    // 2026-04-30 R-Perf: visibility-aware polling.
+    //   카운터 PC 가 다른 탭에 있을 때 (점심/회의 등) 7초 polling 으로
+    //   /api/counter/monitor 17쿼리를 계속 때리던 문제. 백그라운드면
+    //   fetch skip + tick 만 유지. visible 로 돌아오면 즉시 refresh.
+    //   useChatUnread 와 동일 패턴.
     let stopped = false
     const loop = async () => {
       if (stopped) return
-      await refresh()
-      if (stopped) return
+      const isHidden =
+        typeof document !== "undefined" && document.visibilityState !== "visible"
+      if (!isHidden) {
+        await refresh()
+        if (stopped) return
+      }
       timer.current = setTimeout(loop, intervalMs)
     }
     loop()
+
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void refresh()
+      }
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibility)
+    }
     return () => {
       stopped = true
       if (timer.current) clearTimeout(timer.current)
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibility)
+      }
     }
   }, [intervalMs, refresh])
 
@@ -224,17 +245,34 @@ export function useScopedMonitor(
   }, [scope])
 
   useEffect(() => {
+    // 2026-04-30 R-Perf: visibility-aware polling. useMonitorData 와 동일 패턴.
     let stopped = false
     const loop = async () => {
       if (stopped) return
-      await refresh()
-      if (stopped) return
+      const isHidden =
+        typeof document !== "undefined" && document.visibilityState !== "visible"
+      if (!isHidden) {
+        await refresh()
+        if (stopped) return
+      }
       timer.current = setTimeout(loop, intervalMs)
     }
     loop()
+
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void refresh()
+      }
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibility)
+    }
     return () => {
       stopped = true
       if (timer.current) clearTimeout(timer.current)
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibility)
+      }
     }
   }, [intervalMs, refresh])
 

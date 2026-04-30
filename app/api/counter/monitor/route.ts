@@ -195,27 +195,42 @@ async function buildMonitorResponse(
     // recommendation minutes are consistent across rooms.
     const monitorNowMs = Date.now()
 
-    // Caller's own store name — surfaced in home_workers so the UI
-    // can render "소속 · <store>" on own-workers at their own store
-    // without a second round-trip from the client.
-    const { data: selfStoreRow } = await supabase
-      .from("stores")
-      .select("store_name")
-      .eq("id", storeUuid)
-      .is("deleted_at", null)
-      .maybeSingle()
+    // 2026-04-30 R-Perf: Wave 1A — 3개 독립 쿼리 병렬 fetch.
+    //   selfStoreRow / roomsData / sessData 모두 storeUuid 만 의존, 상호 무관.
+    //   기존 직렬 await 3회 → Promise.all 1회 (latency 최대 3분의 1).
+    //   archivedAtFilter 는 sessData 만 wrap 필요 — 미리 await.
+    const applyArchivedNull = await archivedAtFilter(supabase)
+    const [selfStoreRes, roomsRes, sessRes] = await Promise.all([
+      supabase
+        .from("stores")
+        .select("store_name")
+        .eq("id", storeUuid)
+        .is("deleted_at", null)
+        .maybeSingle(),
+      supabase
+        .from("rooms")
+        .select("id, room_no, room_name, floor_no, sort_order, is_active")
+        .eq("store_uuid", storeUuid)
+        .is("deleted_at", null)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      applyArchivedNull(
+        supabase
+          .from("room_sessions")
+          .select(
+            "id, room_uuid, status, started_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size",
+          )
+          .eq("store_uuid", storeUuid)
+          .eq("status", "active")
+          .is("deleted_at", null)
+      ),
+    ])
+
+    const { data: selfStoreRow } = selfStoreRes
     const selfStoreName: string | null =
       (selfStoreRow?.store_name as string | null) ?? null
 
-    // ── Rooms (this store) ───────────────────────────────────────────
-    const { data: roomsData, error: roomsErr } = await supabase
-      .from("rooms")
-      .select("id, room_no, room_name, floor_no, sort_order, is_active")
-      .eq("store_uuid", storeUuid)
-      .is("deleted_at", null)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-
+    const { data: roomsData, error: roomsErr } = roomsRes
     if (roomsErr) {
       throw new MonitorQueryError("QUERY_FAILED", roomsErr.message)
     }
@@ -234,21 +249,7 @@ async function buildMonitorResponse(
         }
       })
 
-    // ── Active sessions (this store) ─────────────────────────────────
-    // 2026-04-25: archived_at 필터 — 인쇄+archive 된 세션은 active 뷰에서 숨김.
-    //   migration 085 미적용 시 컬럼 없음 → archivedAtFilter 헬퍼가 no-op.
-    const applyArchivedNull = await archivedAtFilter(supabase)
-    const { data: sessData, error: sessErr } = await applyArchivedNull(
-      supabase
-        .from("room_sessions")
-        .select(
-          "id, room_uuid, status, started_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size",
-        )
-        .eq("store_uuid", storeUuid)
-        .eq("status", "active")
-        .is("deleted_at", null)
-    )
-
+    const { data: sessData, error: sessErr } = sessRes
     if (sessErr) {
       throw new MonitorQueryError("QUERY_FAILED", sessErr.message)
     }
@@ -398,13 +399,28 @@ async function buildMonitorResponse(
       }
     }
 
-    // Home-store hostess roster (for right-panel-1). Names + is_active.
-    const { data: homeHostessRows } = await supabase
-      .from("hostesses")
-      .select("membership_id, name, stage_name, is_active")
-      .eq("store_uuid", storeUuid)
-      .is("deleted_at", null)
-      .eq("is_active", true)
+    // 2026-04-30 R-Perf: Wave 1B — homeHostessRows + awayRows 병렬 fetch.
+    //   둘 다 storeUuid / origin_store_uuid 만 의존 (상호 무관). 직렬 → 병렬.
+    //   awayRows 는 cross_store_work_records 테이블이 미적용된 환경에서
+    //   reject 가능하므로 Promise.allSettled 로 다른 쿼리 영향 없게 격리.
+    const [homeHostessSettled, awayRowsSettled] = await Promise.allSettled([
+      supabase
+        .from("hostesses")
+        .select("membership_id, name, stage_name, is_active")
+        .eq("store_uuid", storeUuid)
+        .is("deleted_at", null)
+        .eq("is_active", true),
+      supabase
+        .from("cross_store_work_records")
+        .select("id, session_id, working_store_uuid, hostess_membership_id, status")
+        .eq("origin_store_uuid", storeUuid)
+        .in("status", ["pending", "approved"])
+        .is("deleted_at", null),
+    ])
+    const homeHostessRows =
+      homeHostessSettled.status === "fulfilled"
+        ? homeHostessSettled.value.data
+        : null
     const homeHostesses = (homeHostessRows ?? []) as Array<{
       membership_id: string
       name: string
@@ -416,41 +432,44 @@ async function buildMonitorResponse(
       homeNameMap.set(h.membership_id, h.stage_name?.trim() || h.name)
     }
 
-    // Foreign-store hostess names — only for the specific memberships that
-    // are CURRENTLY participating in an active session at the caller's
-    // store. Queried per origin store to preserve store_uuid scope in each
-    // sub-query. After the session ends, these rows won't be in
-    // `foreignMembershipIds`, so they won't leak.
+    // 2026-04-30 R-Perf: Wave 3 — foreignRows + sRows 병렬 fetch.
+    //   둘 다 foreignOriginStoreIds 의존, 상호 무관. 기존 직렬 → Promise.all.
+    //   조건 만족 안 하면 placeholder Promise 로 건너뜀 (하나만 fire 되어도 OK).
     const foreignNameMap = new Map<string, { name: string; origin_store_uuid: string }>()
-    if (foreignMembershipIds.size > 0 && foreignOriginStoreIds.size > 0) {
-      const { data: foreignRows } = await supabase
-        .from("hostesses")
-        .select("membership_id, name, stage_name, store_uuid")
-        .in("store_uuid", Array.from(foreignOriginStoreIds))
-        .in("membership_id", Array.from(foreignMembershipIds))
-        .is("deleted_at", null)
-      for (const h of (foreignRows ?? []) as Array<{
-        membership_id: string
-        name: string
-        stage_name: string | null
-        store_uuid: string
-      }>) {
-        foreignNameMap.set(h.membership_id, {
-          name: h.stage_name?.trim() || h.name,
-          origin_store_uuid: h.store_uuid,
-        })
-      }
-    }
-
-    // Foreign store name labels — best-effort display only (store_name).
     const foreignStoreNameMap = new Map<string, string>()
     if (foreignOriginStoreIds.size > 0) {
-      const { data: sRows } = await supabase
-        .from("stores")
-        .select("id, store_name")
-        .in("id", Array.from(foreignOriginStoreIds))
-        .is("deleted_at", null)
-      for (const s of (sRows ?? []) as Array<{ id: string; store_name: string }>) {
+      const foreignOriginStoreIdsList = Array.from(foreignOriginStoreIds)
+      const wantForeignNames = foreignMembershipIds.size > 0
+      const [foreignRowsRes, sRowsRes] = await Promise.all([
+        wantForeignNames
+          ? supabase
+              .from("hostesses")
+              .select("membership_id, name, stage_name, store_uuid")
+              .in("store_uuid", foreignOriginStoreIdsList)
+              .in("membership_id", Array.from(foreignMembershipIds))
+              .is("deleted_at", null)
+          : Promise.resolve({ data: null }),
+        supabase
+          .from("stores")
+          .select("id, store_name")
+          .in("id", foreignOriginStoreIdsList)
+          .is("deleted_at", null),
+      ])
+
+      if (wantForeignNames) {
+        for (const h of (foreignRowsRes.data ?? []) as Array<{
+          membership_id: string
+          name: string
+          stage_name: string | null
+          store_uuid: string
+        }>) {
+          foreignNameMap.set(h.membership_id, {
+            name: h.stage_name?.trim() || h.name,
+            origin_store_uuid: h.store_uuid,
+          })
+        }
+      }
+      for (const s of (sRowsRes.data ?? []) as Array<{ id: string; store_name: string }>) {
         foreignStoreNameMap.set(s.id, s.store_name)
       }
     }
@@ -465,13 +484,13 @@ async function buildMonitorResponse(
       session_id: string
     }> = []
     try {
-      const { data: awayRows } = await supabase
-        .from("cross_store_work_records")
-        .select("id, session_id, working_store_uuid, hostess_membership_id, status")
-        .eq("origin_store_uuid", storeUuid)
-        .in("status", ["pending", "approved"])
-        .is("deleted_at", null)
-      const awayList = (awayRows ?? []) as Array<{
+      // 2026-04-30 R-Perf: awayRows 는 Wave 1B 에서 이미 fetch 완료.
+      //   여기는 후속 처리 (actSessRows 직렬) 만 수행.
+      const awayRowsData =
+        awayRowsSettled.status === "fulfilled"
+          ? awayRowsSettled.value.data
+          : null
+      const awayList = (awayRowsData ?? []) as Array<{
         id: string
         session_id: string
         working_store_uuid: string
