@@ -7,10 +7,13 @@ import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featur
 /**
  * GET /api/reconcile/[id]
  *
- * R27: 단일 snapshot 상세. 사진 signed URL + 최신 extraction + 최신 diff.
+ * R27: 단일 snapshot 상세. 사진 signed URL + 최신 extraction + 최신 edit + 최신 diff.
  *
  * 응답:
- *   { snapshot, signed_url, extraction, diff }
+ *   { snapshot, signed_url, extraction, latest_edit, diff }
+ *   - extraction: AI 가 만든 원본 추출 (참조용 — 항상 보존).
+ *   - latest_edit: 사용자가 편집한 최신본 (있으면 UI 가 우선 사용).
+ *   - diff: 최신 비교 결과.
  *
  * 매장 스코프: snapshot.store_uuid === auth.store_uuid 강제.
  */
@@ -77,7 +80,13 @@ export async function GET(
       )
     }
 
-    const [signedUrl, { data: extraction }, { data: diff }] = await Promise.all([
+    // 2026-04-30 fix: latest paper_ledger_edits 도 fetch.
+    //   증상: 사용자가 StaffEditor 에서 편집 + 저장 후 새로고침 시 "내용
+    //   다 삭제됨" 으로 보임. 원인: 이 API 가 extracted_json (AI 원본)
+    //   만 반환 → page.tsx 가 편집 전 데이터 표시. paper_ledger_edits
+    //   는 DB 에 살아있는데 UI 가 못 읽음.
+    //   Fix: 응답에 latest_edit 추가. page.tsx 가 latest_edit 우선 사용.
+    const [signedUrl, extractionRes, diffRes, editRes] = await Promise.all([
       signedPaperLedgerUrl(supabase, snapshot.storage_path).catch(() => null),
       supabase
         .from("paper_ledger_extractions")
@@ -93,12 +102,24 @@ export async function GET(
         .order("computed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from("paper_ledger_edits")
+        .select("id, base_extraction_id, edited_json, edit_reason, edited_by, edited_at")
+        .eq("snapshot_id", id)
+        .order("edited_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
+
+    const extraction = extractionRes.data
+    const diff = diffRes.data
+    const latest_edit = editRes.data
 
     return NextResponse.json({
       snapshot,
       signed_url: signedUrl,
       extraction,
+      latest_edit,
       diff,
     })
   } catch (e) {

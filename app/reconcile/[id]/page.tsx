@@ -37,6 +37,15 @@ type Detail = {
     unknown_tokens: string[] | null
     created_at: string
   } | null
+  /** 2026-04-30: 사용자 최신 편집본. 있으면 Editor 가 이걸 우선 사용. */
+  latest_edit: {
+    id: string
+    base_extraction_id: string | null
+    edited_json: PaperExtraction
+    edit_reason: string | null
+    edited_by: string | null
+    edited_at: string
+  } | null
   diff: {
     id: string
     paper_owe_total_won: number | null
@@ -232,36 +241,55 @@ export default function ReconcileDetailPage({
           </button>
         </div>
 
-        {/* R-A: AI 인식 한계 + 다음 촬영 가이드 */}
-        {data.extraction?.extracted_json?.image_quality && (
-          <ImageQualityPanel quality={data.extraction.extracted_json.image_quality} />
-        )}
+        {/* 2026-04-30 fix: 편집 후 새로고침 시 데이터 사라짐 보고 → API 가
+            paper_ledger_edits 도 fetch 하도록 변경. UI 는 latest_edit 우선
+            사용 (있으면 사용자 편집본, 없으면 AI 원본). 사용자가 보던
+            편집 결과가 그대로 복원된다. */}
+        {(() => {
+          const editorJson = data.latest_edit?.edited_json ?? data.extraction?.extracted_json
+          const baseId = data.latest_edit?.base_extraction_id ?? data.extraction?.id ?? null
+          if (!editorJson) return null
+          return (
+            <>
+              {/* R-A: AI 인식 한계 + 다음 촬영 가이드 */}
+              {editorJson.image_quality && (
+                <ImageQualityPanel quality={editorJson.image_quality} />
+              )}
 
-        {/* R-B: 방별 편집 (sheet_kind=rooms 만; staff 는 다음 라운드) */}
-        {data.extraction && s.sheet_kind === "rooms" && (
-          <RoomsEditor
-            snapshotId={s.id}
-            extraction={data.extraction.extracted_json}
-            baseExtractionId={data.extraction.id}
-            onSaved={async () => { await load() }}
-            knownHostesses={knownHostesses}
-            knownStores={knownStores}
-          />
-        )}
+              {/* 편집본 표시 시 안내 */}
+              {data.latest_edit && (
+                <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.05] px-3 py-2 text-[11px] text-emerald-200">
+                  ✓ 사용자 편집본 ({new Date(data.latest_edit.edited_at).toLocaleString("ko-KR")} 저장) 표시 중.
+                  {data.latest_edit.edit_reason && ` 사유: ${data.latest_edit.edit_reason}.`}
+                </div>
+              )}
 
-        {/* 2026-04-30 (R-staff-editor): staff sheet 편집기.
-            이름/담당실장/시간/가게/종목/티어/총갯수/줄돈 inline 편집 +
-            저장 → paper_ledger_edits 누적 → AI 학습 입력. */}
-        {data.extraction && s.sheet_kind === "staff" && (
-          <StaffEditor
-            snapshotId={s.id}
-            extraction={data.extraction.extracted_json}
-            baseExtractionId={data.extraction.id}
-            onSaved={async () => { await load() }}
-            knownHostesses={knownHostesses}
-            knownStores={knownStores}
-          />
-        )}
+              {/* R-B: 방별 편집 (sheet_kind=rooms) */}
+              {s.sheet_kind === "rooms" && (
+                <RoomsEditor
+                  snapshotId={s.id}
+                  extraction={editorJson}
+                  baseExtractionId={baseId}
+                  onSaved={async () => { await load() }}
+                  knownHostesses={knownHostesses}
+                  knownStores={knownStores}
+                />
+              )}
+
+              {/* 스태프 편집기 (sheet_kind=staff) */}
+              {s.sheet_kind === "staff" && (
+                <StaffEditor
+                  snapshotId={s.id}
+                  extraction={editorJson}
+                  baseExtractionId={baseId}
+                  onSaved={async () => { await load() }}
+                  knownHostesses={knownHostesses}
+                  knownStores={knownStores}
+                />
+              )}
+            </>
+          )
+        })()}
 
         {/* diff 요약 카드 */}
         {dif && (
