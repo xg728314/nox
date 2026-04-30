@@ -5,12 +5,22 @@ import { ConfirmProvider } from "@/components/ConfirmModal"
 import IdleLogoutGate from "@/components/IdleLogoutGate"
 import StoreContextBar from "@/components/StoreContextBar"
 import SentryClientInit from "./SentryClientInit"
+import RegisterServiceWorker from "@/components/RegisterServiceWorker"
 
 export const metadata = {
   title: "NOX Counter OS",
   description: "NOX 카운터 운영 시스템",
+  // 2026-04-30: PWA — Next.js 가 app/manifest.ts 를 /manifest.webmanifest 로 serve.
+  //   Android Chrome / iOS Safari "홈 화면에 추가" 지원.
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: "/favicon.png",
+    apple: "/favicon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "NOX",
+    statusBarStyle: "black-translucent",
   },
 }
 
@@ -18,6 +28,7 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  themeColor: "#030814",
 }
 
 export default function RootLayout({
@@ -31,6 +42,9 @@ export default function RootLayout({
         {/* Sentry client init — server component 내 직접 import 는 client bundle 에
             포함되지 않으므로 별도 client component 로 감싸 body 첫 자식으로 렌더. */}
         <SentryClientInit />
+        {/* 2026-04-30: PWA service worker 등록 (production only). minimal SW —
+            install/activate 만, fetch handler 없음 (정산 데이터 stale cache 위험). */}
+        <RegisterServiceWorker />
         {/* 2026-04-25: 전역 Toast / Confirm Provider. window.alert / confirm 대체. */}
         <ToastProvider>
           <ConfirmProvider>
