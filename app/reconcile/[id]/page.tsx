@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import type { PaperExtraction } from "@/lib/reconcile/types"
 import RoomsEditor from "./components/RoomsEditor"
+import StaffDisplay from "./components/StaffDisplay"
 import ImageQualityPanel from "./components/ImageQualityPanel"
 
 type Detail = {
@@ -246,6 +247,13 @@ export default function ReconcileDetailPage({
             knownHostesses={knownHostesses}
             knownStores={knownStores}
           />
+        )}
+
+        {/* 2026-04-30: staff sheet 구조화 표시 (이전엔 raw JSON 만 보였음).
+            이름 / 가게 / 시간 / 종목 / 총갯수 / 줄돈 표 형태로 hostess
+            카드별 정렬. 편집 (paper_ledger_edits) 은 별도 라운드. */}
+        {data.extraction && s.sheet_kind === "staff" && (
+          <StaffDisplay extraction={data.extraction.extracted_json} />
         )}
 
         {/* diff 요약 카드 */}

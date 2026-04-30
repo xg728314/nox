@@ -13,7 +13,7 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 7
+export const PROMPT_VERSION = 8
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -169,6 +169,54 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     "    예) 'T' 단독 = 시간 마커일 가능성 (skip 또는 unknown_tokens).",
     "    예) '예린 反 T' = hostess='예린', time_tier='반티'.",
     "    추측 어려우면 raw_text 보존 + confidence 0.3 미만으로 박는다.",
+    "",
+    "## 종이장부 표준 레이아웃 (sheet_kind='staff', prompt_version 8)",
+    "스태프 시트는 **테이블 형태** (행=hostess, 열=세션 슬롯 시간 순):",
+    "",
+    "  ┌─ 성명 ─┬─ 동/시간 ─┬─ 동/시간 ─┬─ 동/시간 ─┬ ... ┬─ 합계 ─┬─ 합계 ─┐",
+    "  │ 하영   │ 9:30      │ 9:09      │ 10:09     │     │  36    │  33    │",
+    "  │        │ 라이브(계)│ 한코(밴)  │ 신경이(반)│     │ (총건수)│(줄돈) │",
+    "  ├────────┼───────────┼───────────┼───────────┼─────┼────────┼────────┤",
+    "  │ 거은   │ 9:45      │ 11:07     │ 12:03     │     │  82    │  75    │",
+    "  │        │ 라이브(만)│ 파티(완)  │ 파티(완)  │     │        │        │",
+    "  └────────┴───────────┴───────────┴───────────┴─────┴────────┴────────┘",
+    "",
+    "15) 각 행 = 하나의 PaperStaffRow.",
+    "    - hostess_name: 첫 칼럼 한글 1~3자 (예: '하영', '거은', '방울').",
+    "      이름이 흐려도 보이는 글자 그대로 기록 (예: '신' 만 보이면 hostess_name='신').",
+    "    - sessions[]: 두번째 칼럼부터 끝-2 까지의 셀, 각 셀이 1개 session.",
+    "      한 셀 = '시간 + 가게(종목/티어)' 패턴.",
+    "    - daily_totals[0] = 끝에서 두 번째 칼럼 (총갯수 또는 분 합계).",
+    "    - daily_totals[1] = 마지막 칼럼 (줄돈, 빨간색 강조 숫자).",
+    "",
+    "16) sessions 셀 파싱 규칙:",
+    "    형식: 'HH:MM 매장명(종목/시간티어)'",
+    "    예) '9:30 라이브(계)':",
+    "       time='09:30', store='라이브', service_type=null, raw_text='9:30 라이브(계)'",
+    "       (계=계약? 의미 모르면 raw_text 보존, service_type 추측 안 함)",
+    "    예) '11:07 파티(완)':",
+    "       time='11:07', store='파티', time_tier='완티', raw_text='11:07 파티(완)'",
+    "    예) '12:03 파티(반)' :",
+    "       time='12:03', store='파티', time_tier='반티'",
+    "    예) '13:30 신세계(반차3)' / '12:14 라이브(만)' / '11:23 신세계(빵)':",
+    "       괄호 안의 약어 매핑:",
+    "         (반)/(반티)   → time_tier='반티'",
+    "         (완)/(완티)   → time_tier='완티'",
+    "         (차3)         → time_tier='차3'",
+    "         (반차3)/(빵3)/(빵)  → time_tier='반차3'",
+    "         (계)/(만)     → unknown 으로 두고 raw_text 보존 (사람이 결정)",
+    "       store 는 괄호 앞 한글. 가게 화이트리스트 (협력 매장) 와 fuzzy 매치.",
+    "",
+    "17) 셀 안 별표(★) / 'S' 접미 → service_type='셔츠'.",
+    "    빨간 동그라미 → time_tier='차3'. 동그라미 2겹 → '반차3'.",
+    "",
+    "18) 빈 셀 / 가위표(X) 셀 → session 으로 만들지 말 것 (skip).",
+    "",
+    "19) 행 끝 빨간 큰 숫자 = daily_totals. 두 칼럼이면 [총갯수, 줄돈].",
+    "    한 칼럼이면 [줄돈] 만. 단위는 정수 (만원 표기 변환 X — 셔츠 시트는",
+    "    카운트/포인트 단위라 그대로 정수 사용).",
+    "",
+    "20) 우상단 '4/28' 같은 날짜 = business_date 확인용 (이미 prompt 에 컨텍스트로 줌).",
   ].join("\n")
 
   const schema = SCHEMAS[input.sheet_kind]

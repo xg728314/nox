@@ -85,6 +85,9 @@ export type StaffSession = {
   time_tier?: TimeTier
   status?: "완료" | "진행중" | "unknown"
   raw_text?: string
+  /** R-staff-display (2026-04-30): VLM 자체 신뢰도. 추출 schema 에는 항상
+   *  포함되지만 type 에 누락됐던 필드. UI 가 ConfidenceBadge 표시. */
+  confidence?: number
 }
 
 export type PaperStaffRow = {
