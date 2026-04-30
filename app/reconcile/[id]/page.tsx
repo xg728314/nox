@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import type { PaperExtraction } from "@/lib/reconcile/types"
 import RoomsEditor from "./components/RoomsEditor"
-import StaffDisplay from "./components/StaffDisplay"
+import StaffEditor from "./components/StaffEditor"
 import ImageQualityPanel from "./components/ImageQualityPanel"
 
 type Detail = {
@@ -249,11 +249,18 @@ export default function ReconcileDetailPage({
           />
         )}
 
-        {/* 2026-04-30: staff sheet 구조화 표시 (이전엔 raw JSON 만 보였음).
-            이름 / 가게 / 시간 / 종목 / 총갯수 / 줄돈 표 형태로 hostess
-            카드별 정렬. 편집 (paper_ledger_edits) 은 별도 라운드. */}
+        {/* 2026-04-30 (R-staff-editor): staff sheet 편집기.
+            이름/담당실장/시간/가게/종목/티어/총갯수/줄돈 inline 편집 +
+            저장 → paper_ledger_edits 누적 → AI 학습 입력. */}
         {data.extraction && s.sheet_kind === "staff" && (
-          <StaffDisplay extraction={data.extraction.extracted_json} />
+          <StaffEditor
+            snapshotId={s.id}
+            extraction={data.extraction.extracted_json}
+            baseExtractionId={data.extraction.id}
+            onSaved={async () => { await load() }}
+            knownHostesses={knownHostesses}
+            knownStores={knownStores}
+          />
         )}
 
         {/* diff 요약 카드 */}

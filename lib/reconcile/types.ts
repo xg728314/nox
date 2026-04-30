@@ -94,6 +94,14 @@ export type PaperStaffRow = {
   hostess_name: string
   sessions: StaffSession[]
   daily_totals?: number[]                  // 우측 빨간 합계 (의미: 분 또는 만원 — 매장별 다름)
+  /**
+   * R-staff-editor (2026-04-30): 담당 실장. 운영자 검수 시 dropdown 으로
+   * 선택. 저장 시 paper_ledger_edits 에 포함되어 향후 정산/PnL 연동에
+   * 사용. AI 가 자동으로 채우지 않음 — 운영자가 매핑 결정.
+   */
+  manager_membership_id?: string | null
+  /** R-staff-editor: hostess_name 의 membership_id (선택. 매핑된 경우만). */
+  hostess_membership_id?: string | null
 }
 
 // ─── 우측 합계 박스 (양 시트 공통) ────────────────────────────
