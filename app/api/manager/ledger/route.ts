@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { monthRange } from "@/lib/finance/pnl"
+import { aggregateManagerPaperLedger } from "@/lib/reconcile/managerLedgerFromPaper"
 
 /**
  * /api/manager/ledger — manager only.
@@ -195,6 +196,20 @@ export async function GET(request: Request) {
       }))
       .sort((a, b) => b.total_won - a.total_won)
 
+    // 2026-04-30 (R-paper-to-manager): 종이장부 staff sheet 의 manager 매핑
+    //   합산. DB session_participants 와 별도 section 으로 노출 (이중 계산
+    //   방지). 운영자가 두 source 를 비교 가능. 실패 시 빈 결과로 fallback.
+    let paperAgg
+    try {
+      paperAgg = await aggregateManagerPaperLedger(supabase, {
+        store_uuid: auth.store_uuid,
+        manager_membership_id: auth.membership_id,
+        year_month: ymRaw,
+      })
+    } catch {
+      paperAgg = { rows: [], total_tc: 0, total_owe_won: 0, by_hostess: [] }
+    }
+
     return NextResponse.json({
       manager_membership_id: auth.membership_id,
       year_month: ymRaw,
@@ -204,6 +219,12 @@ export async function GET(request: Request) {
       sessions_count: monthlyTcCount.size,
       days: daysOut,
       by_category: byCategory,
+      paper_ledger: {
+        total_tc: paperAgg.total_tc,
+        total_owe_won: paperAgg.total_owe_won,
+        rows: paperAgg.rows,
+        by_hostess: paperAgg.by_hostess,
+      },
     })
   } catch (e) {
     if (e instanceof AuthError) {

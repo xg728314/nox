@@ -21,6 +21,25 @@ import { fmtMan, fmtWon, fmtNumber } from "@/lib/format"
 
 type Day = { business_date: string; sessions: number; tc_count: number; total_won: number }
 type ByCategory = { category: string; sessions: number; tc_count: number; total_won: number }
+type PaperRow = {
+  business_date: string
+  hostess_name: string
+  tc_count: number
+  owe_won: number
+  source_snapshot_id: string
+}
+type PaperHostess = {
+  hostess_name: string
+  tc_count: number
+  owe_won: number
+  days: number
+}
+type PaperLedger = {
+  total_tc: number
+  total_owe_won: number
+  rows: PaperRow[]
+  by_hostess: PaperHostess[]
+}
 
 type Ledger = {
   manager_membership_id: string
@@ -31,6 +50,7 @@ type Ledger = {
   sessions_count: number
   days: Day[]
   by_category: ByCategory[]
+  paper_ledger?: PaperLedger
 }
 
 function currentYearMonthKst(): string {
@@ -195,6 +215,52 @@ export default function ManagerLedgerPage() {
                 </table>
               )}
             </section>
+
+            {/* 2026-04-30 (R-paper-to-manager): 종이장부 기반 추가 수익 */}
+            {ledger.paper_ledger && (ledger.paper_ledger.rows.length > 0) && (
+              <section className="rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/[0.04] overflow-hidden">
+                <div className="px-5 py-3 border-b border-fuchsia-500/20 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm text-fuchsia-200">📑 종이장부 기반 (담당 매핑 후 합산)</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      운영자가 스태프 장부에서 본인을 담당실장으로 매핑한 결과. DB 세션과 별도 표시.
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] text-slate-500">월 TC / 줄돈 합</div>
+                    <div className="text-sm font-semibold text-fuchsia-300 tabular-nums">
+                      {fmtNumber(ledger.paper_ledger.total_tc)} 건 / {fmtWon(ledger.paper_ledger.total_owe_won)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 스태프별 합계 */}
+                {ledger.paper_ledger.by_hostess.length > 0 && (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] text-slate-500 border-b border-white/5">
+                        <th className="px-4 py-2 text-left">스태프</th>
+                        <th className="px-4 py-2 text-right">근무일</th>
+                        <th className="px-4 py-2 text-right">TC</th>
+                        <th className="px-4 py-2 text-right">줄돈</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledger.paper_ledger.by_hostess.map((h) => (
+                        <tr key={h.hostess_name} className="border-b border-white/5">
+                          <td className="px-4 py-2 text-fuchsia-200">{h.hostess_name}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{h.days} 일</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{h.tc_count}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-amber-300">
+                            {fmtWon(h.owe_won)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            )}
           </>
         )}
       </div>
