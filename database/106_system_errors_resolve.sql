@@ -1,4 +1,7 @@
--- 102_system_errors_resolve.sql
+-- 106_system_errors_resolve.sql (이전 102_system_errors_resolve.sql)
+--
+-- 2026-04-30 rename: 102 슬롯이 finance_purchases_expenses 와 충돌하여
+--   106 으로 이동. supabase 에 apply 된 이름은 그대로 유지 (파일명 변경만).
 --
 -- 시스템 에러 모니터에 active/resolved 구분 + 자동 정리 메커니즘 추가.
 --

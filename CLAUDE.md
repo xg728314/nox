@@ -262,7 +262,6 @@ Development is managed through an orchestration system (`orchestration/`). Tasks
 - **cron heartbeat** (migration 090, R24): 4개 Vercel cron 이 시작 시 `cron_heartbeats` 테이블에 stamp. `/ops/watchdog` 이 stale 자동 검출. 사일런트 cron 실패 가시화.
 - **에러 경계** (`app/error.tsx`, `app/global-error.tsx`): 한 페이지 크래시가 전체 죽이지 않음.
 - **세션 타임아웃** (`lib/security/useIdleLogout.ts`): 30분 무조작 시 자동 로그아웃. 카운터 PC 방치 대응.
-- **에러 메시지 사전** (`lib/errors/messages.ts`): API error code → 한국어 사용자 문구 매핑.
 - **정산 계산 단위 테스트** (`lib/settlement/services/__tests__/`): 14 시나리오 고정. `npm test`.
 - **부하 테스트 스크립트** (`scripts/load-test/`): k6 기반 read-path baseline.
 
