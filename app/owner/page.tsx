@@ -711,8 +711,10 @@ export default function OwnerPage() {
             ))}
           </div>
 
-          {/* 빠른 이동 — R28-refactor: OwnerQuickNav 로 분리 */}
-          <OwnerQuickNav chatUnread={chatUnread} />
+          {/* 빠른 이동 — R28-refactor: OwnerQuickNav 로 분리.
+              2026-04-30: super_admin flag 전달 — "네트워크 맵" 같은
+              운영자 전용 메뉴를 일반 사장에게 숨기기 위함. */}
+          <OwnerQuickNav chatUnread={chatUnread} isSuperAdmin={isSuperAdmin} />
 
           {/* 스태프 현황 — 기본 접힘. 헤더에 총/실장/스태프/출근 요약. */}
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 space-y-3">

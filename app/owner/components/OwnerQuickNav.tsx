@@ -4,15 +4,22 @@
  * Owner page 의 빠른 이동 그리드.
  *
  * R28-refactor: app/owner/page.tsx 가 800+ 줄이라 일부 발췌 분할.
- *   이 컴포넌트는 16개 메뉴 타일을 렌더하고 chat 미열람 배지 표시.
+ *   이 컴포넌트는 메뉴 타일을 렌더하고 chat 미열람 배지 표시.
  *
- * 추후 lib/counter/menu.ts 의 manifest 와 통합 가능 (현재는 owner 가
- * 보는 모든 메뉴를 한 화면에 띄워야 하므로 별도 list 유지).
+ * 2026-04-30: NavItem.requireSuperAdmin 추가. 운영자 전용 메뉴 (네트워크
+ *   맵 등) 는 일반 사장 화면에서 숨김. 페이지 자체는 server-side gate 가
+ *   별도로 차단.
  */
 
 import { useRouter } from "next/navigation"
 
-type NavItem = { label: string; path: string; icon: string }
+type NavItem = {
+  label: string
+  path: string
+  icon: string
+  /** true 면 super_admin 인 사용자만 메뉴에 노출. */
+  requireSuperAdmin?: boolean
+}
 
 const NAV_ITEMS: readonly NavItem[] = [
   { label: "관제", path: "/admin", icon: "📡" },
@@ -37,15 +44,25 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "종이장부 (방별)", path: "/reconcile", icon: "📑" },
   { label: "스태프 장부", path: "/reconcile/staff", icon: "👥" },
   { label: "운영 설정", path: "/ops", icon: "⚙️" },
-  // super_admin 전용 — visualizeGate 가 비-super_admin 클릭은 401/403 처리.
-  { label: "네트워크 맵", path: "/super-admin/visualize/network", icon: "🕸️" },
+  // 2026-04-30: 운영자 전용 (super_admin only). 일반 사장에게는 메뉴 자체
+  //   숨김. 페이지 자체는 visualizeGate 가 비-super_admin 401/403 처리.
+  { label: "네트워크 맵", path: "/super-admin/visualize/network", icon: "🕸️", requireSuperAdmin: true },
 ]
 
-export default function OwnerQuickNav({ chatUnread }: { chatUnread: number }) {
+type Props = {
+  chatUnread: number
+  /** 사용자가 super_admin 인지. 비-super_admin 에게는 운영자 전용 타일 숨김. */
+  isSuperAdmin?: boolean
+}
+
+export default function OwnerQuickNav({ chatUnread, isSuperAdmin = false }: Props) {
   const router = useRouter()
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => !item.requireSuperAdmin || isSuperAdmin,
+  )
   return (
     <div className="grid grid-cols-3 gap-3">
-      {NAV_ITEMS.map((item) => (
+      {visibleItems.map((item) => (
         <button
           key={item.path}
           onClick={() => router.push(item.path)}
