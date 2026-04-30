@@ -60,11 +60,14 @@ export default function ChatListPage() {
 
   const group = useGroupChat()
 
-  // STEP-009.5: total unread is server-computed (sum of caller's
-  // chat_participants.unread_count scoped by membership_id + store_uuid).
-  // Badge refreshes on mount, on tab refocus (visibilitychange), and when
-  // the rooms list itself is refreshed (coalesced below).
-  const { totalUnread } = useChatUnread()
+  // STEP-009.5 + 2026-05-01 R-Perf-Chat:
+  //   total unread 는 rooms 응답에서 derive (별도 polling 제거).
+  //   useChatRooms 가 rooms 갱신할 때마다 setUnreadFromRooms 로 sum 전달.
+  //   network round trip 50% 감소.
+  const { totalUnread, setUnreadFromRooms } = useChatUnread()
+  useEffect(() => {
+    setUnreadFromRooms(rooms)
+  }, [rooms, setUnreadFromRooms])
 
   async function handlePickStaff(targetMembershipId: string) {
     const newRoomId = await createDm(targetMembershipId)

@@ -187,12 +187,12 @@ export function useChatRooms(): UseChatRoomsReturn {
     // needsLogin via the page's response-handling path.
     fetchRooms()
 
-    // STEP-009.6: fixed polling (realtime intentionally NOT reintroduced).
-    // 7s cadence keeps is_active / left_at state fresh across users after
-    // leave/close actions, while staying well under the chat_participants
-    // write rate. Visibilitychange forces an immediate refresh on tab
-    // refocus so a returning user never sees stale state.
-    const POLL_MS = 7000
+    // STEP-009.6 + 2026-05-01 R-Perf-Chat:
+    //   기존 7s → 15s. 사용자 호소: "아무 작업 안 해도 신호 계속 뜸".
+    //   채팅은 실시간성이 어느 정도 필요하지만 7s 는 dev 콘솔 폭주 + server
+    //   부하 부담. 15s 면 새 메시지 알림 최대 15초 지연이지만 운영에서
+    //   허용 가능. 더 빠르게 필요하면 추후 supabase realtime 도입 라운드.
+    const POLL_MS = 15000
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return
       fetchRooms()
