@@ -479,9 +479,13 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   }
 
   // 6. Hostess never has business-UI access in the matched prefix set.
-  //    Any attempt → /me (their dashboard, which is excluded from matcher).
+  //    Any attempt → /me/home (스태프 dashboard).
+  //    2026-05-01 R-Hostess-Home: /me 가 아닌 /me/home 으로 redirect.
+  //      /me 는 정보/정산 4탭 페이지. /me/home 이 운영자가 정의한 스태프
+  //      대시보드 (내 방 + 채팅 + DM + 일한 갯수). 같은 hostess 가 운영
+  //      중에 자주 보는 화면.
   if (role === "hostess") {
-    return redirectTo(req, "/me")
+    return redirectTo(req, "/me/home")
   }
 
   // 7. Role matrix. OWNER_MANAGER is checked BEFORE OWNER_ONLY so

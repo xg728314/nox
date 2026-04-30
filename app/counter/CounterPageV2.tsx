@@ -114,6 +114,19 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   const currentProfile = useCurrentProfile()
   const currentRole = currentProfile?.role ?? null
 
+  // 2026-05-01 R-Hostess-Home: page-level guard.
+  //   middleware 가 hostess role → /me/home redirect 하지만, super_admin 이
+  //   override cookie 없이 본인 시점에서 nox_active_role=hostess 를 직접 set
+  //   하는 경우 / cookie 적용이 SSR 만 되고 client 가 stale 이미지 보는 경우
+  //   대비. effective role=hostess 면 client 측에서 한 번 더 redirect.
+  //   다른 role 은 그대로 카운터 페이지 사용.
+  useEffect(() => {
+    if (!currentProfile) return
+    if (currentProfile.role === "hostess") {
+      router.replace("/me/home")
+    }
+  }, [currentProfile, router])
+
   // R29-refactor: viewMode 는 useViewMode 훅으로 이전.
   const { viewMode, effectiveMode, applyViewMode } = useViewMode()
 
