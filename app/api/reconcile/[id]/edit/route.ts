@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { logAuditEvent } from "@/lib/audit/logEvent"
 import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
 import type { PaperExtraction, SheetKind } from "@/lib/reconcile/types"
+import { captureLearningSignals, diffExtractionsToSignals } from "@/lib/learn/captureSignal"
 
 /**
  * POST /api/reconcile/[id]/edit
@@ -278,6 +279,47 @@ export async function POST(
       }
     } catch {
       // 학습 실패는 edit 응답에 영향 X (best-effort)
+    }
+
+    // 11. 2026-04-30 (R-Learn-Corpus): 모든 raw→corrected 차이를
+    //   learning_signals 에 누적. 적용 안 함, corpus 만 유지.
+    //   향후 외부 모델 fine-tune / Anthropic batch / 분석에 사용.
+    //   PII (hostess_name 등) 는 helper 가 자동 hash.
+    try {
+      // base extraction lookup (변화 비교용)
+      let baseJson: PaperExtraction | null = null
+      if (baseExtractionId) {
+        const { data: ext } = await supabase
+          .from("paper_ledger_extractions")
+          .select("extracted_json, vlm_model, prompt_version")
+          .eq("id", baseExtractionId)
+          .maybeSingle()
+        const er = ext as {
+          extracted_json: PaperExtraction
+          vlm_model: string | null
+          prompt_version: number | null
+        } | null
+        baseJson = er?.extracted_json ?? null
+        const signals = diffExtractionsToSignals(baseJson, validated.value)
+        if (signals.length > 0) {
+          await captureLearningSignals(supabase, {
+            store_uuid: s.store_uuid,
+            user_id: auth.user_id,
+            signals,
+            context: {
+              snapshot_id: id,
+              sheet_kind: s.sheet_kind,
+              business_date: s.business_date,
+              base_extraction_id: baseExtractionId,
+              edit_id: e.id,
+            },
+            source_model: er?.vlm_model ?? null,
+            source_prompt_version: er?.prompt_version ?? null,
+          })
+        }
+      }
+    } catch {
+      // 학습 corpus 누적 실패는 edit 응답에 영향 X.
     }
 
     return NextResponse.json({
