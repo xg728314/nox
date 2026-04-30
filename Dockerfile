@@ -52,6 +52,15 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# 2026-04-30: sharp (image processing) 명시적 포함.
+#   Next.js standalone trace 가 dynamic import / native binary 를 가끔
+#   누락. /api/reconcile/.../extract 가 sharp 로 사진 리사이즈 (Anthropic
+#   Vision 5MB 한도 회피) 하므로 native bindings + libvips prebuilt 필수.
+#   @img 패키지는 platform 별 다른 prefix (@img/sharp-libvips-linux-arm64
+#   등). glob 으로 일괄 복사.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
+
 USER nextjs
 
 EXPOSE 8080

@@ -14,8 +14,57 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk"
+import sharp from "sharp"
 import { buildExtractionPrompt, VLM_MODEL, PROMPT_VERSION } from "./prompts"
 import type { PaperExtraction, SheetKind } from "./types"
+
+/**
+ * Anthropic Vision 의 base64 페이로드 한도 = 5,242,880 bytes (5MB).
+ * raw 이미지 + base64 (4/3 ratio) 가 합쳐서 5MB 안에 들어와야 함.
+ *   raw 4MB → base64 ~5.4MB (limit 초과)
+ *   raw 3.5MB → base64 ~4.7MB (안전)
+ * 안전 margin 으로 3.5MB 임계로 잡고 그 이상이면 서버에서 리사이즈.
+ */
+const SAFE_RAW_BYTES = 3_500_000
+/** 손글씨 OCR 에 충분한 해상도 — 2000px 긴 변. */
+const RESIZE_LONGEST_EDGE = 2000
+const JPEG_QUALITY = 85
+
+async function compressIfNeeded(
+  bytes: ArrayBuffer,
+  mimeType: string,
+): Promise<{ bytes: ArrayBuffer; mimeType: string; resized: boolean }> {
+  if (bytes.byteLength <= SAFE_RAW_BYTES) {
+    return { bytes, mimeType, resized: false }
+  }
+  // sharp 로 longest-edge 2000px JPEG 85% 로 리사이즈.
+  //   원본 사진 (모바일 카메라) ~4-8MB → 리사이즈 후 ~0.8-1.5MB.
+  const buf = Buffer.from(bytes)
+  const resized = await sharp(buf)
+    .rotate()  // EXIF orientation 자동 적용 (휴대폰 사진 회전 보정)
+    .resize({
+      width: RESIZE_LONGEST_EDGE,
+      height: RESIZE_LONGEST_EDGE,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .toBuffer()
+  // resized 가 그래도 안전 한도를 넘으면 한 단계 더 줄임.
+  let finalBuf = resized
+  if (finalBuf.byteLength > SAFE_RAW_BYTES) {
+    finalBuf = await sharp(buf)
+      .rotate()
+      .resize({ width: 1500, height: 1500, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 75, mozjpeg: true })
+      .toBuffer()
+  }
+  const ab = finalBuf.buffer.slice(
+    finalBuf.byteOffset,
+    finalBuf.byteOffset + finalBuf.byteLength,
+  ) as ArrayBuffer
+  return { bytes: ab, mimeType: "image/jpeg", resized: true }
+}
 
 export type ExtractInput = {
   image_bytes: ArrayBuffer
@@ -61,6 +110,27 @@ export async function extractFromImage(input: ExtractInput): Promise<ExtractResu
   const client = new Anthropic({ apiKey })
   const t0 = Date.now()
 
+  // 2026-04-30: Anthropic Vision 의 5MB base64 한도 회피.
+  //   원본 4MB+ 이미지 (모바일 카메라 사진) 는 base64 인코딩 시 5.5MB+ 가 돼
+  //   400 invalid_request_error ("image exceeds 5 MB maximum") 발생.
+  //   서버에서 자동 리사이즈 (longest-edge 2000px JPEG 85%) 후 호출.
+  let imgBytes = input.image_bytes
+  let imgMime = input.mime_type
+  let resizeApplied = false
+  try {
+    const compressed = await compressIfNeeded(input.image_bytes, input.mime_type)
+    imgBytes = compressed.bytes
+    imgMime = compressed.mimeType
+    resizeApplied = compressed.resized
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "vlm_error",
+      message: `이미지 리사이즈 실패: ${(e as Error).message}`,
+      duration_ms: Date.now() - t0,
+    }
+  }
+
   let raw = ""
   let usage: { input_tokens?: number; output_tokens?: number } = {}
   try {
@@ -81,8 +151,8 @@ export async function extractFromImage(input: ExtractInput): Promise<ExtractResu
               type: "image",
               source: {
                 type: "base64",
-                media_type: normalizeMime(input.mime_type),
-                data: arrayBufferToBase64(input.image_bytes),
+                media_type: normalizeMime(imgMime),
+                data: arrayBufferToBase64(imgBytes),
               },
             },
             { type: "text", text: user },
