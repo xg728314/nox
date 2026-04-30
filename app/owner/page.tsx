@@ -442,7 +442,26 @@ export default function OwnerPage() {
     }
   }
 
-  const otherStores = memberships.filter((m) => m.store_uuid !== currentStoreUuid)
+  // 2026-04-30: store_uuid 별 dedup. 한 매장에 owner + manager 처럼 복수
+  //   role 멤버십이 있으면 React key 중복 + UX 혼선 (예: xg728314 의 마블).
+  //   우선순위: owner > manager > staff > waiter > hostess.
+  //   클릭 시 active-context 가 하나의 store 로만 전환하므로 매장당 1행이
+  //   의미상으로도 정합.
+  const ROLE_RANK: Record<string, number> = {
+    owner: 0, manager: 1, staff: 2, waiter: 3, hostess: 4,
+  }
+  const dedupedMemberships = (() => {
+    const byStore = new Map<string, StoreMembership>()
+    for (const m of memberships) {
+      const prev = byStore.get(m.store_uuid)
+      if (!prev) { byStore.set(m.store_uuid, m); continue }
+      const prevRank = ROLE_RANK[prev.role] ?? 99
+      const curRank = ROLE_RANK[m.role] ?? 99
+      if (curRank < prevRank) byStore.set(m.store_uuid, m)
+    }
+    return Array.from(byStore.values())
+  })()
+  const otherStores = dedupedMemberships.filter((m) => m.store_uuid !== currentStoreUuid)
 
   const managerCount = staff.filter((s) => s.role === "manager").length
   const hostessCount = staff.filter((s) => s.role === "hostess").length
