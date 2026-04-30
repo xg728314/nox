@@ -259,6 +259,33 @@ export async function resetForcedPref<T>(
   return resetPrefOf<T>("forced", scope, storeUuid, target)
 }
 
+// ── Bootstrap hydration ─────────────────────────────────────────────
+//
+// 2026-04-30 R-Perf-PrefBundle: bootstrap response 가 (kind, scope) 별로
+//   미리 fetch 한 PrefResp 를 가져오면 store 에 한꺼번에 hydrate. 후속
+//   ensureLoaded 호출은 loaded=true 라서 fetch skip.
+//
+//   효과: 카운터 페이지 5개 preferences 호출 (각 1초+) 제거.
+//
+//   호출자: useCounterBootstrap. /api/counter/bootstrap 응답의
+//   `preferences.user / preferences.forced` 객체를 그대로 전달.
+
+type HydrateBundle = Record<string, { global: unknown; per_store: Record<string, unknown> }>
+
+export function hydrateBundle(kind: PrefKind, bundle: HydrateBundle | null | undefined): void {
+  if (!bundle) return
+  for (const [scope, entry] of Object.entries(bundle)) {
+    const slot = getSlot<unknown>(kind, scope)
+    // 이미 user 가 fetch 했거나 in-flight 라면 skip — race-free.
+    if (slot.snapshot.loaded || slot.inFlight) continue
+    setSnapshot(slot, {
+      resp: { global: entry.global ?? null, per_store: entry.per_store ?? {} },
+      loading: false,
+      loaded: true,
+    })
+  }
+}
+
 // ── Debug / test helper ─────────────────────────────────────────────
 
 export function _resetSlotForTest(kind: PrefKind, scope: string): void {

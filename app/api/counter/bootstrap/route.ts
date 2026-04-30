@@ -1,9 +1,34 @@
 import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getChatUnread } from "@/lib/server/queries/chatUnread"
 import { getInventoryItems } from "@/lib/server/queries/inventoryItems"
 import { getManagerHostessStats } from "@/lib/server/queries/manager/hostessStats"
 import { getStoreStaff } from "@/lib/server/queries/store/staff"
+import {
+  getUserPreferencesBundle,
+  getForcedPreferencesBundle,
+} from "@/lib/server/queries/preferences"
+
+// 2026-04-30 R-Perf-PrefBundle: 카운터 페이지가 자주 쓰는 prefs scope 화이트리스트.
+//   클라가 ensureLoaded 시점에 고를 수 있는 모든 scope 를 사전에 fetch.
+//   (3 user + 2 forced = 5 round trip → 0)
+const COUNTER_PREF_SCOPES_USER = [
+  "daily_ops_check",
+  "counter.sidebar_menu",
+  "counter.room_layout",
+] as const
+const COUNTER_PREF_SCOPES_FORCED = [
+  "counter.sidebar_menu",
+  "counter.room_layout",
+] as const
+
+function supa() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error("SERVER_CONFIG_ERROR")
+  return createClient(url, key)
+}
 
 /**
  * /api/counter/bootstrap — 카운터 페이지 mount 시 한 번에 묶음 fetch.
@@ -52,13 +77,21 @@ export async function GET(request: Request) {
   }
 
   const tStart = Date.now()
+  const supabase = supa()
 
-  const [chatR, inventoryR, hostessStatsR, hostessPoolR] = await Promise.all([
-    slot("counter", "chat_unread", () => getChatUnread(auth)),
-    slot("counter", "inventory", () => getInventoryItems(auth)),
-    slot("counter", "hostess_stats", () => getManagerHostessStats(auth)),
-    slot("counter", "hostess_pool", () => getStoreStaff(auth, { role: "hostess" })),
-  ])
+  const [chatR, inventoryR, hostessStatsR, hostessPoolR, prefUserR, prefForcedR] =
+    await Promise.all([
+      slot("counter", "chat_unread", () => getChatUnread(auth)),
+      slot("counter", "inventory", () => getInventoryItems(auth)),
+      slot("counter", "hostess_stats", () => getManagerHostessStats(auth)),
+      slot("counter", "hostess_pool", () => getStoreStaff(auth, { role: "hostess" })),
+      slot("counter", "pref_user", () =>
+        getUserPreferencesBundle(supabase, auth, [...COUNTER_PREF_SCOPES_USER]),
+      ),
+      slot("counter", "pref_forced", () =>
+        getForcedPreferencesBundle(supabase, auth, [...COUNTER_PREF_SCOPES_FORCED]),
+      ),
+    ])
   console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "counter", ms: Date.now() - tStart }))
 
   return NextResponse.json({
@@ -66,11 +99,20 @@ export async function GET(request: Request) {
     inventory: inventoryR.ok ? inventoryR.data : null,
     hostess_stats: hostessStatsR.ok ? hostessStatsR.data : null,
     hostess_pool: hostessPoolR.ok ? (hostessPoolR.data.staff ?? []) : null,
+    // 2026-04-30 R-Perf-PrefBundle: preferences 다중 scope 한 번에 hydrate.
+    //   client preferencesStore.hydrateBundle 이 받아서 ensureLoaded skip.
+    //   기존 5번 round trip (각 1초+) → 0번. 효과 명확.
+    preferences: {
+      user: prefUserR.ok ? prefUserR.data : null,
+      forced: prefForcedR.ok ? prefForcedR.data : null,
+    },
     errors: {
       chat_unread: chatR.ok ? null : chatR.error,
       inventory: inventoryR.ok ? null : inventoryR.error,
       hostess_stats: hostessStatsR.ok ? null : hostessStatsR.error,
       hostess_pool: hostessPoolR.ok ? null : hostessPoolR.error,
+      pref_user: prefUserR.ok ? null : prefUserR.error,
+      pref_forced: prefForcedR.ok ? null : prefForcedR.error,
     },
     generated_at: new Date().toISOString(),
   })

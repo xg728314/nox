@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
 import * as counterApi from "../services/counterApi"
+import { hydrateBundle } from "./preferencesStore"
 import type { InventoryItem } from "../types"
 import type { HostessMatchCandidate } from "../helpers/hostessMatcher"
 
@@ -138,6 +139,15 @@ export function useCounterBootstrap(): UseCounterBootstrapResult {
         }
         const data = await res.json() as Record<string, unknown>
         const missing: string[] = []
+
+        // 2026-04-30 R-Perf-PrefBundle: preferences hydrate.
+        //   bootstrap 응답에 user/forced preferences 다중 scope 포함됨.
+        //   preferencesStore 에 hydrate 하면 후속 ensureLoaded 5번 fetch skip.
+        if (data.preferences && typeof data.preferences === "object") {
+          const prefs = data.preferences as Record<string, unknown>
+          if (prefs.user) hydrateBundle("user", prefs.user as Parameters<typeof hydrateBundle>[1])
+          if (prefs.forced) hydrateBundle("forced", prefs.forced as Parameters<typeof hydrateBundle>[1])
+        }
 
         if (typeof data.chat_unread === "number") setChatUnread(data.chat_unread)
         else missing.push("chat_unread")
