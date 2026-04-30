@@ -13,7 +13,10 @@
 import type { SheetKind } from "./types"
 import { DEFAULT_KNOWN_STORES, DEFAULT_SYMBOL_DICTIONARY } from "./symbols"
 
-export const PROMPT_VERSION = 8
+// 2026-05-01 R-Paper-Learn (Phase A): 매장별 학습 corrections 주입 추가.
+//   learning_signals 누적 raw → corrected 패턴을 prompt 에 자연어 블록으로
+//   주입 → 매장 손글씨/약어 점진적 정확도 향상.
+export const PROMPT_VERSION = 9
 export const VLM_MODEL = "claude-sonnet-4-5-20250929"
 
 export type PromptInput = {
@@ -24,6 +27,12 @@ export type PromptInput = {
   store_known_stores?: string[]
   /** R-A v5: 이 매장 소속 호스티스 이름 후보 — VLM 이 손글씨 추측 시 매칭 reference. PII 주의. */
   store_known_hostesses?: string[]
+  /**
+   * R-Paper-Learn Phase A (2026-05-01): 이 매장의 학습된 raw → corrected 매핑.
+   *   formatLearnedCorrectionsForPrompt 가 만들어준 마크다운 블록 그대로 주입.
+   *   비어있으면 (빈 문자열 또는 undefined) prompt 에 추가 X.
+   */
+  store_learned_corrections_block?: string
 }
 
 /** Claude messages.create system + user 텍스트 한 쌍. */
@@ -221,6 +230,13 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
 
   const schema = SCHEMAS[input.sheet_kind]
 
+  // 2026-05-01 R-Paper-Learn Phase A: 매장별 학습 corrections 블록 (있으면).
+  const learnedBlock =
+    typeof input.store_learned_corrections_block === "string" &&
+    input.store_learned_corrections_block.trim().length > 0
+      ? input.store_learned_corrections_block.trim()
+      : null
+
   const user = [
     `## 컨텍스트`,
     `- business_date: ${input.business_date}`,
@@ -237,6 +253,9 @@ export function buildExtractionPrompt(input: PromptInput): { system: string; use
     `}`,
     "```",
     "",
+    // 매장별 학습 corrections — 있으면 도메인 어휘 다음, 추가 규칙 앞에 배치.
+    // 가장 가치 있는 hint (사람 검수 누적) 라 prompt 위쪽이 좋음.
+    ...(learnedBlock ? [learnedBlock, ""] : []),
     `## 추가 도메인 규칙`,
     "- 종목: 퍼블릭 / 셔츠 / 하퍼",
     "- 시간 등급: free(0-8분) / 차3 / 반티 / 반차3 / 완티",

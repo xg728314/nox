@@ -75,6 +75,11 @@ export type ExtractInput = {
   store_known_stores?: string[]
   /** v5: 매장 호스티스 이름 후보. VLM 매칭 reference. PII — 서버 측만 fetch. */
   store_known_hostesses?: string[]
+  /**
+   * 2026-05-01 R-Paper-Learn Phase A: 매장별 학습 corrections 마크다운 블록.
+   *   formatLearnedCorrectionsForPrompt 결과 그대로. 빈 문자열이면 prompt 미주입.
+   */
+  store_learned_corrections_block?: string
 }
 
 export type ExtractResult =
@@ -105,6 +110,7 @@ export async function extractFromImage(input: ExtractInput): Promise<ExtractResu
     store_symbol_dictionary: input.store_symbol_dictionary,
     store_known_stores: input.store_known_stores,
     store_known_hostesses: input.store_known_hostesses,
+    store_learned_corrections_block: input.store_learned_corrections_block,
   })
 
   const client = new Anthropic({ apiKey })

@@ -5,6 +5,10 @@ import { downloadPaperLedger } from "@/lib/storage/paperLedgerBucket"
 import { extractFromImage } from "@/lib/reconcile/extract"
 import { logAuditEvent } from "@/lib/audit/logEvent"
 import { resolveFeatureAccess, RECONCILE_ROLE_DEFAULTS } from "@/lib/auth/featureAccess"
+import {
+  getLearnedCorrectionsByStore,
+  formatLearnedCorrectionsForPrompt,
+} from "@/lib/learn/getLearnedCorrections"
 import type { SheetKind } from "@/lib/reconcile/types"
 
 /**
@@ -83,10 +87,13 @@ export async function POST(
       )
     }
 
-    // 2. 매장별 dictionary + 호스티스 후보 (v5)
+    // 2. 매장별 dictionary + 호스티스 후보 + 학습된 corrections
     //   - store_paper_format: 매장별 누적 학습 사전 (R-Learn 으로 누적)
     //   - hostesses: 매장 활성 호스티스 이름 (VLM 매칭 reference, PII 서버측만)
-    const [fmtResult, hostessResult] = await Promise.all([
+    //   - learned_corrections (2026-05-01 R-Paper-Learn Phase A):
+    //     learning_signals 누적 raw → corrected 패턴. prompt 에 자연어로 주입.
+    //     매장별 손글씨/약어 점진적 정확도 향상.
+    const [fmtResult, hostessResult, learnedCorrections] = await Promise.all([
       supabase
         .from("store_paper_format")
         .select("symbol_dictionary, known_stores")
@@ -99,6 +106,18 @@ export async function POST(
         .eq("is_active", true)
         .is("deleted_at", null)
         .limit(200),
+      getLearnedCorrectionsByStore(supabase, auth.store_uuid, {
+        types: [
+          "reconcile.staff.session.store",
+          "reconcile.staff.session.time_tier",
+          "reconcile.staff.session.service_type",
+          "reconcile.staff.session.time",
+          "reconcile.rooms.staff.origin_store",
+          "reconcile.rooms.staff.service_type",
+          "reconcile.rooms.staff.time_tier",
+        ],
+        limit_per_type: 15,
+      }),
     ])
     const fmt = fmtResult.data as {
       symbol_dictionary?: Record<string, unknown>
@@ -111,6 +130,7 @@ export async function POST(
         .map((h) => (h.stage_name ?? h.name ?? "").trim())
         .filter((n) => n.length > 0 && n.length <= 5),
     ))
+    const learnedCorrectionsBlock = formatLearnedCorrectionsForPrompt(learnedCorrections)
 
     // 3. status=extracting 표시
     await supabase
@@ -140,6 +160,7 @@ export async function POST(
       store_symbol_dictionary: fmt?.symbol_dictionary,
       store_known_stores: fmt?.known_stores,
       store_known_hostesses: knownHostesses,
+      store_learned_corrections_block: learnedCorrectionsBlock,
     })
 
     if (!result.ok) {
