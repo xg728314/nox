@@ -164,8 +164,23 @@ export async function GET(request: Request) {
       .select("id")
   })
 
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  //   step() 내부 try/catch 가 throw 를 흡수하므로 본 함수는 항상 여기 도달.
+  //   results 의 error 유무로 stamp 분기.
+  const allOk = results.every(r => !r.error)
+  if (allOk) {
+    await stampCronHeartbeat(supabase, "settlement-tree-advance", "success")
+  } else {
+    const errMsg = results
+      .filter(r => r.error)
+      .map(r => `${r.name}: ${r.error}`)
+      .join("; ")
+      .slice(0, 500)
+    await stampCronHeartbeat(supabase, "settlement-tree-advance", "failed", errMsg)
+  }
+
   return NextResponse.json({
-    ok: results.every(r => !r.error),
+    ok: allOk,
     dry_run: dryRun,
     now: nowIso,
     results,

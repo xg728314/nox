@@ -106,6 +106,8 @@ export async function GET(request: Request) {
   // R24: heartbeat — cron 이 실제로 실행됐다는 흔적. 실패해도 cron 본체에 영향 없음.
   await stampCronHeartbeat(supabase, "ble-attendance-sync", "started")
 
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  try {
   const nowMs = Date.now()
   const nowIso = new Date(nowMs).toISOString()
   const windowStartIso = new Date(nowMs - SCAN_LOOKBACK_MIN * 60 * 1000).toISOString()
@@ -133,6 +135,7 @@ export async function GET(request: Request) {
     .limit(5000)
 
   if (presErr) {
+    await stampCronHeartbeat(supabase, "ble-attendance-sync", "failed", `presence_scan: ${presErr.message}`)
     return NextResponse.json(
       { ok: false, error: "PRESENCE_SCAN_FAILED", message: presErr.message },
       { status: 500 },
@@ -149,6 +152,7 @@ export async function GET(request: Request) {
   scanned = seen.size
 
   if (seen.size === 0) {
+    await stampCronHeartbeat(supabase, "ble-attendance-sync", "success")
     return NextResponse.json({
       ok: true,
       dry_run: dryRun,
@@ -295,12 +299,21 @@ export async function GET(request: Request) {
     checkedIn += 1
   }
 
-  return NextResponse.json({
-    ok: true,
-    dry_run: dryRun,
-    scanned,
-    checked_in: checkedIn,
-    skipped,
-    window: { from: windowStartIso, to: nowIso },
-  })
+    await stampCronHeartbeat(supabase, "ble-attendance-sync", "success")
+    return NextResponse.json({
+      ok: true,
+      dry_run: dryRun,
+      scanned,
+      checked_in: checkedIn,
+      skipped,
+      window: { from: windowStartIso, to: nowIso },
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await stampCronHeartbeat(supabase, "ble-attendance-sync", "failed", msg)
+    return NextResponse.json(
+      { ok: false, error: "INTERNAL_ERROR", message: msg },
+      { status: 500 },
+    )
+  }
 }

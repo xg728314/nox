@@ -128,60 +128,72 @@ export async function GET(request: Request) {
   // R24: heartbeat
   await stampCronHeartbeat(supabase, "ble-session-inference", "started")
 
-  const now = Date.now()
-  const nowIso = new Date(now).toISOString()
-  const windowStartIso = new Date(now - lookbackMin * 60 * 1000).toISOString()
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  try {
+    const now = Date.now()
+    const nowIso = new Date(now).toISOString()
+    const windowStartIso = new Date(now - lookbackMin * 60 * 1000).toISOString()
 
-  const skipped: SkipCounters = {
-    materialize_disabled: 0,
-    gateway_unknown: 0,
-    tag_unknown: 0,
-    tag_unassigned: 0,
-    heartbeat_ignored: 0,
-  }
+    const skipped: SkipCounters = {
+      materialize_disabled: 0,
+      gateway_unknown: 0,
+      tag_unknown: 0,
+      tag_unassigned: 0,
+      heartbeat_ignored: 0,
+    }
 
-  // 3. 이벤트 스캔 (관찰)
-  const { data: eventsRaw, error: evErr } = await supabase
-    .from("ble_ingest_events")
-    .select("id, gateway_id, store_uuid, room_uuid, beacon_minor, event_type, observed_at")
-    .gte("observed_at", windowStartIso)
-    .lte("observed_at", nowIso)
-    .in("event_type", ["enter", "exit"])
-    .order("observed_at", { ascending: true })
-    .limit(5000)
+    // 3. 이벤트 스캔 (관찰)
+    const { data: eventsRaw, error: evErr } = await supabase
+      .from("ble_ingest_events")
+      .select("id, gateway_id, store_uuid, room_uuid, beacon_minor, event_type, observed_at")
+      .gte("observed_at", windowStartIso)
+      .lte("observed_at", nowIso)
+      .in("event_type", ["enter", "exit"])
+      .order("observed_at", { ascending: true })
+      .limit(5000)
 
-  if (evErr) {
+    if (evErr) {
+      await stampCronHeartbeat(supabase, "ble-session-inference", "failed", `event_scan: ${evErr.message}`)
+      return NextResponse.json(
+        { ok: false, error: "EVENT_SCAN_FAILED", message: evErr.message },
+        { status: 500 },
+      )
+    }
+    const events = (eventsRaw ?? []) as BleEvent[]
+    const scanned = events.length
+
+    // 4. materialize 는 하지 않는다. enter/exit 이벤트는 전량 skip 으로 집계.
+    //    staff_work_logs 테이블이 없고, cross_store_work_records 는 session_id
+    //    NOT NULL 이라 beacon 데이터만으로는 생성 불가. 운영에서 근무 기록은
+    //    수동 (/api/staff-work-logs POST) 경로로 생성.
+    for (const ev of events) {
+      if (ev.event_type === "enter" || ev.event_type === "exit") {
+        skipped.materialize_disabled += 1
+      } else {
+        skipped.heartbeat_ignored += 1
+      }
+    }
+
+    await stampCronHeartbeat(supabase, "ble-session-inference", "success")
+    return NextResponse.json({
+      ok: true,
+      dry_run: dryRun,
+      lookback_min: lookbackMin,
+      window: { from: windowStartIso, to: nowIso },
+      scanned,
+      created: 0,
+      closed: 0,
+      reaped: 0,
+      skipped,
+      note:
+        "observation_only — staff_work_logs 부재 및 cross_store_work_records.session_id NOT NULL 제약으로 beacon → work record 자동 materialize 비활성.",
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await stampCronHeartbeat(supabase, "ble-session-inference", "failed", msg)
     return NextResponse.json(
-      { ok: false, error: "EVENT_SCAN_FAILED", message: evErr.message },
+      { ok: false, error: "INTERNAL_ERROR", message: msg },
       { status: 500 },
     )
   }
-  const events = (eventsRaw ?? []) as BleEvent[]
-  const scanned = events.length
-
-  // 4. materialize 는 하지 않는다. enter/exit 이벤트는 전량 skip 으로 집계.
-  //    staff_work_logs 테이블이 없고, cross_store_work_records 는 session_id
-  //    NOT NULL 이라 beacon 데이터만으로는 생성 불가. 운영에서 근무 기록은
-  //    수동 (/api/staff-work-logs POST) 경로로 생성.
-  for (const ev of events) {
-    if (ev.event_type === "enter" || ev.event_type === "exit") {
-      skipped.materialize_disabled += 1
-    } else {
-      skipped.heartbeat_ignored += 1
-    }
-  }
-
-  return NextResponse.json({
-    ok: true,
-    dry_run: dryRun,
-    lookback_min: lookbackMin,
-    window: { from: windowStartIso, to: nowIso },
-    scanned,
-    created: 0,
-    closed: 0,
-    reaped: 0,
-    skipped,
-    note:
-      "observation_only — staff_work_logs 부재 및 cross_store_work_records.session_id NOT NULL 제약으로 beacon → work record 자동 materialize 비활성.",
-  })
 }

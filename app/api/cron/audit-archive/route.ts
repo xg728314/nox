@@ -69,50 +69,67 @@ export async function GET(request: Request) {
 
   await stampCronHeartbeat(supabase, "audit-archive", "started")
 
-  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  try {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
 
-  // 3. dry_run: 카운트만 반환
-  if (dryRun) {
-    const { count } = await supabase
-      .from("audit_events")
-      .select("*", { count: "exact", head: true })
-      .lt("created_at", cutoff)
+    // 3. dry_run: 카운트만 반환
+    if (dryRun) {
+      const { count } = await supabase
+        .from("audit_events")
+        .select("*", { count: "exact", head: true })
+        .lt("created_at", cutoff)
+      await stampCronHeartbeat(supabase, "audit-archive", "success")
+      return NextResponse.json({
+        ok: true,
+        dry_run: true,
+        retention_days: retentionDays,
+        cutoff,
+        candidates: count ?? 0,
+      })
+    }
+
+    // 4. 배치 반복 — RPC 가 INSERT+DELETE 트랜잭션 보장.
+    let totalMoved = 0
+    let batchesRun = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < MAX_BATCHES; i++) {
+      const { data, error } = await supabase.rpc("archive_audit_events", {
+        cutoff_ts: cutoff,
+        batch_size: BATCH_SIZE,
+      })
+      batchesRun++
+      if (error) {
+        errors.push(error.message)
+        break
+      }
+      const moved = typeof data === "number" ? data : 0
+      totalMoved += moved
+      if (moved < BATCH_SIZE) break // 더 이상 처리할 row 없음 — 종료
+    }
+
+    if (errors.length === 0) {
+      await stampCronHeartbeat(supabase, "audit-archive", "success")
+    } else {
+      await stampCronHeartbeat(supabase, "audit-archive", "failed", errors.join("; ").slice(0, 500))
+    }
+
     return NextResponse.json({
-      ok: true,
-      dry_run: true,
+      ok: errors.length === 0,
+      dry_run: false,
       retention_days: retentionDays,
       cutoff,
-      candidates: count ?? 0,
+      moved: totalMoved,
+      batches_run: batchesRun,
+      errors,
     })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await stampCronHeartbeat(supabase, "audit-archive", "failed", msg)
+    return NextResponse.json(
+      { ok: false, error: "INTERNAL_ERROR", message: msg },
+      { status: 500 },
+    )
   }
-
-  // 4. 배치 반복 — RPC 가 INSERT+DELETE 트랜잭션 보장.
-  let totalMoved = 0
-  let batchesRun = 0
-  const errors: string[] = []
-
-  for (let i = 0; i < MAX_BATCHES; i++) {
-    const { data, error } = await supabase.rpc("archive_audit_events", {
-      cutoff_ts: cutoff,
-      batch_size: BATCH_SIZE,
-    })
-    batchesRun++
-    if (error) {
-      errors.push(error.message)
-      break
-    }
-    const moved = typeof data === "number" ? data : 0
-    totalMoved += moved
-    if (moved < BATCH_SIZE) break // 더 이상 처리할 row 없음 — 종료
-  }
-
-  return NextResponse.json({
-    ok: errors.length === 0,
-    dry_run: false,
-    retention_days: retentionDays,
-    cutoff,
-    moved: totalMoved,
-    batches_run: batchesRun,
-    errors,
-  })
 }

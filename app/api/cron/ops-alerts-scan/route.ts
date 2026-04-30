@@ -103,27 +103,33 @@ export async function GET(request: Request) {
   // R24: heartbeat — cron 실행 흔적 (사일런트 실패 감지용).
   await stampCronHeartbeat(supabase, "ops-alerts-scan", "started")
 
-  // 3. 활성 매장 로드
-  const { data: stores, error: storesErr } = await supabase
-    .from("stores")
-    .select("id, store_name, is_active")
-    .eq("is_active", true)
-    .is("deleted_at", null)
-  if (storesErr) {
-    return NextResponse.json(
-      { ok: false, error: "STORES_LOAD_FAILED", message: storesErr.message },
-      { status: 500 },
-    )
-  }
-  const storeRows = (stores ?? []) as StoreRow[]
+  // 2026-04-30: success/failed phase stamp 추가. 이전엔 started 만 호출돼
+  //   last_success_at 이 영구 NULL → watchdog 의 recently_failed 분기가
+  //   short-circuit 으로 비활성화되는 사일런트 위험. try/catch 로 감싸서
+  //   정상 종료 시 success, throw 시 failed 로 stamp.
+  try {
+    // 3. 활성 매장 로드
+    const { data: stores, error: storesErr } = await supabase
+      .from("stores")
+      .select("id, store_name, is_active")
+      .eq("is_active", true)
+      .is("deleted_at", null)
+    if (storesErr) {
+      await stampCronHeartbeat(supabase, "ops-alerts-scan", "failed", `stores_load: ${storesErr.message}`)
+      return NextResponse.json(
+        { ok: false, error: "STORES_LOAD_FAILED", message: storesErr.message },
+        { status: 500 },
+      )
+    }
+    const storeRows = (stores ?? []) as StoreRow[]
 
-  const perStore: ScanEntry[] = []
-  let totalEmitted = 0
-  let totalDeduped = 0
-  let totalErrors = 0
+    const perStore: ScanEntry[] = []
+    let totalEmitted = 0
+    let totalDeduped = 0
+    let totalErrors = 0
 
-  // 4. 매장별 anomaly 계산 + 임계치 초과 시 emit
-  for (const s of storeRows) {
+    // 4. 매장별 anomaly 계산 + 임계치 초과 시 emit
+    for (const s of storeRows) {
     const ov = await computeAttendanceAnomalies(supabase, s.id)
     // ROUND-OPS-3: severity 분류는 helper 와 동일 기준.
     //   블로킹 유형은 THR=1 (>0), 경고 유형 중 tag_mismatch 만 THR=3 유지.
@@ -195,13 +201,22 @@ export async function GET(request: Request) {
     perStore.push(entry)
   }
 
-  return NextResponse.json({
-    ok: true,
-    dry_run: dryRun,
-    stores_scanned: storeRows.length,
-    totals: { emitted: totalEmitted, deduped: totalDeduped, errors: totalErrors },
-    per_store: perStore,
-  })
+    await stampCronHeartbeat(supabase, "ops-alerts-scan", "success")
+    return NextResponse.json({
+      ok: true,
+      dry_run: dryRun,
+      stores_scanned: storeRows.length,
+      totals: { emitted: totalEmitted, deduped: totalDeduped, errors: totalErrors },
+      per_store: perStore,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await stampCronHeartbeat(supabase, "ops-alerts-scan", "failed", msg)
+    return NextResponse.json(
+      { ok: false, error: "INTERNAL_ERROR", message: msg },
+      { status: 500 },
+    )
+  }
 }
 
 // ── local helpers ───────────────────────────────────────────────

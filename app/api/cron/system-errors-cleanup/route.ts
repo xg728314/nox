@@ -183,6 +183,21 @@ export async function GET(request: Request) {
     deleteError = e instanceof Error ? e.message : String(e)
   }
 
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  //   각 phase 의 try/catch 가 throw 를 막아주므로 본 함수는 항상 여기 도달.
+  //   resolveError / deleteError 로 결과를 기록 후 stamp 분기.
+  const anyError = resolveError || deleteError
+  if (anyError) {
+    await stampCronHeartbeat(
+      supabase,
+      "system-errors-cleanup",
+      "failed",
+      [resolveError, deleteError].filter(Boolean).join("; ").slice(0, 500),
+    )
+  } else {
+    await stampCronHeartbeat(supabase, "system-errors-cleanup", "success")
+  }
+
   return NextResponse.json({
     ok: !resolveError && !deleteError,
     dry_run: dryRun,

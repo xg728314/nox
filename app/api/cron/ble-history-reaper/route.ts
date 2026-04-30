@@ -149,28 +149,40 @@ export async function GET(request: Request) {
   // R24: heartbeat. 일 1회 실행되는 cron 이라 stale 임계치 26시간.
   await stampCronHeartbeat(supabase, "ble-history-reaper", "started")
 
-  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  // 2026-04-30: success/failed phase stamp 추가 — last_success_at 갱신을 위함.
+  try {
+    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-  const { count, error } = await supabase
-    .from("ble_presence_history")
-    .delete({ count: "exact" })
-    .lt("seen_at", cutoff)
+    const { count, error } = await supabase
+      .from("ble_presence_history")
+      .delete({ count: "exact" })
+      .lt("seen_at", cutoff)
 
-  if (error) {
+    if (error) {
+      await stampCronHeartbeat(supabase, "ble-history-reaper", "failed", error.message)
+      return NextResponse.json(
+        { ok: false, error: "DELETE_FAILED", message: error.message },
+        { status: 500 },
+      )
+    }
+
+    await stampCronHeartbeat(supabase, "ble-history-reaper", "success")
+    return NextResponse.json({
+      ok: true,
+      skipped: false,
+      deleted: count ?? 0,
+      cutoff,
+      executedAt,
+      currentHour,
+      targetHour,
+      tz,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await stampCronHeartbeat(supabase, "ble-history-reaper", "failed", msg)
     return NextResponse.json(
-      { ok: false, error: "DELETE_FAILED", message: error.message },
+      { ok: false, error: "INTERNAL_ERROR", message: msg },
       { status: 500 },
     )
   }
-
-  return NextResponse.json({
-    ok: true,
-    skipped: false,
-    deleted: count ?? 0,
-    cutoff,
-    executedAt,
-    currentHour,
-    targetHour,
-    tz,
-  })
 }
