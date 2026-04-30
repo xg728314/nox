@@ -47,6 +47,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   // 2026-04-30: 운영자 전용 (super_admin only). 일반 사장에게는 메뉴 자체
   //   숨김. 페이지 자체는 visualizeGate 가 비-super_admin 401/403 처리.
   { label: "네트워크 맵", path: "/super-admin/visualize/network", icon: "🕸️", requireSuperAdmin: true },
+  { label: "학습 Corpus", path: "/admin/learn", icon: "🧠", requireSuperAdmin: true },
 ]
 
 type Props = {
