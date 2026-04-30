@@ -95,11 +95,22 @@ export async function logAuditEvent(
   input: LogAuditInput,
 ): Promise<void> {
   const status: AuditStatus = input.status ?? "success"
+  // R-audit-impersonation (2026-04-30): super_admin override 추적성.
+  //   ctx.is_overridden_view=true 면 audit row 에:
+  //     - is_super_admin_view = true
+  //     - actor_actual_role   = ctx.actual_role (base role)
+  //     - actor_role          = ctx.role (override 값, 이미 그대로 들어감)
+  //   비-super_admin 또는 override 미적용 시 두 필드 모두 default.
+  const isImpersonating = input.auth.is_overridden_view === true
+  const actorActualRole = isImpersonating ? (input.auth.actual_role ?? null) : null
+
   const { error } = await supabase.from("audit_events").insert({
     store_uuid: input.auth.store_uuid,
     actor_profile_id: input.auth.user_id,
     actor_membership_id: input.auth.membership_id,
     actor_role: input.auth.role,
+    actor_actual_role: actorActualRole,
+    is_super_admin_view: isImpersonating,
     actor_type: "user",
     session_id: input.session_id ?? null,
     entity_table: input.entity_table,

@@ -247,6 +247,37 @@ export async function POST(request: Request) {
     }
     const userId = createdUser.user.id
 
+    // ─── Rollback helper (2026-04-30 hardening) ──────────────────
+    //   기존: try { deleteUser } catch {} — silent. 실패 시 auth.users 만
+    //   남는 orphan 누적 (DB 실사: 4/22 자 가입 실패 2건 흔적 발견).
+    //   변경: 실패 / 성공 모두 system_errors 에 기록. orphan 정리 스크립트
+    //   가 추적 가능. 실패한 rollback 도 cleanup 대상으로 명확히.
+    const rollbackAuthUser = async (reason: string) => {
+      try {
+        const { error: delErr } = await admin.auth.admin.deleteUser(userId)
+        if (delErr) {
+          await admin.from("system_errors").insert({
+            tag: "signup_rollback_failed",
+            error_name: "RollbackError",
+            error_message: `auth user delete failed during signup rollback: ${delErr.message}`,
+            extra: { user_id: userId, email, reason, supabase_error: delErr.message },
+          }).then(() => {}, () => {})
+        } else {
+          await admin.from("system_errors").insert({
+            tag: "signup_rollback",
+            error_name: "INFO",
+            error_message: `auth user rolled back: reason=${reason}`,
+            extra: { user_id: userId, email, reason },
+            resolved_at: new Date().toISOString(), // 정상 rollback 은 즉시 resolved
+          }).then(() => {}, () => {})
+        }
+      } catch (e) {
+        // 최후의 예외 — system_errors insert 자체가 실패해도 호출자는 응답해야.
+        // eslint-disable-next-line no-console
+        console.error("[signup rollback] catastrophic:", e)
+      }
+    }
+
     // ─── 5. Profile upsert ─────────────────────────────────────
     const { error: profileErr } = await admin
       .from("profiles")
@@ -261,8 +292,7 @@ export async function POST(request: Request) {
         { onConflict: "id" }
       )
     if (profileErr) {
-      // Best-effort rollback of auth user so a retry can succeed.
-      try { await admin.auth.admin.deleteUser(userId) } catch {}
+      await rollbackAuthUser(`profile_upsert_failed: ${profileErr.message}`)
       return bad("PROFILE_WRITE_FAILED", "프로필 생성에 실패했습니다.", 500)
     }
 
@@ -277,7 +307,9 @@ export async function POST(request: Request) {
       approved_at: null,
     })
     if (memErr) {
-      try { await admin.auth.admin.deleteUser(userId) } catch {}
+      // 또한 profile 도 정리 — auth.users 와 함께 rollback.
+      try { await admin.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
+      await rollbackAuthUser(`membership_insert_failed: ${memErr.message}`)
       return bad("MEMBERSHIP_WRITE_FAILED", "가입 신청 생성에 실패했습니다.", 500)
     }
 

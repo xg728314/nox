@@ -23,6 +23,18 @@ export type AuthContext = {
    * treat `undefined` as `false` (no forced change).
    */
   must_change_password?: boolean
+  /**
+   * R-super-admin-view (2026-04-30): super_admin 의 active context cookie
+   * (nox_active_store / nox_active_role) 가 적용되어 base 역할/매장과
+   * 다른 컨텍스트로 작동 중인지. audit_events 의 is_super_admin_view +
+   * actor_actual_role 추적용.
+   */
+  is_overridden_view?: boolean
+  /**
+   * is_overridden_view=true 일 때 본인의 actual base role (override 전).
+   * 일반적으로 super_admin 의 primary membership role.
+   */
+  actual_role?: "owner" | "manager" | "waiter" | "staff" | "hostess"
 }
 
 const VALID_ROLES = ["owner", "manager", "waiter", "staff", "hostess"] as const
@@ -178,7 +190,13 @@ async function applySuperAdminOverride(
   if (!ctx.is_super_admin) return ctx
   if (!override.active_store && !override.active_role) return ctx
 
+  // R-audit-impersonation: base role 보존. override 시 actor_actual_role
+  //   = ctx.role (override 전 값) 으로 audit 에 기록.
+  const actualRole = ctx.role
+  const baseStoreUuid = ctx.store_uuid
+
   let next: AuthContext = { ...ctx }
+  let overrideActuallyApplied = false
 
   if (override.active_store && override.active_store !== ctx.store_uuid) {
     const { data: m } = await supabase
@@ -188,7 +206,7 @@ async function applySuperAdminOverride(
       .eq("store_uuid", override.active_store)
       .eq("status", "approved")
       .is("deleted_at", null)
-      .order("role", { ascending: true })  // owner 가 먼저 오도록 (alphabetical: manager < owner — 실제로는 둘 다 있으면 owner 우선 원함)
+      .order("role", { ascending: true })
       .limit(1)
       .maybeSingle()
 
@@ -200,16 +218,24 @@ async function applySuperAdminOverride(
         membership_id: row.id,
         role: row.role as AuthContext["role"],
       }
+      overrideActuallyApplied = true
     }
-    // membership 부재 → override 무시. 원본 매장 그대로.
   }
 
   if (override.active_role && override.active_role !== next.role) {
-    // role 만 enum 교체. membership_id 는 store override 결과 유지.
     next = {
       ...next,
       role: override.active_role as AuthContext["role"],
     }
+    overrideActuallyApplied = true
+  }
+
+  if (overrideActuallyApplied) {
+    next.is_overridden_view = true
+    next.actual_role = actualRole
+    // store override 안 됐고 role 만 override 인 경우, store 는 base 그대로.
+    // (이미 next.store_uuid 처리 완료)
+    void baseStoreUuid // 향후 base store 도 audit 에 기록할 때 쓸 수 있음
   }
 
   return next
