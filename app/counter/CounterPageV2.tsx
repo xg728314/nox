@@ -115,17 +115,20 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   const currentRole = currentProfile?.role ?? null
 
   // 2026-05-01 R-Hostess-Home: page-level guard.
-  //   middleware 가 hostess role → /me/home redirect 하지만, super_admin 이
-  //   override cookie 없이 본인 시점에서 nox_active_role=hostess 를 직접 set
-  //   하는 경우 / cookie 적용이 SSR 만 되고 client 가 stale 이미지 보는 경우
-  //   대비. effective role=hostess 면 client 측에서 한 번 더 redirect.
-  //   다른 role 은 그대로 카운터 페이지 사용.
+  //   middleware 가 hostess / staff role → /me/home redirect 하지만,
+  //   super_admin override cookie / stale client cache 대비 이중 안전망.
+  //   "스태프" (NOX 한국어 wording) 는 staff + hostess 두 role 모두 포함.
+  //   둘 다 차단 → /me/home (내 방 + 채팅 + DM + 일한 갯수).
+  //
+  //   isStaffRole 일 때는 페이지 본문 자체를 렌더 안 함 (방/매출/사이드바
+  //   가 잠깐이라도 깜빡 노출되지 않도록 early-return).
+  const isStaffRole =
+    currentProfile?.role === "hostess" || currentProfile?.role === "staff"
   useEffect(() => {
-    if (!currentProfile) return
-    if (currentProfile.role === "hostess") {
+    if (isStaffRole) {
       router.replace("/me/home")
     }
-  }, [currentProfile, router])
+  }, [isStaffRole, router])
 
   // R29-refactor: viewMode 는 useViewMode 훅으로 이전.
   const { viewMode, effectiveMode, applyViewMode } = useViewMode()
@@ -513,6 +516,16 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   const liveOrderTotal = rooms.reduce((sum, r) => sum + (r.session?.order_total ?? 0), 0)
 
   // ═══ Loading ══════════════════════════════════════════════════════════════════
+
+  // 2026-05-01 R-Hostess-Home: staff/hostess 면 본문 렌더 차단 (redirect 진행 중).
+  //   useEffect 의 router.replace 가 끝나기 전에 방/매출 잠깐이라도 노출 X.
+  if (isStaffRole) {
+    return (
+      <div className="min-h-screen bg-[#0a0c14] flex items-center justify-center">
+        <div className="text-slate-400 text-sm">스태프 home 으로 이동 중...</div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

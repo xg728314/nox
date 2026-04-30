@@ -131,7 +131,12 @@ const SUPER_ADMIN_ONLY_PREFIXES = ["/super-admin"]
 // reachability.
 const MEMBER_CREATE_ALLOWED_PREFIXES = ["/admin/members/create"]
 
-const COUNTER_ALLOWED_ROLES: readonly Role[] = ["owner", "manager", "waiter", "staff"]
+// 2026-05-01 R-Hostess-Home: "스태프" (staff) 도 hostess 와 동일하게 운영 X.
+//   NOX 한국어 wording 에서 staff / hostess 둘 다 "스태프" 라벨 (StoreContextBar
+//   roleLabel). 운영자 의도: "스태프는 카운터 / 방 정보 보면 안 됨". → /me/home
+//   으로 redirect (내 방 + 채팅 + DM + 일한 갯수만).
+//   waiter 는 매장 직원 (서빙) 으로 운영 보조 가능 → 그대로 유지.
+const COUNTER_ALLOWED_ROLES: readonly Role[] = ["owner", "manager", "waiter"]
 
 function matchesPrefix(pathname: string, prefixes: readonly string[]): boolean {
   for (const p of prefixes) {
@@ -429,8 +434,9 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     }
     // Not owner, not manager, not super_admin → role-appropriate
     // redirect. hostess/staff/waiter fall through to here.
+    // 2026-05-01: staff 도 hostess 와 동일하게 /me/home (스태프 dashboard).
     const fallback =
-      role === "hostess" ? "/me" :
+      role === "hostess" || role === "staff" ? "/me/home" :
       "/counter"
     return redirectTo(req, fallback)
   }
@@ -467,10 +473,11 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     if (!isSuperAdmin) {
       // Redirect to the role-appropriate home, NOT /login (user IS
       // authenticated, just lacks global privilege).
+      // 2026-05-01: staff 도 hostess 와 동일하게 /me/home.
       const fallback =
         role === "owner" ? "/owner" :
         role === "manager" ? "/manager" :
-        role === "hostess" ? "/me" :
+        role === "hostess" || role === "staff" ? "/me/home" :
         "/counter"
       return redirectTo(req, fallback)
     }
@@ -478,13 +485,15 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
-  // 6. Hostess never has business-UI access in the matched prefix set.
-  //    Any attempt → /me/home (스태프 dashboard).
-  //    2026-05-01 R-Hostess-Home: /me 가 아닌 /me/home 으로 redirect.
-  //      /me 는 정보/정산 4탭 페이지. /me/home 이 운영자가 정의한 스태프
-  //      대시보드 (내 방 + 채팅 + DM + 일한 갯수). 같은 hostess 가 운영
-  //      중에 자주 보는 화면.
-  if (role === "hostess") {
+  // 6. "스태프" (hostess + staff) never has business-UI access.
+  //    2026-05-01 R-Hostess-Home: hostess + staff 둘 다 차단.
+  //      NOX 에서 staff / hostess 가 둘 다 "스태프" 라벨로 표시되며 운영자
+  //      의도 = 운영 X. /me/home 으로 redirect (스태프 dashboard).
+  //      운영 중에 자주 보는 화면 (내 방 + 채팅 + DM + 일한 갯수).
+  //
+  //      super_admin 이 active_role=staff 또는 hostess 로 override 한 경우도
+  //      이 분기로 들어옴 (line ~391 에서 role 이 이미 override 적용된 상태).
+  if (role === "hostess" || role === "staff") {
     return redirectTo(req, "/me/home")
   }
 
