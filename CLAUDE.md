@@ -228,7 +228,7 @@ Development is managed through an orchestration system (`orchestration/`). Tasks
 9. ~~**pre-settlement idempotency**~~ — **R28 완료**. 60초 윈도우 중복 차단.
 10. ~~**CSP 헤더 부재**~~ — **R28 완료**. next.config.ts.
 11. **DB backup 복원 시연 미실시** — 절차성. 운영 작업.
-12. **카운터 PC 시계 어긋남** — server timestamps 위주, 일부 UI 만 client clock. 전수 점검 필요.
+12. **카운터 PC 시계 어긋남** — **부분 완료 (2026-04-30)**. `/api/system/time` + `lib/time/serverClock.ts` (`useServerClock` / `getServerNow`) 추가. 카운터 메인 hook (useRooms) 의 1s tick now + 체크아웃 초과 경고 (useCheckoutFlow) 가 server-adjusted. 정산 금액은 server-side 직접 계산이라 영향 없었음 — UI 표시만 보정. 잔여 156곳 client `Date.now()` 는 표시 영향 미미하므로 다음 라운드.
 13. **Phase B 큰 파일 분할** — `CounterPageV2.tsx` (1328줄), `monitor/route.ts` (1076줄) 등. 각 1라운드씩.
 
 ## Paper Ledger Reconciliation (R27~R30, 2026-04-25)

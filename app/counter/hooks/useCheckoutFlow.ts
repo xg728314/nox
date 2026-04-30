@@ -3,6 +3,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { getServerNow } from "@/lib/time/serverClock"
 import type { FocusData } from "../types"
 
 /**
@@ -65,7 +66,9 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
     // 2026-04-25: 연장 누락 감지. time_minutes 초과해서 일한 참여자 있으면
     //   체크아웃 전에 경고 → 연장 처리 유도. 5분 이상 초과만 경고
     //   (1~4분은 자연스러운 마감 시간 오차로 간주).
-    const now = Date.now()
+    // 2026-04-30 R-Counter-Clock: getServerNow() 로 client clock 보정.
+    //   카운터 PC 시계 어긋남으로 잘못된 초과 경고 / 연장 누락 방지.
+    const now = getServerNow()
     const overtime: { name: string; overMin: number; participantId: string }[] = []
     for (const p of focusData.participants) {
       if (p.role !== "hostess" || p.status !== "active") continue

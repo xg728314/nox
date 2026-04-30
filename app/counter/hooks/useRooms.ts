@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { useRouter } from "next/navigation"
 import { createAuthedClient } from "@/lib/supabaseClient"
 import { apiFetch } from "@/lib/apiFetch"
+import { useServerClock } from "@/lib/time/serverClock"
 import type { Room, DailySummary } from "../types"
 
 /**
@@ -81,7 +82,11 @@ export function useRooms(): UseRoomsReturn {
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null)
   const [currentStoreUuid, setCurrentStoreUuid] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [now, setNow] = useState(Date.now())
+  // 2026-04-30 R-Counter-Clock: client clock 어긋남 방지. /api/system/time
+  //   1회 fetch 후 offset 보정해서 server-adjusted now 1s tick 으로 반환.
+  //   카운터 PC 시계가 5~30분 어긋난 매장에서도 elapsed/remaining 표시 정확.
+  //   정산 금액은 server 가 별도 계산하므로 여기 영향 X (UI 표시만 보정).
+  const now = useServerClock(1000)
 
   // Realtime event sink — updated via setOnRealtimeEvent. Stored in a ref-like
   // state so the realtime useEffect doesn't re-subscribe every time the parent
@@ -159,11 +164,7 @@ export function useRooms(): UseRoomsReturn {
   }, [refreshRooms])
   scheduleRefreshRef.current = scheduleRefresh
 
-  // Polling clock — 1s tick for remaining-time displays.
-  useEffect(() => {
-    const iv = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(iv)
-  }, [])
+  // 2026-04-30: polling clock 은 useServerClock 이 관리. 기존 setInterval 제거.
 
   // ─── Realtime token state (authed transition prep) ──────────────
   //
