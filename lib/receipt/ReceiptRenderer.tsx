@@ -15,6 +15,13 @@ import type { ReceiptDocument } from "./types"
 type Props = {
   doc: ReceiptDocument
   mode?: "preview" | "print" | "png"
+  /**
+   * 2026-05-01: 호스티스 이름 표시 여부.
+   *   default false (손님 영수증 인쇄 안전 + 사장 PII 정책).
+   *   실장 / waiter / super_admin 시점 preview 에서 true 권장.
+   *   인쇄/png mode 에서는 무시 (항상 숨김 — 손님에게 영수증 줄 가능성).
+   */
+  showHostessName?: boolean
 }
 
 function fmt(v: number): string {
@@ -30,8 +37,10 @@ function fmtDate(dateStr: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`
 }
 
-export default function ReceiptRenderer({ doc, mode = "preview" }: Props) {
+export default function ReceiptRenderer({ doc, mode = "preview", showHostessName = false }: Props) {
   const isPrint = mode === "print" || mode === "png"
+  // 인쇄/PNG 모드에서는 호스티스 이름 강제 숨김 (손님 영수증 보안).
+  const showName = showHostessName && !isPrint
 
   // Classify orders by type
   const liquorOrders = doc.orders.filter(o => ["\uC8FC\uB958", "\uC591\uC8FC", "liquor"].includes(o.order_type))
@@ -87,6 +96,11 @@ export default function ReceiptRenderer({ doc, mode = "preview" }: Props) {
             {doc.participants.filter(p => p.status === "active" || p.status === "mid_out").map((p, i) => (
               <div key={i} className="flex justify-between text-[12px] leading-5">
                 <span className="text-gray-700">
+                  {/* 2026-05-01: showName=true (실장/운영자 preview) 만 호스티스 이름 노출.
+                      사장/손님 영수증/인쇄/PNG 에서는 자동 숨김. */}
+                  {showName && p.name && (
+                    <span className="text-gray-900 font-medium mr-1.5">{p.name}</span>
+                  )}
                   {p.category || "-"} <span className="text-gray-400">{p.time_minutes}분</span>
                 </span>
                 <span className="font-medium">{fmt(p.price_amount)}</span>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import ReceiptRenderer from "@/lib/receipt/ReceiptRenderer"
 import { downloadReceiptPng } from "@/lib/receipt/PngRenderer"
 import { apiFetch } from "@/lib/apiFetch"
+import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
 import type { ReceiptDocument } from "@/lib/receipt/types"
 
 export default function ReceiptViewerPage({
@@ -14,9 +15,20 @@ export default function ReceiptViewerPage({
 }) {
   const { snapshot_id } = use(params)
   const router = useRouter()
+  const profile = useCurrentProfile()
   const [doc, setDoc] = useState<ReceiptDocument | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+
+  // 2026-05-01: 호스티스 이름 표시 — 실장/운영자 시점만.
+  //   사장 owner: false (PII 정책 — 호스티스 개별 정보 비노출)
+  //   manager / waiter: true (담당 호스티스 검수 필요)
+  //   super_admin: true (운영자 전체 검수)
+  //   인쇄/PNG 에서는 ReceiptRenderer 가 자동 숨김 (손님 영수증 보안).
+  const showHostessName =
+    profile?.role === "manager" ||
+    profile?.role === "waiter" ||
+    profile?.is_super_admin === true
 
   useEffect(() => {
     async function load() {
@@ -114,7 +126,7 @@ export default function ReceiptViewerPage({
           >
             ✕
           </button>
-          <ReceiptRenderer doc={doc} mode="preview" />
+          <ReceiptRenderer doc={doc} mode="preview" showHostessName={showHostessName} />
         </div>
       </div>
     </div>
