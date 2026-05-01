@@ -217,7 +217,7 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
     handleAddHostessWithName,
     handleNameBlur, handleDeleteUnsetParticipant,
   } = useParticipantMutations({
-    focusRoomId, focusData, fetchRooms, fetchFocusData, setBusy, setError,
+    focusRoomId, focusData, fetchRooms, fetchFocusData, setFocusData, setBusy, setError,
   })
 
   // ═══ Focus enter / exit ═══════════════════════════════════════════════════════

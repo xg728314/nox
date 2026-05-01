@@ -182,7 +182,7 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
   // ─── handleSheetCommit ───────────────────────────────────────────
   async function handleSheetCommit(): Promise<void> {
     const {
-      sheet, setSheet, patchSheet, focusData, fetchRooms, fetchFocusData,
+      sheet, setSheet, patchSheet, focusData, setFocusData, fetchRooms, fetchFocusData,
       setError, currentStoreUuid,
     } = deps
     if (!sheet.participantId || !sheet.category || sheet.timeMinutes === null) return
@@ -208,8 +208,39 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
       const result = await counterApi.patchParticipant(sheet.participantId, body)
       const data = result.data as { message?: string }
       if (!result.ok) { setError(data.message || "업데이트 실패"); return }
+
+      // 2026-05-01 R-Counter-Speed: Optimistic update — 에디터 즉시 반영.
+      const targetId = sheet.participantId
+      const newCategory = sheet.category
+      const newTime = sheet.timeMinutes
+      const newOriginStoreUuid =
+        typeof sheet.storeUuid === "string" && sheet.storeUuid.length > 0
+          ? (sheet.storeUuid === currentStoreUuid ? null : sheet.storeUuid)
+          : undefined
+      const newManagerId = sheet.manager?.membership_id ?? undefined
+      const newManagerName = sheet.manager?.name ?? undefined
+      setFocusData((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          participants: prev.participants.map((p) =>
+            p.id === targetId
+              ? {
+                  ...p,
+                  category: newCategory,
+                  time_minutes: newTime,
+                  ...(newOriginStoreUuid !== undefined ? { origin_store_uuid: newOriginStoreUuid } : {}),
+                  ...(newManagerId !== undefined ? { manager_membership_id: newManagerId } : {}),
+                  ...(newManagerName !== undefined ? { manager_name: newManagerName } : {}),
+                  ...(isReEdit ? {} : { entered_at: new Date().toISOString() }),
+                }
+              : p
+          ),
+        }
+      })
+
       setSheet(SHEET_INIT)
-      // 2026-05-01 R-Counter-Speed: await 제거 → loading 즉시 해제.
+      // Background refetch — server 가 price_amount 등 server-side 계산 결과 sync.
       void fetchRooms()
       if (focusData?.roomId && focusData?.sessionId) {
         void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)

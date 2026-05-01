@@ -39,32 +39,35 @@ export async function GET(
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // 1. Verify room exists in this store
-    const { data: room, error: roomError } = await supabase
-      .from("rooms")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("id", roomUuid)
-      .single()
+    // 2026-05-01 R-Counter-Speed: room 검증 + active session 병렬 fetch.
+    //   둘 다 store_uuid + roomUuid 만 의존 (상호 무관). 직렬 → Promise.all.
+    const [roomRes, sessionRes] = await Promise.all([
+      supabase
+        .from("rooms")
+        .select("id")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("id", roomUuid)
+        .maybeSingle(),
+      supabase
+        .from("room_sessions")
+        .select("id, status, started_at, ended_at")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("room_uuid", roomUuid)
+        .eq("status", "active")
+        .maybeSingle(),
+    ])
+    const room = roomRes.data
+    const session = sessionRes.data
 
-    if (roomError || !room) {
+    if (!room) {
       return NextResponse.json(
         { error: "ROOM_NOT_FOUND", message: "Room not found in this store." },
         { status: 404 }
       )
     }
 
-    // 2. Find active session for this room (scoped by store_uuid)
-    // started_at, ended_at 추가 — 프론트 시간 표시용
-    const { data: session, error: sessionError } = await supabase
-      .from("room_sessions")
-      .select("id, status, started_at, ended_at")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("room_uuid", roomUuid)
-      .eq("status", "active")
-      .single()
-
     // No active session = no participants (not an error)
-    if (sessionError || !session) {
+    if (!session) {
       return NextResponse.json({
         room_uuid: roomUuid,
         store_uuid: authContext.store_uuid,
@@ -101,19 +104,20 @@ export async function GET(
     const nameMap = new Map<string, string>()
     const managerMap = new Map<string, { manager_membership_id: string | null }>()
 
+    // 2026-05-01 R-Counter-Speed: managers + hostesses 병렬.
     if (membershipIds.length > 0) {
-      const { data: mgrs } = await supabase
-        .from("managers")
-        .select("membership_id, name")
-        .in("membership_id", membershipIds)
-
-      const { data: hsts } = await supabase
-        .from("hostesses")
-        .select("membership_id, name, manager_membership_id")
-        .in("membership_id", membershipIds)
-
-      for (const m of mgrs ?? []) nameMap.set(m.membership_id, m.name)
-      for (const h of hsts ?? []) {
+      const [mgrsRes, hstsRes] = await Promise.all([
+        supabase
+          .from("managers")
+          .select("membership_id, name")
+          .in("membership_id", membershipIds),
+        supabase
+          .from("hostesses")
+          .select("membership_id, name, manager_membership_id")
+          .in("membership_id", membershipIds),
+      ])
+      for (const m of mgrsRes.data ?? []) nameMap.set(m.membership_id, m.name)
+      for (const h of hstsRes.data ?? []) {
         nameMap.set(h.membership_id, h.name)
         managerMap.set(h.membership_id, { manager_membership_id: h.manager_membership_id ?? null })
       }

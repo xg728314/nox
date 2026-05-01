@@ -16,6 +16,8 @@ type Deps = {
   focusData: FocusData | null
   fetchRooms: () => Promise<void>
   fetchFocusData: (roomId: string, sessionId: string, startedAt: string) => Promise<void>
+  /** 2026-05-01 R-Counter-Speed: optimistic update 직접 적용. */
+  setFocusData: Dispatch<SetStateAction<FocusData | null>>
   setBusy: Dispatch<SetStateAction<boolean>>
   setError: Dispatch<SetStateAction<string>>
 }
@@ -167,9 +169,29 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || "참여자 추가 실패"); return }
-      // 2026-05-01 R-Counter-Speed: await 제거 → busy 즉시 false.
-      //   refetch 는 background. realtime patch 가 실시간 sync (useRealtimePatchWiring).
-      //   사용자 체감 1-2초 → 0.3초 (POST 응답만 기다림).
+
+      // 2026-05-01 R-Counter-Speed: Optimistic update — 응답 row 직접 prepend.
+      //   사용자 체감 latency ~10ms (UI render only). server / refetch background.
+      if (data.participant_id) {
+        deps.setFocusData((prev) => {
+          if (!prev) return prev
+          // 중복 add 방지 (realtime 이 먼저 patch 한 경우)
+          if (prev.participants.some((p) => p.id === data.participant_id)) return prev
+          const newP = {
+            id: data.participant_id,
+            membership_id: data.membership_id ?? null,
+            role: data.role ?? "hostess",
+            category: data.category ?? null,
+            time_minutes: data.time_minutes ?? 0,
+            price_amount: data.price_amount ?? 0,
+            status: data.status ?? "active",
+            entered_at: data.entered_at ?? new Date().toISOString(),
+          }
+          return { ...prev, participants: [...prev.participants, newP] }
+        })
+      }
+
+      // Background refetch (realtime patch 와 함께 eventual consistency).
       void fetchRooms()
       if (focusRoomId && sessionId) void fetchFocusData(focusRoomId, sessionId, "")
     } catch { setError("요청 오류") }
