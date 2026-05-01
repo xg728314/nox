@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/apiFetch"
 import type { PaperExtraction } from "@/lib/reconcile/types"
 import RoomsEditor from "./components/RoomsEditor"
 import StaffEditor from "./components/StaffEditor"
+import TextParseModal from "./components/TextParseModal"
 import ImageQualityPanel from "./components/ImageQualityPanel"
 
 type Detail = {
@@ -74,6 +75,28 @@ export default function ReconcileDetailPage({
   // R-A v5: 매장 호스티스/매장명 후보 — RoomsEditor 의 datalist 자동완성용
   const [knownHostesses, setKnownHostesses] = useState<string[]>([])
   const [knownStores, setKnownStores] = useState<string[]>([])
+  // 2026-05-01 R-ParseText: 텍스트 정답 입력 모달.
+  const [textModalOpen, setTextModalOpen] = useState(false)
+
+  async function applyParsedText(extraction: PaperExtraction) {
+    try {
+      const r = await apiFetch(`/api/reconcile/${id}/edit`, {
+        method: "POST",
+        body: JSON.stringify({
+          edited_json: extraction,
+          edit_reason: "텍스트 정답 입력 (Claude parse)",
+        }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        alert(d.message || d.error || "저장 실패")
+        return
+      }
+      await load()
+    } catch {
+      alert("네트워크 오류")
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -204,33 +227,49 @@ export default function ReconcileDetailPage({
       <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <button onClick={() => router.back()} className="text-cyan-400 text-sm">← 뒤로</button>
         <span className="font-semibold">📑 {s.business_date} · {s.sheet_kind === "rooms" ? "방별" : s.sheet_kind === "staff" ? "스태프" : "기타"}</span>
-        <button
-          onClick={async () => {
-            const ok1 = window.confirm(
-              "이 사진을 정말 삭제하시겠습니까?\n\n" +
-              "✗ 삭제: 사진 / OCR 결과 / 사람 편집본\n" +
-              "✓ 보존: 학습 corpus (PII 자동 hash 처리됨)"
-            )
-            if (!ok1) return
-            const ok2 = window.confirm("되돌릴 수 없습니다. 정말 삭제하시겠습니까?")
-            if (!ok2) return
-            try {
-              const r = await apiFetch(`/api/reconcile/${id}`, { method: "DELETE" })
-              const d = await r.json().catch(() => ({}))
-              if (!r.ok) {
-                alert(d.message || d.error || "삭제 실패")
-                return
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setTextModalOpen(true)}
+            className="text-cyan-300 text-xs hover:text-cyan-200"
+            title="채팅처럼 텍스트로 입력 (셀별 클릭 X)"
+          >💬 텍스트 입력</button>
+          <button
+            onClick={async () => {
+              const ok1 = window.confirm(
+                "이 사진을 정말 삭제하시겠습니까?\n\n" +
+                "✗ 삭제: 사진 / OCR 결과 / 사람 편집본\n" +
+                "✓ 보존: 학습 corpus (PII 자동 hash 처리됨)"
+              )
+              if (!ok1) return
+              const ok2 = window.confirm("되돌릴 수 없습니다. 정말 삭제하시겠습니까?")
+              if (!ok2) return
+              try {
+                const r = await apiFetch(`/api/reconcile/${id}`, { method: "DELETE" })
+                const d = await r.json().catch(() => ({}))
+                if (!r.ok) {
+                  alert(d.message || d.error || "삭제 실패")
+                  return
+                }
+                alert("삭제 완료. 학습 데이터는 보존됨.")
+                router.push("/reconcile")
+              } catch {
+                alert("네트워크 오류")
               }
-              alert("삭제 완료. 학습 데이터는 보존됨.")
-              router.push("/reconcile")
-            } catch {
-              alert("네트워크 오류")
-            }
-          }}
-          className="text-red-400 text-xs hover:text-red-300"
-          title="사진 삭제 (학습 corpus 는 보존)"
-        >🗑 삭제</button>
+            }}
+            className="text-red-400 text-xs hover:text-red-300"
+            title="사진 삭제 (학습 corpus 는 보존)"
+          >🗑 삭제</button>
+        </div>
       </div>
+
+      {textModalOpen && (
+        <TextParseModal
+          snapshot_id={id}
+          sheet_kind={s.sheet_kind}
+          onApply={applyParsedText}
+          onClose={() => setTextModalOpen(false)}
+        />
+      )}
 
       {error && (
         <div className="mx-4 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">{error}</div>
