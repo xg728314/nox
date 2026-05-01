@@ -91,7 +91,18 @@ export default function ReceiptViewPage({
 
       {/* Receipt preview */}
       <div className="px-4 py-6 flex justify-center">
-        <ReceiptRenderer doc={doc} mode="preview" />
+        <div className="relative w-fit">
+          {/* 2026-05-01: X 닫기 버튼 (다른 세션 오인 방지). 인쇄 시 자동 숨김. */}
+          <button
+            onClick={() => router.back()}
+            aria-label="계산서 닫기"
+            title="닫기 (이전 화면으로)"
+            className="print:hidden absolute -top-2 -right-2 z-10 w-8 h-8 rounded-full bg-gray-900 text-white text-sm font-bold shadow-lg hover:bg-gray-700 flex items-center justify-center"
+          >
+            ✕
+          </button>
+          <ReceiptRenderer doc={doc} mode="preview" />
+        </div>
       </div>
     </div>
   )
