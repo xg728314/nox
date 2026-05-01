@@ -34,38 +34,41 @@ export async function GET(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // Verify session belongs to this store
-    const { data: session, error: sessionError } = await supabase
-      .from("room_sessions")
-      .select("id")
-      .eq("id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .single()
+    // 2026-05-01 R-Counter-Speed: session 검증 + orders 병렬화.
+    //   기존: session 검증 await → orders SELECT (직렬, 400-600ms).
+    //   현재: 둘 다 병렬, orders 가 store_uuid + session_id 매칭이라 다른 매장
+    //   row 자체 응답 X (보안 영향 없음). session_id 가 다른 매장이면 orders=[].
+    const applyArchivedNull = await archivedAtFilter(supabase, "orders")
+    const [sessionRes, ordersRes] = await Promise.all([
+      supabase
+        .from("room_sessions")
+        .select("id")
+        .eq("id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .maybeSingle(),
+      applyArchivedNull(
+        supabase
+          .from("orders")
+          .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
+          .eq("store_uuid", authContext.store_uuid)
+          .eq("session_id", session_id)
+          .is("deleted_at", null)
+      ).order("created_at", { ascending: true }),
+    ])
 
-    if (sessionError || !session) {
+    if (!sessionRes.data) {
       return NextResponse.json(
         { error: "SESSION_NOT_FOUND", message: "Session not found in this store." },
         { status: 404 }
       )
     }
-
-    // 2026-04-25: archive 된 주문은 활성 목록에서 숨김.
-    const applyArchivedNull = await archivedAtFilter(supabase, "orders")
-    const { data: orders, error: ordersError } = await applyArchivedNull(
-      supabase
-        .from("orders")
-        .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("session_id", session_id)
-        .is("deleted_at", null)
-    ).order("created_at", { ascending: true })
-
-    if (ordersError) {
+    if (ordersRes.error) {
       return NextResponse.json(
         { error: "QUERY_FAILED", message: "Failed to query orders." },
         { status: 500 }
       )
     }
+    const orders = ordersRes.data
 
     return NextResponse.json({
       session_id,
