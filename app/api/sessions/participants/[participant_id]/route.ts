@@ -46,7 +46,9 @@ export async function PATCH(
       return handleUpdateExternalName(supabase, authContext, participant_id, body.external_name)
     }
 
-    // ── Load participant for all other actions ──
+    // 2026-05-01 R-Counter-Speed: participant + receipt + session 검증 직렬 →
+    //   participant 먼저 await (다음 query 들이 session_id 의존), 그 후
+    //   receipts + room_sessions Promise.all. 1단계 절감.
     const { data: participant, error: pError } = await supabase
       .from("session_participants")
       .select("id, session_id, store_uuid, price_amount, manager_payout_amount, hostess_payout_amount, category, time_minutes, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, status, updated_at")
@@ -59,41 +61,39 @@ export async function PATCH(
       return NextResponse.json({ error: "PARTICIPANT_NOT_FOUND", message: "Participant not found." }, { status: 404 })
     }
 
-    // Finalized receipt guard
-    const { data: receipt } = await supabase
-      .from("receipts")
-      .select("id, status")
-      .eq("session_id", participant.session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (receipt && receipt.status === "finalized") {
-      return NextResponse.json({ error: "ALREADY_FINALIZED", message: "정산이 확정된 세션입니다." }, { status: 409 })
-    }
-
-    // Business day closure guard + session-state guard
-    {
-      const { data: sessionBizDay } = await supabase
+    // receipts + room_sessions 병렬 (둘 다 session_id 만 의존).
+    const [receiptRes, sessionBizRes] = await Promise.all([
+      supabase
+        .from("receipts")
+        .select("id, status")
+        .eq("session_id", participant.session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
         .from("room_sessions")
         .select("business_day_id, status")
         .eq("id", participant.session_id)
         .eq("store_uuid", authContext.store_uuid)
         .is("deleted_at", null)
-        .maybeSingle()
-      // STEP-003: reject mutation after session close. Preserves finalized-receipt
-      // and business-day guards above while closing the gap where a session is
-      // closed but the business day is still open.
-      if (sessionBizDay && sessionBizDay.status !== "active") {
-        return NextResponse.json(
-          { error: "SESSION_NOT_ACTIVE", message: "세션이 종료되어 수정할 수 없습니다." },
-          { status: 409 }
-        )
-      }
-      const guard = await assertBusinessDayOpen(supabase, sessionBizDay?.business_day_id ?? null)
-      if (guard) return guard
+        .maybeSingle(),
+    ])
+
+    const receipt = receiptRes.data
+    if (receipt && receipt.status === "finalized") {
+      return NextResponse.json({ error: "ALREADY_FINALIZED", message: "정산이 확정된 세션입니다." }, { status: 409 })
     }
+
+    const sessionBizDay = sessionBizRes.data
+    if (sessionBizDay && sessionBizDay.status !== "active") {
+      return NextResponse.json(
+        { error: "SESSION_NOT_ACTIVE", message: "세션이 종료되어 수정할 수 없습니다." },
+        { status: 409 }
+      )
+    }
+    const guard = await assertBusinessDayOpen(supabase, sessionBizDay?.business_day_id ?? null)
+    if (guard) return guard
 
     // ── Action dispatch ──
     let updatePayload: Record<string, number | string | boolean> = { updated_at: new Date().toISOString() }
@@ -168,7 +168,8 @@ export async function PATCH(
       return NextResponse.json({ error: "VERSION_CONFLICT", message: "참여자 정보가 동시에 수정되었습니다. 다시 시도해 주세요." }, { status: 409 })
     }
 
-    await writeSessionAudit(supabase, {
+    // 2026-05-01 R-Counter-Speed: audit background fire (await 제거).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id: participant.session_id,
       entity_table: "session_participants",
@@ -176,6 +177,9 @@ export async function PATCH(
       action: actionLabel,
       before: { price_amount: participant.price_amount, manager_payout_amount: participant.manager_payout_amount },
       after: updatePayload,
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn("[participant PATCH] audit failed:", e instanceof Error ? e.message : e)
     })
 
     return NextResponse.json({
