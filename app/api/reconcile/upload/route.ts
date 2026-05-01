@@ -132,22 +132,36 @@ export async function POST(request: Request) {
     } catch { /* best-effort, expiresAt null 로 진행 */ }
 
     // 3) snapshot row 생성
-    const { error: insErr } = await supabase
-      .from("paper_ledger_snapshots")
-      .insert({
-        id: snapshotId,
-        store_uuid: auth.store_uuid,
-        business_day_id,
-        business_date: businessDate,
-        sheet_kind: sheetKindRaw,
-        storage_path: upload.storage_path,
-        file_name: file.name,
-        mime_type: file.type || null,
-        size_bytes: file.size,
-        status: "uploaded",
-        uploaded_by: auth.user_id,
-        expires_at: expiresAt,
-      })
+    // 2026-05-01 R-Paper-Retention fix: migration 108 미적용 환경에서
+    //   expires_at 컬럼 부재 → schema cache miss → 500. fail-soft retry:
+    //   1차 시도에서 expires_at 포함 → 실패하면 빼고 재시도.
+    const baseRow: Record<string, unknown> = {
+      id: snapshotId,
+      store_uuid: auth.store_uuid,
+      business_day_id,
+      business_date: businessDate,
+      sheet_kind: sheetKindRaw,
+      storage_path: upload.storage_path,
+      file_name: file.name,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      status: "uploaded",
+      uploaded_by: auth.user_id,
+    }
+    let insErr: { message: string } | null = null
+    {
+      const { error } = await supabase
+        .from("paper_ledger_snapshots")
+        .insert({ ...baseRow, expires_at: expiresAt })
+      insErr = error ? { message: error.message } : null
+    }
+    if (insErr && /expires_at/i.test(insErr.message)) {
+      // migration 108 미적용 — expires_at 빼고 재시도.
+      const { error: retryErr } = await supabase
+        .from("paper_ledger_snapshots")
+        .insert(baseRow)
+      insErr = retryErr ? { message: retryErr.message } : null
+    }
     if (insErr) {
       return NextResponse.json(
         { error: "DB_INSERT_FAILED", message: insErr.message },
