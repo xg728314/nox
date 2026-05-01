@@ -219,23 +219,24 @@ export async function getStoreStaff(
 
   const stageNameMap = new Map<string, string>()
 
+  // 2026-05-01 R-Staff-Speed: managers + hostesses 병렬 fetch (직렬 → Promise.all).
   if (membershipIds.length > 0) {
-    const { data: mgrs } = await supabase
-      .from("managers")
-      .select("membership_id, name")
-      .in("membership_id", membershipIds)
-      .eq("store_uuid", targetStoreUuid)
-      .is("deleted_at", null)
-
-    const { data: hsts } = await supabase
-      .from("hostesses")
-      .select("membership_id, name")
-      .in("membership_id", membershipIds)
-      .eq("store_uuid", targetStoreUuid)
-      .is("deleted_at", null)
-
-    for (const m of mgrs ?? []) stageNameMap.set(m.membership_id, m.name)
-    for (const h of hsts ?? []) stageNameMap.set(h.membership_id, h.name)
+    const [mgrsRes, hstsRes] = await Promise.all([
+      supabase
+        .from("managers")
+        .select("membership_id, name")
+        .in("membership_id", membershipIds)
+        .eq("store_uuid", targetStoreUuid)
+        .is("deleted_at", null),
+      supabase
+        .from("hostesses")
+        .select("membership_id, name")
+        .in("membership_id", membershipIds)
+        .eq("store_uuid", targetStoreUuid)
+        .is("deleted_at", null),
+    ])
+    for (const m of mgrsRes.data ?? []) stageNameMap.set(m.membership_id, m.name)
+    for (const h of hstsRes.data ?? []) stageNameMap.set(h.membership_id, h.name)
   }
 
   type MemberRow = { id: string; role: string; status: string; store_uuid: string; profiles: { full_name: string } | null }
@@ -254,29 +255,41 @@ export async function getStoreStaff(
 
   if (roleParam === "hostess" && memberRows.length > 0) {
     try {
-      try {
-        const { data: storeRow } = await supabase
+      const hostessMembershipIds = memberRows.map(m => m.id)
+      const now = Date.now()
+      const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+      const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      // 2026-05-01 R-Staff-Speed: 직렬 3-4 query → Promise.all 병렬.
+      //   기존: stores → hostesses → managers → session_participants (직렬, 1-4초)
+      //   현재: 3 query 병렬 + manager fetch 만 의존 (managerIds 필요).
+      const [storeRes, hstsRes, sp7Res] = await Promise.all([
+        supabase
           .from("stores")
           .select("store_name")
           .eq("id", targetStoreUuid)
-          .maybeSingle()
-        storeName = (storeRow as { store_name?: string | null } | null)?.store_name ?? null
-      } catch { /* ignore */ }
-
-      const hostessMembershipIds = memberRows.map(m => m.id)
-
-      const hostessManagerMap = new Map<string, string | null>()
-      try {
-        const { data: hsts } = await supabase
+          .maybeSingle(),
+        supabase
           .from("hostesses")
           .select("membership_id, manager_membership_id")
           .in("membership_id", hostessMembershipIds)
           .eq("store_uuid", targetStoreUuid)
+          .is("deleted_at", null),
+        supabase
+          .from("session_participants")
+          .select("membership_id, created_at")
+          .in("membership_id", hostessMembershipIds)
+          .eq("store_uuid", targetStoreUuid)
           .is("deleted_at", null)
-        for (const h of (hsts ?? []) as { membership_id: string; manager_membership_id: string | null }[]) {
-          hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
-        }
-      } catch { /* ignore */ }
+          .gte("created_at", since7d),
+      ])
+
+      storeName = (storeRes.data as { store_name?: string | null } | null)?.store_name ?? null
+
+      const hostessManagerMap = new Map<string, string | null>()
+      for (const h of (hstsRes.data ?? []) as { membership_id: string; manager_membership_id: string | null }[]) {
+        hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
+      }
 
       const managerNameMap = new Map<string, string>()
       const managerIds = [...new Set([...hostessManagerMap.values()].filter((v): v is string => !!v))]
@@ -294,26 +307,13 @@ export async function getStoreStaff(
         } catch { /* ignore */ }
       }
 
-      const now = Date.now()
-      const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString()
-      const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
-
       const activeTodaySet = new Set<string>()
       const recentCount = new Map<string, number>()
-      try {
-        const { data: sp7 } = await supabase
-          .from("session_participants")
-          .select("membership_id, created_at")
-          .in("membership_id", hostessMembershipIds)
-          .eq("store_uuid", targetStoreUuid)
-          .is("deleted_at", null)
-          .gte("created_at", since7d)
-        for (const row of (sp7 ?? []) as { membership_id: string | null; created_at: string }[]) {
-          if (!row.membership_id) continue
-          recentCount.set(row.membership_id, (recentCount.get(row.membership_id) ?? 0) + 1)
-          if (row.created_at >= since24h) activeTodaySet.add(row.membership_id)
-        }
-      } catch { /* ignore */ }
+      for (const row of (sp7Res.data ?? []) as { membership_id: string | null; created_at: string }[]) {
+        if (!row.membership_id) continue
+        recentCount.set(row.membership_id, (recentCount.get(row.membership_id) ?? 0) + 1)
+        if (row.created_at >= since24h) activeTodaySet.add(row.membership_id)
+      }
 
       const normalize = (s: string) => (s ?? "").replace(/\s+/g, "").trim()
 

@@ -8,6 +8,28 @@ import { useServerClock } from "@/lib/time/serverClock"
 import type { Room, DailySummary } from "../types"
 
 /**
+ * 2026-05-01 R-Counter-Speed: realtime-token module-level cache.
+ *   카운터 ↔ 다른 페이지 이동 시 useRooms 가 unmount/remount 되며 매번
+ *   realtime-token 1초+ fetch 하던 문제. expires_at 까지 60s 여유 있으면
+ *   재사용 → 페이지 이동 즉시 token 사용 가능.
+ */
+let cachedRealtimeToken: { token: string; expires_at: number } | null = null
+
+function getCachedRealtimeToken(): string | null {
+  if (!cachedRealtimeToken) return null
+  // 60 초 이내 만료 임박 → 새 fetch 강제.
+  if (cachedRealtimeToken.expires_at * 1000 < Date.now() + 60_000) {
+    cachedRealtimeToken = null
+    return null
+  }
+  return cachedRealtimeToken.token
+}
+
+function setCachedRealtimeToken(token: string, expires_at: number): void {
+  cachedRealtimeToken = { token, expires_at }
+}
+
+/**
  * useRooms — owns rooms / dailySummary / currentStoreUuid / loading / now(polling)
  * / realtime subscription lifted out of CounterPageV2.
  *
@@ -183,13 +205,22 @@ export function useRooms(): UseRoomsReturn {
   //   exp - 60 초 시점에 재요청해서 새 토큰으로 resubscribe. 실패 시
   //   기존 channel 은 즉시 해제하고 구독 없음 상태로 전환 (anon fallback
   //   금지 규칙).
-  const [realtimeToken, setRealtimeToken] = useState<string | null>(null)
+  const [realtimeToken, setRealtimeToken] = useState<string | null>(() => {
+    // 2026-05-01 R-Counter-Speed: module-level cache 재사용 (페이지 이동 후 재mount 시).
+    return getCachedRealtimeToken()
+  })
   const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
     async function fetchToken(): Promise<void> {
+      // 2026-05-01 R-Counter-Speed: module cache hit 면 fetch 생략.
+      const cached = getCachedRealtimeToken()
+      if (cached) {
+        setRealtimeToken(cached)
+        return
+      }
       try {
         const res = await apiFetch("/api/auth/realtime-token")
         if (cancelled) return
@@ -224,6 +255,8 @@ export function useRooms(): UseRoomsReturn {
           return
         }
         setRealtimeToken(tok)
+        // 2026-05-01 R-Counter-Speed: module-level cache 저장 (page nav 시 재사용).
+        setCachedRealtimeToken(tok, exp)
         // schedule refresh 60 s before exp. exp 이 이미 60 s 내면 30 s 후 재시도.
         const msUntilRefresh = Math.max(30_000, exp * 1000 - Date.now() - 60_000)
         if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current)

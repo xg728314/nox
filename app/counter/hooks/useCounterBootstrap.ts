@@ -22,6 +22,30 @@ import { hydrateBundle } from "./preferencesStore"
 import type { InventoryItem } from "../types"
 import type { HostessMatchCandidate } from "../helpers/hostessMatcher"
 
+/**
+ * 2026-05-01 R-Counter-Speed: bootstrap 응답 module-level cache (10초 TTL).
+ *   카운터 ↔ 다른 페이지 이동 시 useCounterBootstrap remount 마다 4-5초 fetch
+ *   하던 문제. 짧은 TTL 캐시로 같은 응답 재사용.
+ *   mutation 후엔 invalidateBootstrapCache() 호출하면 즉시 무효화.
+ */
+const BOOTSTRAP_TTL_MS = 10_000
+let cachedBootstrap: { data: Record<string, unknown>; ts: number } | null = null
+
+function getCachedBootstrap(): Record<string, unknown> | null {
+  if (!cachedBootstrap) return null
+  if (Date.now() - cachedBootstrap.ts > BOOTSTRAP_TTL_MS) {
+    cachedBootstrap = null
+    return null
+  }
+  return cachedBootstrap.data
+}
+function setCachedBootstrap(data: Record<string, unknown>): void {
+  cachedBootstrap = { data, ts: Date.now() }
+}
+export function invalidateBootstrapCache(): void {
+  cachedBootstrap = null
+}
+
 export type HostessStats = {
   managed_total: number
   on_duty_count: number
@@ -129,6 +153,32 @@ export function useCounterBootstrap(): UseCounterBootstrapResult {
   // Bootstrap 1회 + 누락 슬롯 fallback.
   useEffect(() => {
     let cancelled = false
+
+    function applyData(data: Record<string, unknown>) {
+      if (data.preferences && typeof data.preferences === "object") {
+        const prefs = data.preferences as Record<string, unknown>
+        if (prefs.user) hydrateBundle("user", prefs.user as Parameters<typeof hydrateBundle>[1])
+        if (prefs.forced) hydrateBundle("forced", prefs.forced as Parameters<typeof hydrateBundle>[1])
+      }
+      if (typeof data.chat_unread === "number") setChatUnread(data.chat_unread)
+      if (data.inventory && Array.isArray((data.inventory as Record<string, unknown>).items)) {
+        setInventoryItems((data.inventory as Record<string, unknown>).items as InventoryItem[])
+      }
+      if (data.hostess_stats && typeof data.hostess_stats === "object") {
+        setHostessStats(data.hostess_stats as HostessStats)
+      }
+      if (Array.isArray(data.hostess_pool)) {
+        processHostessPool(data.hostess_pool as ReadonlyArray<Record<string, unknown>>)
+      }
+    }
+
+    // 2026-05-01 R-Counter-Speed: cache hit 면 즉시 적용 + fetch 생략.
+    const cached = getCachedBootstrap()
+    if (cached) {
+      applyData(cached)
+      return
+    }
+
     ;(async () => {
       try {
         const res = await apiFetch("/api/counter/bootstrap")
@@ -138,6 +188,7 @@ export function useCounterBootstrap(): UseCounterBootstrapResult {
           return
         }
         const data = await res.json() as Record<string, unknown>
+        setCachedBootstrap(data)
         const missing: string[] = []
 
         // 2026-04-30 R-Perf-PrefBundle: preferences hydrate.
