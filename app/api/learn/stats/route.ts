@@ -46,7 +46,20 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url)
-    const targetStore = url.searchParams.get("target_store_uuid")
+    const targetStoreParam = url.searchParams.get("target_store_uuid")
+
+    // 2026-05-01 R-Learn-Scope-Fix: 매장별 분리 default.
+    //   사용자 보고: "신세계로 들어왔는데 마블 학습 데이터가 보인다."
+    //   원인: target_store_uuid 미명시 시 전 매장 fetch (super_admin 통과).
+    //   수정:
+    //     - 명시 X → auth.store_uuid (현재 active store) 로 default.
+    //     - "all" 명시 → 전 매장 (super_admin 의도적 전체 view).
+    //     - 다른 store_uuid 명시 → 그 매장만 (super_admin override).
+    //   학습 prompt 주입은 어차피 매장별 분리되어 있어서 정확도 영향 X.
+    //   본 수정은 super_admin dashboard view 의 분리만 강제.
+    const targetStore: string | null = targetStoreParam === "all"
+      ? null
+      : (targetStoreParam || auth.store_uuid)
 
     const supabase = supa()
 
@@ -118,7 +131,19 @@ export async function GET(request: Request) {
       store_name: r.store_uuid ? storeNameMap.get(r.store_uuid) ?? null : null,
     }))
 
+    // 2026-05-01: scope 정보를 응답에 포함 — UI 가 "어느 매장 데이터인지" 명확히 표시.
+    const scope: { kind: "single" | "all"; store_uuid: string | null; store_name: string | null } =
+      targetStore === null
+        ? { kind: "all", store_uuid: null, store_name: null }
+        : {
+            kind: "single",
+            store_uuid: targetStore,
+            store_name: storeNameMap.get(targetStore) ?? null,
+          }
+
     return NextResponse.json({
+      scope,
+      active_store_uuid: auth.store_uuid,
       total: rows.length,
       capped: rows.length === 5000,
       by_type,

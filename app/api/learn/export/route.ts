@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url)
-    const targetStore = url.searchParams.get("target_store_uuid")
+    const targetStoreParam = url.searchParams.get("target_store_uuid")
     const signalType = url.searchParams.get("signal_type")
     const signalTypePrefix = url.searchParams.get("signal_type_prefix")
     const since = url.searchParams.get("since")
@@ -73,6 +73,12 @@ export async function GET(request: Request) {
     const includePii = url.searchParams.get("include_pii") === "true"
     const limitParam = parseInt(url.searchParams.get("limit") ?? "1000", 10)
     const limit = Math.min(Math.max(isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+    // 2026-05-01 R-Learn-Scope-Fix: 기본 매장별 분리 (stats 와 동일 정책).
+    //   "all" 명시 시 전 매장. 미명시 → auth.store_uuid (active store).
+    const targetStore: string | null = targetStoreParam === "all"
+      ? null
+      : (targetStoreParam || auth.store_uuid)
 
     const supabase = supa()
 

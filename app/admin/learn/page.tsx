@@ -37,6 +37,8 @@ type Row = {
 }
 
 type StatsResponse = {
+  scope: { kind: "single" | "all"; store_uuid: string | null; store_name: string | null }
+  active_store_uuid: string
   total: number
   capped: boolean
   by_type: Array<{ signal_type: string; count: number }>
@@ -158,24 +160,38 @@ export default function AdminLearnPage() {
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>
         )}
 
-        {/* 매장 필터 */}
-        {data && data.by_store.length > 0 && (
-          <div className="flex items-center gap-2 text-xs">
+        {/* 매장 필터 — default: 현재 active store. "all" 명시 시 전 매장 */}
+        {data && (
+          <div className="flex items-center gap-2 text-xs flex-wrap">
             <span className="text-slate-400">매장 필터:</span>
             <select
               value={storeFilter}
               onChange={(e) => setStoreFilter(e.target.value)}
               className="bg-white/5 border border-white/10 rounded px-2 py-1 text-slate-200"
             >
-              <option value="">전체</option>
+              <option value="">
+                현재 매장{data.scope.store_name ? ` (${data.scope.store_name})` : ""}
+              </option>
               {data.by_store
-                .filter((s) => s.store_uuid)
+                .filter((s) => s.store_uuid && s.store_uuid !== data.active_store_uuid)
                 .map((s) => (
                   <option key={s.store_uuid} value={s.store_uuid ?? ""}>
                     {s.store_name ?? s.store_uuid?.slice(0, 8)} ({s.count})
                   </option>
                 ))}
+              <option value="all">🌍 전 매장 (운영자 전체 view)</option>
             </select>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded ${
+                data.scope.kind === "all"
+                  ? "bg-fuchsia-500/20 text-fuchsia-200"
+                  : "bg-cyan-500/20 text-cyan-200"
+              }`}
+            >
+              {data.scope.kind === "all"
+                ? "🌍 전 매장 통합"
+                : `📍 ${data.scope.store_name ?? "현재 매장"} 전용`}
+            </span>
           </div>
         )}
 
