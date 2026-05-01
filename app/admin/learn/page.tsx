@@ -52,8 +52,8 @@ export default function AdminLearnPage() {
   const [data, setData] = useState<StatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [storeFilter, setStoreFilter] = useState<string>("")
-
+  // 2026-05-01 R-Learn-Scope-Hardening: storeFilter 제거.
+  //   server 측에서 무조건 active store 만 응답. 다른 매장 학습 데이터 차단.
   const isSuperAdmin = profileState.profile?.is_super_admin === true
 
   useEffect(() => {
@@ -66,16 +66,15 @@ export default function AdminLearnPage() {
       // super_admin 아니면 거부
       return
     }
-    void load(storeFilter)
+    void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileState.loading, profileState.needsLogin, isSuperAdmin, storeFilter])
+  }, [profileState.loading, profileState.needsLogin, isSuperAdmin])
 
-  async function load(target: string) {
+  async function load() {
     setLoading(true)
     setError("")
     try {
-      const qs = target ? `?target_store_uuid=${encodeURIComponent(target)}` : ""
-      const res = await apiFetch(`/api/learn/stats${qs}`)
+      const res = await apiFetch(`/api/learn/stats`)
       const d = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(d.message || d.error || "조회 실패")
@@ -94,7 +93,6 @@ export default function AdminLearnPage() {
     const params = new URLSearchParams()
     params.set("format", "csv")
     params.set("limit", "5000")
-    if (storeFilter) params.set("target_store_uuid", storeFilter)
     if (opts.signal_type_prefix) params.set("signal_type_prefix", opts.signal_type_prefix)
     if (opts.include_pii) params.set("include_pii", "true")
     const url = `/api/learn/export?${params.toString()}`
@@ -143,7 +141,7 @@ export default function AdminLearnPage() {
       <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <button onClick={() => router.push("/owner")} className="text-cyan-400 text-sm">← 사장</button>
         <span className="font-semibold">🧠 학습 Corpus</span>
-        <button onClick={() => load(storeFilter)} className="text-xs text-slate-400 hover:text-white">새로고침</button>
+        <button onClick={() => load()} className="text-xs text-slate-400 hover:text-white">새로고침</button>
       </div>
 
       <div className="px-4 py-4 max-w-5xl mx-auto space-y-4">
@@ -160,37 +158,16 @@ export default function AdminLearnPage() {
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>
         )}
 
-        {/* 매장 필터 — default: 현재 active store. "all" 명시 시 전 매장 */}
+        {/* 2026-05-01 R-Learn-Scope-Hardening: 매장 격리 — dropdown 제거.
+            보안: 운영자라도 active store 외 다른 매장 학습 이력 noexec.
+            다른 매장 보려면 active_store override (사장 화면 "다른 매장으로 전환") 사용. */}
         {data && (
-          <div className="flex items-center gap-2 text-xs flex-wrap">
-            <span className="text-slate-400">매장 필터:</span>
-            <select
-              value={storeFilter}
-              onChange={(e) => setStoreFilter(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1 text-slate-200"
-            >
-              <option value="">
-                현재 매장{data.scope.store_name ? ` (${data.scope.store_name})` : ""}
-              </option>
-              {data.by_store
-                .filter((s) => s.store_uuid && s.store_uuid !== data.active_store_uuid)
-                .map((s) => (
-                  <option key={s.store_uuid} value={s.store_uuid ?? ""}>
-                    {s.store_name ?? s.store_uuid?.slice(0, 8)} ({s.count})
-                  </option>
-                ))}
-              <option value="all">🌍 전 매장 (운영자 전체 view)</option>
-            </select>
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded ${
-                data.scope.kind === "all"
-                  ? "bg-fuchsia-500/20 text-fuchsia-200"
-                  : "bg-cyan-500/20 text-cyan-200"
-              }`}
-            >
-              {data.scope.kind === "all"
-                ? "🌍 전 매장 통합"
-                : `📍 ${data.scope.store_name ?? "현재 매장"} 전용`}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 px-3 py-1.5 rounded-lg">
+              📍 {data.scope.store_name ?? "현재 매장"} 전용 학습 데이터
+            </span>
+            <span className="text-[10px] text-slate-500">
+              (다른 매장 학습은 그 매장으로 전환 후 조회)
             </span>
           </div>
         )}

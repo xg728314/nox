@@ -65,7 +65,6 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url)
-    const targetStoreParam = url.searchParams.get("target_store_uuid")
     const signalType = url.searchParams.get("signal_type")
     const signalTypePrefix = url.searchParams.get("signal_type_prefix")
     const since = url.searchParams.get("since")
@@ -74,11 +73,10 @@ export async function GET(request: Request) {
     const limitParam = parseInt(url.searchParams.get("limit") ?? "1000", 10)
     const limit = Math.min(Math.max(isFinite(limitParam) ? limitParam : 1000, 1), 5000)
 
-    // 2026-05-01 R-Learn-Scope-Fix: 기본 매장별 분리 (stats 와 동일 정책).
-    //   "all" 명시 시 전 매장. 미명시 → auth.store_uuid (active store).
-    const targetStore: string | null = targetStoreParam === "all"
-      ? null
-      : (targetStoreParam || auth.store_uuid)
+    // 2026-05-01 R-Learn-Scope-Hardening: 매장간 완전 격리.
+    //   target_store_uuid query 무시. 무조건 active store 만 export.
+    //   다른 매장 학습 데이터가 CSV 로 절대 유출되지 않게 server 측 강제.
+    const targetStore = auth.store_uuid
 
     const supabase = supa()
 
