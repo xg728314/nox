@@ -245,16 +245,20 @@ export async function POST(request: Request) {
       )
     }
 
-    await writeSessionAudit(supabase, {
+    // 2026-05-01 R-Counter-Speed: audit + cache invalidate background fire.
+    //   await 하면 응답 latency +100~200ms. 사용자 호소 "스태프 추가 느림" 직접 원인.
+    //   audit 는 best-effort (실패는 console.warn 로그 남기되 응답 차단 X).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "session_participants",
       entity_id: participant.id,
       action: "participant_registered",
       after: { membership_id, role, category, time_type: resolvedTimeType, time_minutes, price_amount, cha3_amount, banti_amount, status: "active" },
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn("[participants] audit write failed:", e instanceof Error ? e.message : e)
     })
-
-    // R29-perf: monitor 캐시 무효화
     invalidateCache("monitor")
 
     return NextResponse.json(

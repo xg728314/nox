@@ -230,8 +230,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // 9. Record audit event
-    await writeSessionAudit(supabase, {
+    // 9. Record audit event — 2026-05-01 R-Counter-Speed: background fire.
+    //   await 차단 제거 → 응답 latency 100-200ms 단축.
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id: session_id!,
       entity_table: "orders",
@@ -248,6 +249,9 @@ export async function POST(request: Request) {
         inventory_item_id: inventory_item_id || null,
         ordered_by: authContext.user_id,
       },
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn("[orders] audit write failed:", e instanceof Error ? e.message : e)
     })
 
     return NextResponse.json(
