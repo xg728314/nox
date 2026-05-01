@@ -8,6 +8,7 @@ import WorkLogModal from "./components/WorkLogModal"
 import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
 import VisibilityControl from "./components/VisibilityControl"
 import HostessCard from "./components/HostessCard"
+import ManagerPermissionsModal from "./components/ManagerPermissionsModal"
 import {
   STATUS_STYLES,
   type StaffStatus,
@@ -55,6 +56,9 @@ export default function StaffPage() {
 
   // Tab
   const [tab, setTab] = useState<"managers" | "hostesses">("hostesses")
+
+  // 2026-05-01 R-Manager-Permissions: 사장이 실장 클릭 시 권한 modal.
+  const [permModalFor, setPermModalFor] = useState<{ membership_id: string; name: string } | null>(null)
 
   // Data
   const [managers, setManagers] = useState<StaffMember[]>([])
@@ -593,26 +597,47 @@ export default function StaffPage() {
                 <p className="text-slate-500 text-sm">등록된 실장이 없습니다.</p>
               </div>
             )}
-            {managers.map(m => (
-              <div key={m.membership_id} className="rounded-xl border border-purple-500/10 bg-white/[0.03] p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-300 text-sm font-semibold">
-                      {(m.name || "?").charAt(0)}
+            {managers.map(m => {
+              const isOwnerView = userRole === "owner"
+              const isApproved = m.status === "approved"
+              const canEditPerms = isOwnerView && isApproved
+              return (
+                <button
+                  key={m.membership_id}
+                  type="button"
+                  disabled={!canEditPerms}
+                  onClick={() => {
+                    if (canEditPerms) {
+                      setPermModalFor({ membership_id: m.membership_id, name: m.name })
+                    }
+                  }}
+                  className={`w-full text-left rounded-xl border border-purple-500/10 bg-white/[0.03] p-3 transition-colors ${
+                    canEditPerms ? "hover:bg-purple-500/5 hover:border-purple-500/30 cursor-pointer" : "cursor-default"
+                  }`}
+                  title={canEditPerms ? "메뉴 권한 설정" : undefined}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-300 text-sm font-semibold">
+                        {(m.name || "?").charAt(0)}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">{m.name}</div>
+                        <div className="text-[10px] text-slate-500">
+                          실장
+                          {canEditPerms && <span className="ml-1.5 text-cyan-400/70">· 권한 설정</span>}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-sm font-medium">{m.name}</div>
-                      <div className="text-[10px] text-slate-500">실장</div>
-                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      m.status === "approved" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-white/10 text-slate-500 border border-white/10"
+                    }`}>
+                      {m.status === "approved" ? "승인" : m.status}
+                    </span>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                    m.status === "approved" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-white/10 text-slate-500 border border-white/10"
-                  }`}>
-                    {m.status === "approved" ? "승인" : m.status}
-                  </span>
-                </div>
-              </div>
-            ))}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -944,6 +969,15 @@ export default function StaffPage() {
 
       {/* ROUND-OPS-2: 하루 1회 운영 체크 강제 모달 */}
       <DailyOpsCheckGate />
+
+      {/* R-Manager-Permissions: 실장 권한 modal */}
+      {permModalFor && (
+        <ManagerPermissionsModal
+          membership_id={permModalFor.membership_id}
+          manager_name={permModalFor.name}
+          onClose={() => setPermModalFor(null)}
+        />
+      )}
     </div>
   )
 }
