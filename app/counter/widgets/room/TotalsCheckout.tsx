@@ -17,13 +17,17 @@ export default function TotalsCheckout() {
     onSwipeStart, onSwipeMove, onSwipeEnd,
   } = useRoomContext()
 
-  // 2026-04-24: 체크아웃 차단 조건 통합 — 스태프 미확정 + 실장 미지정.
-  const blocked = hasUnresolved || hasUnassignedManager
+  // 2026-05-01 R-No-Manager-OK: 실장 미지정 차단 제거.
+  //   운영자 정책: 실장 미지정 → 가게 매출. 체크아웃 진행 OK.
+  //   스태프 종목 미확정만 차단 유지 (정산 계산 필수).
+  const blocked = hasUnresolved
   const blockMsg = hasUnresolved
     ? `스태프 ${unresolvedCount}명 확정 후 체크아웃 가능`
-    : hasUnassignedManager
-      ? `실장 미지정 (스태프 ${unassignedManagerCount}명). 실장 배정 후 체크아웃 가능`
-      : ""
+    : ""
+  // 실장 미지정 시 안내 (차단 X) — 매출 분류 명확히.
+  const noManagerHint = !hasUnresolved && hasUnassignedManager
+    ? `실장 미지정 (${unassignedManagerCount}명) — 가게 매출로 잡힘`
+    : ""
 
   return (
     <div className="px-4 py-3 border-t border-white/10 bg-black/30">
@@ -39,6 +43,9 @@ export default function TotalsCheckout() {
 
       {blocked && (
         <div className="mb-1.5 text-xs text-amber-400 text-center font-medium">{blockMsg}</div>
+      )}
+      {!blocked && noManagerHint && (
+        <div className="mb-1.5 text-[10px] text-slate-400 text-center">{noManagerHint}</div>
       )}
       {/* 2026-04-25: 슬라이드 진행률 숫자 + 완료 임계(240px) 표시.
           이전엔 얼마나 밀어야 완료되는지 시각적 피드백 없어서 2~3회 시도
@@ -76,13 +83,11 @@ export default function TotalsCheckout() {
             ? "처리 중..."
             : hasUnresolved
               ? "스태프 확정 필요"
-              : hasUnassignedManager
-                ? "실장 배정 필요"
-                : swipeX >= 240
-                  ? "✓ 놓으면 체크아웃"
-                  : swipeX > 0
-                    ? `${Math.round((swipeX / 240) * 100)}% — 끝까지 미세요 →`
-                    : "━ 밀어서 체크아웃 ━→"}
+              : swipeX >= 240
+                ? "✓ 놓으면 체크아웃"
+                : swipeX > 0
+                  ? `${Math.round((swipeX / 240) * 100)}% — 끝까지 미세요 →`
+                  : "━ 밀어서 체크아웃 ━→"}
         </div>
       </div>
     </div>

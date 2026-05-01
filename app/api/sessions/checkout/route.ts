@@ -45,31 +45,14 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 2026-04-25 보안: 서버 레벨에서 실장 지정 여부 + 참여자 종목 확인.
-    //   UI 는 이미 차단하지만 API 직접 호출 (스크립트 / 악의적 요청) 에
-    //   대비해 서버에서도 명시적 차단.
-    const { data: sessionCheck } = await supabase
-      .from("room_sessions")
-      .select("id, manager_name, manager_membership_id, is_external_manager")
-      .eq("id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
-    if (sessionCheck) {
-      const hasManager = !!(
-        sessionCheck.manager_name ||
-        sessionCheck.manager_membership_id ||
-        sessionCheck.is_external_manager
-      )
-      if (!hasManager) {
-        return NextResponse.json(
-          {
-            error: "MANAGER_REQUIRED",
-            message: "실장이 지정되지 않은 세션은 체크아웃할 수 없습니다. 실장 배정 후 다시 시도하세요.",
-          },
-          { status: 409 },
-        )
-      }
-    }
+    // 2026-05-01 R-No-Manager-OK: 실장 미지정 세션 체크아웃 허용.
+    //   운영자 정책: "실장 지정이 안됐으면 가게 매출로 잡자."
+    //   기존: MANAGER_REQUIRED 로 차단 (체크아웃 불가).
+    //   변경: 차단 제거. 정산 계산 (calculateSettlementTotals) 이 자동으로
+    //     manager_payout_amount=0 처리 → 실장 수익 0 → 그만큼 가게 매출 ↑.
+    //     비즈니스 룰: "실장 수익 = 종목 단가 - 호스티스 수익" 의 default 0.
+    //   외상 등록은 별도로 manager_membership_id 필요 (CreditRegisterModal
+    //   가드 그대로 유지) — 체크아웃 자체는 허용.
 
     // ── STEP-4C: atomic close via DB RPC ────────────────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc("close_session_atomic", {
