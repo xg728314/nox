@@ -30,6 +30,24 @@
  */
 import { perfLog, perfNow } from "@/lib/debug/perfLog"
 
+/**
+ * 2026-05-01 R-Session-Expired-Gate: 전역 401 이벤트.
+ *   apiFetch 가 401 응답 받으면 window event "nox:auth:expired" dispatch.
+ *   SessionExpiredGate 컴포넌트가 listen 해서 modal 표시 → 확인 → /login.
+ *   사용자 의도: "로그아웃 시간 됐으면 다른 기능 못 하게 + 경고 후 로그인 화면."
+ *
+ *   /api/auth/* 호출은 dispatch 제외 (login 자체가 401 케이스 — 무한루프 방지).
+ */
+const AUTH_EXPIRED_EVENT = "nox:auth:expired"
+function dispatchAuthExpired(url: string) {
+  if (typeof window === "undefined") return
+  // /api/auth/* 는 무시 (login fail / refresh 등 정상 401 흐름).
+  try {
+    if (url.startsWith("/api/auth/")) return
+    window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { url } }))
+  } catch { /* ignore */ }
+}
+
 export async function apiFetch(url: string, opts?: RequestInit): Promise<Response> {
   // FormData 를 보낼 때는 Content-Type 을 명시하면 안 된다. 브라우저가
   // boundary 와 함께 multipart/form-data 를 자동 설정해야 한다. application/json
@@ -56,6 +74,10 @@ export async function apiFetch(url: string, opts?: RequestInit): Promise<Respons
       ok: res.ok,
       ms: Math.round(perfNow() - t_start),
     })
+    // 2026-05-01 R-Session-Expired-Gate: 401 전역 알림.
+    if (res.status === 401) {
+      dispatchAuthExpired(url)
+    }
     return res
   } catch (err) {
     perfLog("api:throw", {

@@ -6,6 +6,7 @@ import IdleLogoutGate from "@/components/IdleLogoutGate"
 import StoreContextBar from "@/components/StoreContextBar"
 import SentryClientInit from "./SentryClientInit"
 import RegisterServiceWorker from "@/components/RegisterServiceWorker"
+import SessionExpiredGate from "@/components/SessionExpiredGate"
 
 export const metadata = {
   title: "NOX Counter OS",
@@ -59,6 +60,11 @@ export default function RootLayout({
         {/* 2026-04-30: PWA service worker 등록 (production only). minimal SW —
             install/activate 만, fetch handler 없음 (정산 데이터 stale cache 위험). */}
         <RegisterServiceWorker />
+        {/* 2026-05-01 R-Session-Expired-Gate: 전역 401 알림.
+            apiFetch 401 → modal "로그아웃 되었습니다 (시간 초과)" 표시 →
+            확인 누르면 /login?expired=1. backdrop click / ESC 무시.
+            /login, /signup 등 인증 화면에서는 자동 비활성. */}
+        <SessionExpiredGate />
         {/* 2026-04-25: 전역 Toast / Confirm Provider. window.alert / confirm 대체. */}
         <ToastProvider>
           <ConfirmProvider>
