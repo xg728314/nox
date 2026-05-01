@@ -167,9 +167,10 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
         setInlineEdit(s => s ? { ...s, busy: false } : s)
         throw new Error(msg)
       }
-      await fetchRooms()
+      // 2026-05-01 R-Counter-Speed: await 제거.
+      void fetchRooms()
       if (focusData?.roomId && focusData?.sessionId) {
-        await fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+        void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
       }
       setInlineEdit(null)
     } catch (e) {
@@ -208,9 +209,10 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
       const data = result.data as { message?: string }
       if (!result.ok) { setError(data.message || "업데이트 실패"); return }
       setSheet(SHEET_INIT)
-      await fetchRooms()
+      // 2026-05-01 R-Counter-Speed: await 제거 → loading 즉시 해제.
+      void fetchRooms()
       if (focusData?.roomId && focusData?.sessionId) {
-        await fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+        void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
       }
     } catch { setError("요청 오류") }
     finally { patchSheet({ loading: false }) }
@@ -233,10 +235,11 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
           }).catch(() => null)
         )
       )
-      await fetchRooms()
+      // 2026-05-01 R-Counter-Speed: await 제거. realtime 자동 sync.
+      void fetchRooms()
       if (roomId && sessionId) {
         const sa = focusData?.sessionId === sessionId ? focusData.started_at : ""
-        await fetchFocusData(roomId, sessionId, sa ?? "")
+        void fetchFocusData(roomId, sessionId, sa ?? "")
       }
     } finally {
       setBulkMgr({

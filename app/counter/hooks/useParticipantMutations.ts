@@ -167,8 +167,11 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || "참여자 추가 실패"); return }
-      await fetchRooms()
-      if (focusRoomId && sessionId) await fetchFocusData(focusRoomId, sessionId, "")
+      // 2026-05-01 R-Counter-Speed: await 제거 → busy 즉시 false.
+      //   refetch 는 background. realtime patch 가 실시간 sync (useRealtimePatchWiring).
+      //   사용자 체감 1-2초 → 0.3초 (POST 응답만 기다림).
+      void fetchRooms()
+      if (focusRoomId && sessionId) void fetchFocusData(focusRoomId, sessionId, "")
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -197,7 +200,8 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       if (!res.ok) { setError(data.message || "제거 실패"); return }
       // 즉시 선택 상태에서 제거 + 데이터 갱신
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
-      await fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      // 2026-05-01 R-Counter-Speed: await 제거. realtime + background sync.
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -226,7 +230,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         })
       ))
       setSelectedIds(new Set())
-      await fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
     } catch { setError("연장 실패") }
     finally { setBusy(false) }
   }
@@ -436,7 +440,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       body: JSON.stringify({ action: "update_external_name", external_name: val }),
     })
     if (res.ok && deps.focusData?.roomId && deps.focusData?.sessionId) {
-      await deps.fetchFocusData(deps.focusData.roomId, deps.focusData.sessionId, deps.focusData.started_at)
+      void deps.fetchFocusData(deps.focusData.roomId, deps.focusData.sessionId, deps.focusData.started_at)
     }
   }
 
@@ -453,7 +457,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       const data = await res.json()
       if (!res.ok) { setError(data.message || "삭제 실패"); return }
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
-      await fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
