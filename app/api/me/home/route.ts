@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: hostess /me/home 페이지 polling.
+//   active_session, today_count, chat_unread 모두 조용히 변동 — 5초 캐시 + SWR.
+const HOME_TTL_MS = 5000
 
 /**
  * GET /api/me/home
@@ -70,6 +75,55 @@ export async function GET(request: Request) {
     const now = new Date()
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
 
+    type HomePayload = {
+      active_session: ActiveSessionOut | null
+      today_count: number
+      month_count: number
+      chat_unread: number
+      staff_pool: StaffPoolEntry[]
+      generated_at: string
+    }
+
+    const cacheKey = `${storeUuid}:${membershipId}`
+    const payload = await cached<HomePayload>(
+      "me_home",
+      cacheKey,
+      HOME_TTL_MS,
+      async () => buildHomePayload(supabase, storeUuid, membershipId, businessDate, monthStart),
+    )
+
+    const res = NextResponse.json(payload)
+    res.headers.set(
+      "Cache-Control",
+      "private, max-age=3, stale-while-revalidate=15",
+    )
+    return res
+  } catch (e) {
+    if (e instanceof AuthError) {
+      const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
+      return NextResponse.json({ error: e.type, message: e.message }, { status })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
+  }
+}
+
+// 본문 함수로 추출 — cached() 호환.
+// Supabase 제네릭 호환 회피용 unknown 캐스팅 (타입 시스템 한정).
+async function buildHomePayload(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  storeUuid: string,
+  membershipId: string,
+  businessDate: string,
+  monthStart: string,
+): Promise<{
+  active_session: ActiveSessionOut | null
+  today_count: number
+  month_count: number
+  chat_unread: number
+  staff_pool: StaffPoolEntry[]
+  generated_at: string
+}> {
     const [activeRes, todayRes, monthRes, chatRes, staffRes] = await Promise.all([
       // 1. Active participation (room_sessions 가 active 인 row 만)
       supabase
@@ -174,19 +228,12 @@ export async function GET(request: Request) {
         role: r.role,
       }))
 
-    return NextResponse.json({
+    return {
       active_session: activeSession,
       today_count: todayRes.count ?? 0,
       month_count: monthRes.count ?? 0,
       chat_unread: chatUnread,
       staff_pool: staffPool,
       generated_at: new Date().toISOString(),
-    })
-  } catch (e) {
-    if (e instanceof AuthError) {
-      const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
-      return NextResponse.json({ error: e.type, message: e.message }, { status })
     }
-    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
-  }
 }
