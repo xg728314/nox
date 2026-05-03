@@ -33,9 +33,10 @@ import { createClient } from "@supabase/supabase-js"
  *   외부 monitor 등록이 정석. (Vercel 기본 monitoring 도 있고, free 도구도 다수)
  */
 
-// 2026-05-03 R-Speed-x10: edge runtime — V8 engine, 콜드 시작 ~30ms (Node.js 200-500ms 대비).
-//   Supabase 는 fetch 기반이라 edge 호환. nodejs 전용 모듈 의존 없음.
-export const runtime = "edge"
+// 2026-05-03 R-CloudRun: Cloud Run 컨테이너 환경 — Vercel Edge runtime 사용 불가.
+//   nodejs runtime 으로 컨테이너 안에서 실행 (Cloud Run min-instances=1 로
+//   cold start 거의 없음).
+export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 

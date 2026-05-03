@@ -17,10 +17,10 @@ import { NextResponse } from "next/server"
  *   Unhealthy threshold: 3
  */
 
-// 2026-05-03 R-Speed-x10: health check 는 edge runtime — 콜드 30ms.
-//   외부 LB 가 10초 간격으로 hit → nodejs cold start 200ms 매번 발생하던 것
-//   edge 로 옮겨 영구 warm.
-export const runtime = "edge"
+// 2026-05-03 R-CloudRun: Cloud Run 환경 — Vercel Edge runtime 사용 불가.
+//   Cloud Run 자체가 LB health check 를 자체 처리하므로 본 endpoint 는
+//   외부 uptime monitor (UptimeRobot 등) 용. nodejs runtime 으로 충분.
+export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET() {

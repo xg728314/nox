@@ -23,9 +23,9 @@ import { NextResponse } from "next/server"
  *   { server_now: ISO, server_now_ms: epoch_ms, tz: "Asia/Seoul" }
  */
 
-// 2026-05-03 R-Speed-x10: edge runtime — DB 호출 X, 순수 Date.now().
-//   nodejs runtime cold start ~200ms, edge ~30ms. 클라이언트 offset 보정에 직결.
-export const runtime = "edge"
+// 2026-05-03 R-CloudRun: Cloud Run 환경 — Vercel Edge runtime 사용 불가.
+//   nodejs runtime, min-instances=1 로 cold start 거의 없음.
+export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET() {

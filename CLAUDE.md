@@ -28,9 +28,37 @@ python scripts/test-e2e.py     # Full E2E orchestrator
 ## Tech Stack
 
 - **Next.js 15** (App Router) + **React 19** + **TypeScript 5**
-- **Supabase** (PostgreSQL + Auth) — no ORM, direct client queries
+- **Supabase** (PostgreSQL + Auth) — no ORM, direct client queries.
+  Region: `ap-northeast-2` (Seoul). Project id: `piboecawkeqahyqbcize`.
 - **Tailwind CSS 4** — styling
 - Single app, no monorepo/workspaces
+
+## Deployment — Google Cloud Run (NOT Vercel)
+
+**원본 사이트**: https://nox.ai.kr
+
+- **Platform**: Google Cloud Run (`asia-northeast3` Seoul, Supabase 와 동일 region).
+- **Build**: GitHub push → Cloud Build trigger (`cloudbuild.yaml`) → Docker image
+  → Artifact Registry → Cloud Run revision 배포.
+- **Container config** (cloudbuild.yaml):
+  - `--memory=2Gi --cpu=1 --min-instances=1 --max-instances=10`
+  - `--concurrency=50 --timeout=300s --cpu-boost` (CPU always-allocated)
+  - `--region=asia-northeast3`
+- **Next.js**: `output: "standalone"` (Docker 이미지 압축).
+
+**중요한 차이 (vs Vercel)**:
+- ❌ **Vercel Edge Functions 없음** — `runtime = "edge"` export 는 Cloud Run 에서 무의미
+  (전부 Node.js 컨테이너에서 실행). 새 라우트에 `runtime = "edge"` 쓰지 말 것.
+- ❌ **Vercel CDN edge cache 없음** — Cache-Control headers 는 브라우저 cache 만 활용.
+  공유 edge cache 가 필요하면 Cloud CDN 별도 설정 필요.
+- ✅ **min-instances=1** 로 cold start 거의 없음 (월 ~$15 추가 비용).
+- ✅ **In-memory TTL 캐시** (`lib/cache/inMemoryTtl.ts`) 는 컨테이너별 격리 — 동작 동일.
+- ✅ HTTP Cache-Control max-age 는 브라우저에서 정상 작동.
+
+**미배포 Vercel 잔재**:
+- `vercel.json` — 과거 잔재, Cloud Run 에서 미사용.
+- `app/api/system/warmup`, `time`, `health` 의 `runtime = "edge"` — 제거 필요.
+- 일부 cron 정의는 Vercel cron 형식 — Cloud Scheduler 로 마이그레이션 검토.
 
 ## Architecture
 
