@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 /**
  * MonitorHeader — top row of /counter/monitor.
  *
@@ -119,11 +121,11 @@ export default function MonitorHeader({
             </span>
           )}
         </span>
-        <a
+        <Link
           href="/counter"
           className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500/40 to-emerald-500/40 border border-white/20 text-[11px] font-bold text-white flex items-center justify-center hover:ring-2 hover:ring-cyan-400/50"
           title="← 카운터로"
-        >E</a>
+        >E</Link>
       </div>
     </header>
   )

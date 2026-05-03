@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import type { MonitorBlePresence, MonitorRoom, MonitorRoomParticipant } from "../../types"
 import { STATUS_STYLES, elapsedLabel, participantState, type WorkerState } from "../../statusStyles"
 import BleHint from "../ble/BleHint"
@@ -242,11 +243,11 @@ export default function RoomListPanel({
       </div>
 
       <div className="mt-2 pt-2 border-t border-white/[0.04]">
-        <a
+        <Link
           href="/counter"
           className="block w-full text-center py-1.5 rounded-lg border border-dashed border-white/10 text-[11px] text-slate-500 hover:text-slate-200 hover:border-white/20"
           title="방 추가는 카운터에서 진행합니다."
-        >+ 방 추가</a>
+        >+ 방 추가</Link>
       </div>
     </div>
   )

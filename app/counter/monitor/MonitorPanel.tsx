@@ -159,10 +159,10 @@ export default function MonitorPanel({ variant = "page" }: MonitorPanelProps) {
   //   Mobile viewport (< 960px) → render a redirect banner only.
   //   The embedded variant is used inside /counter's bounded widget
   //   slot, so device gating does NOT apply there.
+  // 2026-05-03: hooks 순서 안정성을 위해 early return 은 모든 hook 호출 뒤로
+  //   이동 (react-hooks/rules-of-hooks 준수). isMobileRedirect 플래그만 미리 계산.
   const deviceMode = useDeviceMode("ops")
-  if (variant === "page" && deviceMode === "mobile") {
-    return <MobileRedirectBanner />
-  }
+  const isMobileRedirect = variant === "page" && deviceMode === "mobile"
 
   const { data, loading, error, refresh, lastUpdatedAt } = useMonitorData()
   const [selectedRoomUuid, setSelectedRoomUuid] = useState<string | null>(null)
@@ -536,6 +536,11 @@ export default function MonitorPanel({ variant = "page" }: MonitorPanelProps) {
   //   이 트리(Ops, `/counter/monitor`)는 이제 데스크톱/태블릿 전용.
   //   모바일 뷰포트 진입은 아래 wrapper 의 조기 배너 분기에서 처리하며,
   //   실제 모바일 UX 는 `/m/monitor` 트리가 전담한다.
+
+  // 2026-05-03: 모든 hook 이 호출된 뒤 early return (react-hooks/rules-of-hooks).
+  if (isMobileRedirect) {
+    return <MobileRedirectBanner />
+  }
 
   // Root wrapper — variant-dependent.
   //   page:     min-h-screen (owns viewport), bg background visible.

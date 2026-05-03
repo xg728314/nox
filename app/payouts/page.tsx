@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
@@ -65,10 +66,10 @@ export default function PayoutsOverviewPage() {
     <main className="min-h-screen bg-[#030814] text-slate-100">
       <header className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <a href="/counter" className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors">
+          <Link href="/counter" className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors">
             <span className="text-lg">&larr;</span>
             <span className="text-xs">카운터</span>
-          </a>
+          </Link>
           <h1 className="text-lg font-semibold">정산 현황</h1>
         </div>
         <button onClick={load} className="text-xs text-slate-400 hover:text-slate-200">새로고침</button>

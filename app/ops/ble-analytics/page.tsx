@@ -10,6 +10,7 @@
  * any store via optional `store_uuid` filter).
  */
 
+import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
 
@@ -742,7 +743,7 @@ export default function BleAnalyticsPage() {
     <div className="min-h-screen bg-[#07091A] text-slate-200 flex flex-col">
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-[#0b0e1c]">
         <div className="flex items-center gap-3">
-          <a href="/counter/monitor" className="text-[11px] text-slate-500 hover:text-slate-200 underline-offset-2 hover:underline">← 모니터</a>
+          <Link href="/counter/monitor" className="text-[11px] text-slate-500 hover:text-slate-200 underline-offset-2 hover:underline">← 모니터</Link>
           <span className="text-sm font-bold">BLE 분석</span>
           {overview.data?.scope.isSuperAdmin && (
             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/40 text-cyan-200">
