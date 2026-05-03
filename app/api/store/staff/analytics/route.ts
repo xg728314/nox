@@ -59,18 +59,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ analytics: [], criteria: { periodDays, minDays, perfUnit, perfMinCount } })
     }
 
-    // 2) Get hostess records (name, grade, manager)
-    const { data: hostessRows } = await supabase
-      .from("hostesses")
-      .select("membership_id, name, stage_name, grade, grade_updated_at, manager_membership_id")
-      .in("membership_id", membershipIds)
-      .eq("store_uuid", storeUuid)
-      .is("deleted_at", null)
+    // 2026-05-03 R-Speed-x10: hostess + attendance + participants 3개 동시 fire.
+    //   기존: 직렬 3 wave (membership 의존 X — 모두 membershipIds 만 필요).
+    const [hostessRowsRes, attendanceRowsRes, participantRowsRes] = await Promise.all([
+      supabase
+        .from("hostesses")
+        .select("membership_id, name, stage_name, grade, grade_updated_at, manager_membership_id")
+        .in("membership_id", membershipIds)
+        .eq("store_uuid", storeUuid)
+        .is("deleted_at", null),
+      supabase
+        .from("staff_attendance")
+        .select("membership_id, business_day_id, checked_in_at")
+        .eq("store_uuid", storeUuid)
+        .in("membership_id", membershipIds)
+        .gte("checked_in_at", periodStartISO),
+      supabase
+        .from("session_participants")
+        .select("membership_id, id, entered_at")
+        .eq("store_uuid", storeUuid)
+        .eq("role", "hostess")
+        .in("membership_id", membershipIds)
+        .is("deleted_at", null)
+        .gte("entered_at", periodStartISO),
+    ])
 
     const hostessMap = new Map<string, {
       name: string; grade: string | null; grade_updated_at: string | null; manager_membership_id: string | null
     }>()
-    for (const h of (hostessRows ?? []) as { membership_id: string; name: string | null; stage_name: string | null; grade: string | null; grade_updated_at: string | null; manager_membership_id: string | null }[]) {
+    for (const h of (hostessRowsRes.data ?? []) as { membership_id: string; name: string | null; stage_name: string | null; grade: string | null; grade_updated_at: string | null; manager_membership_id: string | null }[]) {
       hostessMap.set(h.membership_id, {
         name: h.name || h.stage_name || "이름 없음",
         grade: h.grade,
@@ -79,43 +96,23 @@ export async function GET(request: Request) {
       })
     }
 
-    // 3) Attendance: count distinct business days with attendance in period
-    const { data: attendanceRows } = await supabase
-      .from("staff_attendance")
-      .select("membership_id, business_day_id, checked_in_at")
-      .eq("store_uuid", storeUuid)
-      .in("membership_id", membershipIds)
-      .gte("checked_in_at", periodStartISO)
-
-    // Count distinct business_day_id per membership
+    // Attendance: distinct business days + last checkin per membership
     const attendanceCount = new Map<string, Set<string>>()
-    // Track consecutive absent days
     const lastCheckinMap = new Map<string, string>()
-
-    for (const row of (attendanceRows ?? []) as { membership_id: string; business_day_id: string; checked_in_at: string }[]) {
+    for (const row of (attendanceRowsRes.data ?? []) as { membership_id: string; business_day_id: string; checked_in_at: string }[]) {
       if (!attendanceCount.has(row.membership_id)) {
         attendanceCount.set(row.membership_id, new Set())
       }
       attendanceCount.get(row.membership_id)!.add(row.business_day_id)
-      // Track latest checkin
       const prev = lastCheckinMap.get(row.membership_id)
       if (!prev || row.checked_in_at > prev) {
         lastCheckinMap.set(row.membership_id, row.checked_in_at)
       }
     }
 
-    // 4) Performance: count session participations in period
-    const { data: participantRows } = await supabase
-      .from("session_participants")
-      .select("membership_id, id, entered_at")
-      .eq("store_uuid", storeUuid)
-      .eq("role", "hostess")
-      .in("membership_id", membershipIds)
-      .is("deleted_at", null)
-      .gte("entered_at", periodStartISO)
-
+    // Performance: session participation count per membership
     const sessionCount = new Map<string, number>()
-    for (const row of (participantRows ?? []) as { membership_id: string; id: string }[]) {
+    for (const row of (participantRowsRes.data ?? []) as { membership_id: string; id: string }[]) {
       sessionCount.set(row.membership_id, (sessionCount.get(row.membership_id) || 0) + 1)
     }
 
