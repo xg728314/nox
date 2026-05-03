@@ -31,20 +31,22 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // Room lookup + active check
-    const roomResult = await loadRoomScoped(supabase, chat_room_id!, authContext.store_uuid)
+    // 2026-05-03 R-Speed-x10: Room lookup + Participant check 병렬.
+    //   기존: Room → Participant 직렬 2 RTT.
+    //   현재: 동시 fire — 1 RTT.
+    const [roomResult, participantError] = await Promise.all([
+      loadRoomScoped(supabase, chat_room_id!, authContext.store_uuid),
+      verifyActiveParticipant(supabase, chat_room_id!, authContext.membership_id),
+    ])
     if (roomResult.error) return roomResult.error
+    if (participantError) return participantError
     const chatRoom = roomResult.room
 
-    // Hostess defense-in-depth
+    // Hostess defense-in-depth (chatRoom 결과 의존)
     if (authContext.role === "hostess" && chatRoom.type === "room_session" && chatRoom.session_id) {
       const guard = await verifyHostessSessionAccess(supabase, chatRoom.session_id, authContext.membership_id, authContext.store_uuid)
       if (guard) return guard
     }
-
-    // Participant check
-    const participantError = await verifyActiveParticipant(supabase, chat_room_id!, authContext.membership_id)
-    if (participantError) return participantError
 
     // Send message
     const result = await sendMessage(supabase, {
@@ -85,37 +87,42 @@ export async function GET(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // Room lookup + active check
-    const roomResult = await loadRoomScoped(supabase, chatRoomId, authContext.store_uuid)
+    // 2026-05-03 R-Speed-x10: Room lookup + Participant check + Messages 모두 병렬화.
+    //   기존: Room → Participant → (hostess guard) → Messages 직렬 4 RTT.
+    //   현재: 3개 동시 fire — 각 query 가 chatRoomId + membership_id 만 의존.
+    const [roomResult, participantError, messagesResult] = await Promise.all([
+      loadRoomScoped(supabase, chatRoomId, authContext.store_uuid),
+      verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id),
+      getMessages(supabase, {
+        chatRoomId,
+        store_uuid: authContext.store_uuid,
+        membership_id: authContext.membership_id,
+        cursor,
+        limit,
+      }),
+    ])
     if (roomResult.error) return roomResult.error
     const chatRoom = roomResult.room
-
-    // Participant check
-    const participantError = await verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id)
     if (participantError) return participantError
 
-    // Hostess defense-in-depth
+    // Hostess defense-in-depth (chatRoom 결과 의존 — 직렬).
     if (authContext.role === "hostess" && chatRoom.type === "room_session" && chatRoom.session_id) {
       const guard = await verifyHostessSessionAccess(supabase, chatRoom.session_id, authContext.membership_id, authContext.store_uuid)
       if (guard) return guard
     }
 
-    // Fetch messages with enrichment
-    const result = await getMessages(supabase, {
-      chatRoomId,
-      store_uuid: authContext.store_uuid,
-      membership_id: authContext.membership_id,
-      cursor,
-      limit,
-    })
+    const result = messagesResult
 
-    // Auto mark-as-read on initial page load (no cursor)
+    // Auto mark-as-read on initial page load — background fire (응답 차단 X).
     if (!cursor && result.latestMessageId) {
-      await supabase
+      void supabase
         .from("chat_participants")
         .update({ unread_count: 0, last_read_message_id: result.latestMessageId })
         .eq("chat_room_id", chatRoomId)
         .eq("membership_id", authContext.membership_id)
+        .then(() => undefined, (e: unknown) => {
+          console.warn("[chat/messages] mark-read failed:", e instanceof Error ? e.message : e)
+        })
     }
 
     return NextResponse.json({

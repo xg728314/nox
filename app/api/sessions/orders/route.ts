@@ -7,7 +7,11 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { validateCreateOrderInput, validatePriceGuard } from "@/lib/orders/services/validateOrder"
 import { decrementStock } from "@/lib/orders/services/inventoryOps"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import type { OrderListRow } from "@/lib/orders/types"
+
+// 2026-05-03 R-Speed-x10: 카운터 폴링이 매 5초마다 호출. TTL 캐시 + SWR.
+const ORDERS_TTL_MS = 3000
 
 export async function GET(request: Request) {
   try {
@@ -34,60 +38,78 @@ export async function GET(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 2026-05-01 R-Counter-Speed: session 검증 + orders 병렬화.
-    //   기존: session 검증 await → orders SELECT (직렬, 400-600ms).
-    //   현재: 둘 다 병렬, orders 가 store_uuid + session_id 매칭이라 다른 매장
-    //   row 자체 응답 X (보안 영향 없음). session_id 가 다른 매장이면 orders=[].
-    const applyArchivedNull = await archivedAtFilter(supabase, "orders")
-    const [sessionRes, ordersRes] = await Promise.all([
-      supabase
-        .from("room_sessions")
-        .select("id")
-        .eq("id", session_id)
-        .eq("store_uuid", authContext.store_uuid)
-        .maybeSingle(),
-      applyArchivedNull(
-        supabase
-          .from("orders")
-          .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
-          .eq("store_uuid", authContext.store_uuid)
-          .eq("session_id", session_id)
-          .is("deleted_at", null)
-      ).order("created_at", { ascending: true }),
-    ])
+    // 2026-05-03 R-Speed-x10: TTL 캐시 + SWR + 브라우저 max-age=2.
+    //   같은 session 의 polling cycle 안 hit 즉시 반환 (~5ms).
+    //   POST/DELETE 시 invalidate 호출.
+    const cacheKey = `${authContext.store_uuid}:${session_id}`
+    const data = await cached(
+      "session_orders",
+      cacheKey,
+      ORDERS_TTL_MS,
+      async () => {
+        const applyArchivedNull = await archivedAtFilter(supabase, "orders")
+        const [sessionRes, ordersRes] = await Promise.all([
+          supabase
+            .from("room_sessions")
+            .select("id")
+            .eq("id", session_id)
+            .eq("store_uuid", authContext.store_uuid)
+            .maybeSingle(),
+          applyArchivedNull(
+            supabase
+              .from("orders")
+              .select("id, session_id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, ordered_by, created_at")
+              .eq("store_uuid", authContext.store_uuid)
+              .eq("session_id", session_id)
+              .is("deleted_at", null)
+          ).order("created_at", { ascending: true }),
+        ])
 
-    if (!sessionRes.data) {
-      return NextResponse.json(
-        { error: "SESSION_NOT_FOUND", message: "Session not found in this store." },
-        { status: 404 }
-      )
-    }
-    if (ordersRes.error) {
-      return NextResponse.json(
-        { error: "QUERY_FAILED", message: "Failed to query orders." },
-        { status: 500 }
-      )
-    }
-    const orders = ordersRes.data
+        if (!sessionRes.data) {
+          throw new Error("SESSION_NOT_FOUND")
+        }
+        if (ordersRes.error) {
+          throw new Error("QUERY_FAILED")
+        }
+        const orders = ordersRes.data
 
-    return NextResponse.json({
-      session_id,
-      orders: (orders ?? []).map((o: OrderListRow) => ({
-        id: o.id,
-        session_id: o.session_id,
-        item_name: o.item_name,
-        order_type: o.order_type,
-        qty: o.qty,
-        unit_price: o.unit_price,
-        store_price: o.store_price,
-        sale_price: o.sale_price,
-        amount: o.customer_amount,
-        manager_amount: o.manager_amount,
-        customer_amount: o.customer_amount,
-        ordered_by: o.ordered_by,
-        created_at: o.created_at,
-      })),
+        return {
+          session_id,
+          orders: (orders ?? []).map((o: OrderListRow) => ({
+            id: o.id,
+            session_id: o.session_id,
+            item_name: o.item_name,
+            order_type: o.order_type,
+            qty: o.qty,
+            unit_price: o.unit_price,
+            store_price: o.store_price,
+            sale_price: o.sale_price,
+            amount: o.customer_amount,
+            manager_amount: o.manager_amount,
+            customer_amount: o.customer_amount,
+            ordered_by: o.ordered_by,
+            created_at: o.created_at,
+          })),
+        }
+      },
+    ).catch((e) => {
+      const msg = e instanceof Error ? e.message : "QUERY_FAILED"
+      if (msg === "SESSION_NOT_FOUND") {
+        return { __error: { status: 404, code: "SESSION_NOT_FOUND", message: "Session not found in this store." } }
+      }
+      return { __error: { status: 500, code: "QUERY_FAILED", message: "Failed to query orders." } }
     })
+
+    if ("__error" in data && data.__error) {
+      return NextResponse.json(
+        { error: data.__error.code, message: data.__error.message },
+        { status: data.__error.status },
+      )
+    }
+
+    const res = NextResponse.json(data)
+    res.headers.set("Cache-Control", "private, max-age=2, stale-while-revalidate=5")
+    return res
   } catch (error) {
     return handleRouteError(error, "orders")
   }
@@ -245,6 +267,9 @@ export async function POST(request: Request) {
         { status: 500 }
       )
     }
+
+    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 (POST 후 다음 GET 즉시 fresh).
+    invalidateCache("session_orders")
 
     // 9. Record audit event — 2026-05-01 R-Counter-Speed: background fire.
     //   await 차단 제거 → 응답 latency 100-200ms 단축.

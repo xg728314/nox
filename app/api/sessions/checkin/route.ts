@@ -56,28 +56,56 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 2026-04-24 P0 fix: manager_membership_id 를 DB 에서 검증.
-    //   이전에는 클라가 임의 UUID 를 보내도 그대로 저장 → 다른 매장 실장,
-    //   퇴사자, 존재하지 않는 계정을 세션에 할당할 수 있었다. 같은
-    //   매장의 승인된 manager role 만 허용.
-    if (managerMembershipId) {
-      const { data: mgrRow, error: mgrErr } = await supabase
-        .from("store_memberships")
-        .select("id, role, status, deleted_at, store_uuid")
-        .eq("id", managerMembershipId)
+    // 2026-05-03 R-Speed-x10: manager verify + room verify + existing session +
+    //   business_day fetch 를 4개 Promise.all 로 동시 fire.
+    //   기존: 직렬 4 RTT (~250ms). 현재: 1 RTT (max-of-4).
+    //   각 query 는 store_uuid + (roomUuid 또는 today) 만 의존, 상호 무관.
+    const today = getBusinessDateForOps()
+    const applyArchivedNull = await archivedAtFilter(supabase)
+    const [mgrRowRes, roomRes, existingSessionRes, existingDayRes] = await Promise.all([
+      managerMembershipId
+        ? supabase
+            .from("store_memberships")
+            .select("id, role, status, deleted_at, store_uuid")
+            .eq("id", managerMembershipId)
+            .eq("store_uuid", authContext.store_uuid)
+            .eq("role", "manager")
+            .eq("status", "approved")
+            .is("deleted_at", null)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { id: string } | null, error: null as null }),
+      supabase
+        .from("rooms")
+        .select("id")
         .eq("store_uuid", authContext.store_uuid)
-        .eq("role", "manager")
-        .eq("status", "approved")
-        .is("deleted_at", null)
-        .maybeSingle()
-      if (mgrErr) {
-        console.error("[checkin] manager verify error:", JSON.stringify(mgrErr))
+        .eq("id", roomUuid)
+        .single(),
+      applyArchivedNull(
+        supabase
+          .from("room_sessions")
+          .select("id")
+          .eq("store_uuid", authContext.store_uuid)
+          .eq("room_uuid", roomUuid)
+          .eq("status", "active")
+      ).maybeSingle(),
+      supabase
+        .from("store_operating_days")
+        .select("id, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_date", today)
+        .maybeSingle(),
+    ])
+
+    // manager verify 결과 처리
+    if (managerMembershipId) {
+      if (mgrRowRes.error) {
+        console.error("[checkin] manager verify error:", JSON.stringify(mgrRowRes.error))
         return NextResponse.json(
           { error: "MANAGER_VERIFY_FAILED", message: "실장 검증에 실패했습니다." },
           { status: 500 },
         )
       }
-      if (!mgrRow) {
+      if (!mgrRowRes.data) {
         return NextResponse.json(
           {
             error: "MANAGER_INVALID",
@@ -89,52 +117,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // 1. Verify room exists in this store
-    const { data: room, error: roomError } = await supabase
-      .from("rooms")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("id", roomUuid)
-      .single()
-
-    if (roomError || !room) {
+    if (roomRes.error || !roomRes.data) {
       return NextResponse.json(
         { error: "ROOM_NOT_FOUND", message: "Room not found in this store." },
         { status: 404 }
       )
     }
 
-    // 2. Check for active session in this room (conflict guard)
-    //   2026-04-25: archived 된 세션은 conflict 대상에서 제외. migration 미
-    //   적용 DB 도 안전 (archivedAtFilter 가 컬럼 부재 시 no-op).
-    const applyArchivedNull = await archivedAtFilter(supabase)
-    const { data: existingSession } = await applyArchivedNull(
-      supabase
-        .from("room_sessions")
-        .select("id")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("room_uuid", roomUuid)
-        .eq("status", "active")
-    ).maybeSingle()
-
-    if (existingSession) {
+    if (existingSessionRes.data) {
       return NextResponse.json(
         { error: "SESSION_CONFLICT", message: "An active session already exists for this room." },
         { status: 409 }
       )
     }
 
-    // 3. Get or create business_day for today
-    const today = getBusinessDateForOps()
-
     let businessDayId: string
-
-    const { data: existingDay } = await supabase
-      .from("store_operating_days")
-      .select("id, status")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_date", today)
-      .maybeSingle()
+    const existingDay = existingDayRes.data
 
     if (existingDay && existingDay.status === "closed") {
       // Reopen closed business day for today
@@ -209,8 +207,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // 5. Record audit event
-    await writeSessionAudit(supabase, {
+    // 5. Record audit event — background fire (응답 latency 차감 ~150ms).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id: session.id,
       room_uuid: roomUuid,
@@ -222,6 +220,8 @@ export async function POST(request: Request) {
         room_uuid: roomUuid,
         business_day_id: businessDayId,
       },
+    }).catch((e) => {
+      console.warn("[checkin] audit failed:", e instanceof Error ? e.message : e)
     })
 
     // R29-perf: 캐시 즉시 무효화 → 다른 카운터에서 바로 반영.

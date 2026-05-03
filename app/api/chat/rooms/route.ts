@@ -6,8 +6,12 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 import { isValidUUID } from "@/lib/validation"
 import { getRoomList } from "@/lib/chat/services/getRoomList"
 import { verifyHostessSessionAccess } from "@/lib/chat/validators/validateRoomAccess"
+import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 const VALID_TYPES = ["global", "group", "room_session", "direct"] as const
+
+// 2026-05-03 R-Speed-x10: 채팅방 목록 폴링 (10초 간격) 캐시.
+const ROOMS_TTL_MS = 5000
 
 /**
  * GET  /api/chat/rooms — 내 채팅방 목록
@@ -23,14 +27,23 @@ export async function GET(request: Request) {
     const supabase = svc.supabase
 
     // 2026-05-01 R-Hostess-Home: role 전달. staff/hostess 면 global/group 제외.
-    const rooms = await getRoomList(
-      supabase,
-      authContext.store_uuid,
-      authContext.membership_id,
-      authContext.role,
+    // 2026-05-03 R-Speed-x10: TTL 캐시 + 브라우저 max-age=3.
+    const cacheKey = `${authContext.store_uuid}:${authContext.membership_id}:${authContext.role}`
+    const rooms = await cached(
+      "chat_rooms_list",
+      cacheKey,
+      ROOMS_TTL_MS,
+      () => getRoomList(
+        supabase,
+        authContext.store_uuid,
+        authContext.membership_id,
+        authContext.role,
+      ),
     )
 
-    return NextResponse.json({ rooms })
+    const res = NextResponse.json({ rooms })
+    res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+    return res
   } catch (error) {
     return handleRouteError(error, "chat/rooms")
   }

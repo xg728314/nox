@@ -4,6 +4,7 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { loadOrderForMutation } from "@/lib/orders/services/orderMutations"
 import { validatePatchOrderInput } from "@/lib/orders/services/validateOrder"
 import { restoreStock } from "@/lib/orders/services/inventoryOps"
+import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 export async function PATCH(
   request: Request,
@@ -37,7 +38,10 @@ export async function PATCH(
       return NextResponse.json({ error: "UPDATE_FAILED", message: updateError?.message || "Failed to update order." }, { status: 500 })
     }
 
-    await writeSessionAudit(supabase, {
+    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 + audit background.
+    invalidateCache("session_orders")
+
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id: order.session_id,
       entity_table: "orders",
@@ -45,7 +49,7 @@ export async function PATCH(
       action: "order_updated",
       before: { item_name: order.item_name, order_type: order.order_type, qty: order.qty, unit_price: order.unit_price },
       after: updatePayload,
-    })
+    }).catch((e) => console.warn("[orders PATCH] audit failed:", e))
 
     return NextResponse.json({
       order_id: updated.id,
@@ -107,7 +111,10 @@ export async function DELETE(
       })
     }
 
-    await writeSessionAudit(supabase, {
+    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 + audit background.
+    invalidateCache("session_orders")
+
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id: order.session_id,
       entity_table: "orders",
@@ -119,7 +126,7 @@ export async function DELETE(
         stock_before: stockRestored?.before ?? null,
         stock_after: stockRestored?.after ?? null,
       },
-    })
+    }).catch((e) => console.warn("[orders DELETE] audit failed:", e))
 
     return NextResponse.json({
       deleted: true,
