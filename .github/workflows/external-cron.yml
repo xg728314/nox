@@ -1,38 +1,55 @@
-# R29 (2026-04-26): 외부 cron — Vercel Hobby plan 의 일 1회 제한 우회.
+# NOX Cron (Cloud Run 전용)
 #
-# 사용 시점:
-#   - BLE 본 배포 후 ble-attendance-sync 가 분 단위 필요할 때
-#   - 운영 안정화 후 ops-alerts-scan 5분 단위가 필요할 때
-#   - Pro plan 으로 업그레이드 안 하고 무료로 해결하고 싶을 때
+# 2026-05-03: vercel.json 제거에 따라 외부 cron 으로 통합.
+#   배포 환경은 Google Cloud Run 이므로 Vercel cron 사용 불가.
+#   Cloud Scheduler 대신 GitHub Actions schedule 로 처리 — 무료 + 가시성 좋음.
 #
-# 동작:
-#   GitHub Actions 가 정해진 schedule 에 cron 엔드포인트를 HTTP GET 으로 호출.
-#   Vercel function 입장에선 user-agent 가 GitHub-Actions 라 vercel-cron 검사 실패 →
-#   Authorization: Bearer <CRON_SECRET> 로 통과.
+# 사전 설정 (GitHub repo Settings → Secrets and variables → Actions):
+#   - PROD_BASE_URL    : https://nox.ai.kr
+#   - CRON_SECRET      : Cloud Run env 의 CRON_SECRET 와 동일 값
 #
-# 사전 설정:
-#   1) GitHub repo Settings → Secrets and variables → Actions → New secret:
-#        - PROD_BASE_URL    예: https://nox.vercel.app
-#        - CRON_SECRET      Vercel env 의 CRON_SECRET 와 동일 값
-#   2) 이 파일 commit + push → 자동 활성
+# 한도: GitHub Actions 무료 2,000 분/월 (개인 repo). 충분.
 #
-# 한도: GitHub Actions 무료 2,000 분/월 (개인 repo). 매 호출 ~10초 → 매 5분 = 8.6시간/월
-#       → 충분.
+# 멱등성: 모든 cron endpoint 가 1일 1회 OR 짧은 멱등 윈도우. 재시도 안전.
 #
-# 비활성: workflow_dispatch 만 남기고 schedule 주석 처리.
+# Schedule 시각은 모두 UTC. 한국시간 (KST) = UTC + 9.
 
-name: NOX External Cron
+name: NOX Cron
 
 on:
   schedule:
-    # 5분마다 ops-alerts-scan + 2분마다 ble-* 를 모두 한 workflow 에 묶어 호출.
-    # GitHub schedule 최소 단위는 5분. 2분은 5분에 포함 (작은 비효율 OK).
-    - cron: "*/5 * * * *"
-  # 수동 실행 (테스트)
+    # ───── 고빈도 (5분 간격) ─────────────────────────────────────
+    - cron: "*/5 * * * *"  # ops-alerts-scan + ble-attendance-sync + ble-session-inference
+
+    # ───── 일 1회 (UTC) ────────────────────────────────────────
+    - cron: "0 3 * * *"    # 12:00 KST — ble-history-reaper
+    - cron: "0 6 * * *"    # 15:00 KST — (예비)
+    - cron: "0 8 * * *"    # 17:00 KST — settlement-tree-advance
+    - cron: "0 18 * * *"   # 03:00 KST — audit-archive
+    - cron: "0 19 * * *"   # 04:00 KST — system-errors-cleanup + paper-ledger-expire
+
+  # 수동 실행 (디버깅 / 1회성 강제)
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'cron endpoint name (e.g. audit-archive)'
+        required: true
+        type: choice
+        options:
+          - all-high-freq
+          - ops-alerts-scan
+          - ble-attendance-sync
+          - ble-session-inference
+          - ble-history-reaper
+          - settlement-tree-advance
+          - audit-archive
+          - system-errors-cleanup
+          - paper-ledger-expire
+          - watchdog
 
 jobs:
-  trigger:
+  high-freq:
+    if: github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -40,18 +57,16 @@ jobs:
         run: |
           curl -fsS -X GET "$BASE_URL/api/cron/ops-alerts-scan" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            -H "User-Agent: github-actions-external-cron"
+            -H "User-Agent: github-actions-cron"
         env:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
       - name: ble-attendance-sync
-        # BLE 배포 전엔 noop 처리되도록 endpoint 자체가 graceful (insert 실패 시 skip).
-        # 호출만 해두면 BLE 배포 후 자동 활성.
         run: |
           curl -fsS -X GET "$BASE_URL/api/cron/ble-attendance-sync" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            -H "User-Agent: github-actions-external-cron"
+            -H "User-Agent: github-actions-cron"
         env:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -60,10 +75,109 @@ jobs:
         run: |
           curl -fsS -X GET "$BASE_URL/api/cron/ble-session-inference" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            -H "User-Agent: github-actions-external-cron"
+            -H "User-Agent: github-actions-cron"
         env:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
-  # 일 1회 cron (vercel.json 의 daily 와 중복) — vercel.json 을 비우고 모두 외부로 옮기는
-  # 옵션도 가능. 현재는 vercel.json 의 daily 그대로 두고 GitHub 는 고빈도만 담당.
+      - name: watchdog
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/watchdog" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron" || true
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  daily-12-kst:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: ble-history-reaper
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/ble-history-reaper" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  daily-17-kst:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 8 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: settlement-tree-advance
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/settlement-tree-advance" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  daily-03-kst:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 18 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: audit-archive
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/audit-archive" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  daily-04-kst:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 19 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: system-errors-cleanup
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/system-errors-cleanup" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: paper-ledger-expire
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/paper-ledger-expire" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch single endpoint
+        run: |
+          TARGET="${{ github.event.inputs.target }}"
+          case "$TARGET" in
+            all-high-freq)
+              for p in ops-alerts-scan ble-attendance-sync ble-session-inference watchdog; do
+                echo "→ $p"
+                curl -fsS -X GET "$BASE_URL/api/cron/$p" \
+                  -H "Authorization: Bearer $CRON_SECRET" \
+                  -H "User-Agent: github-actions-cron-manual"
+                echo
+              done
+              ;;
+            *)
+              curl -fsS -X GET "$BASE_URL/api/cron/$TARGET" \
+                -H "Authorization: Bearer $CRON_SECRET" \
+                -H "User-Agent: github-actions-cron-manual"
+              ;;
+          esac
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

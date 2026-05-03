@@ -55,10 +55,30 @@ python scripts/test-e2e.py     # Full E2E orchestrator
 - ✅ **In-memory TTL 캐시** (`lib/cache/inMemoryTtl.ts`) 는 컨테이너별 격리 — 동작 동일.
 - ✅ HTTP Cache-Control max-age 는 브라우저에서 정상 작동.
 
-**미배포 Vercel 잔재**:
-- `vercel.json` — 과거 잔재, Cloud Run 에서 미사용.
-- `app/api/system/warmup`, `time`, `health` 의 `runtime = "edge"` — 제거 필요.
-- 일부 cron 정의는 Vercel cron 형식 — Cloud Scheduler 로 마이그레이션 검토.
+## Cron — GitHub Actions schedule
+
+Cloud Run 환경에서 cron 은 외부 트리거 필요 (Cloud Run 자체에는 cron 기능 없음).
+Cloud Scheduler 대신 **GitHub Actions schedule** 사용 (무료 + 가시성).
+
+**Workflow**: `.github/workflows/external-cron.yml`
+
+**Schedule (UTC → KST)**:
+| 빈도 | UTC | KST | endpoints |
+|---|---|---|---|
+| 5분 | `*/5 * * * *` | — | ops-alerts-scan, ble-attendance-sync, ble-session-inference, watchdog |
+| 일 1회 | `0 3 * * *` | 12:00 | ble-history-reaper |
+| 일 1회 | `0 8 * * *` | 17:00 | settlement-tree-advance |
+| 일 1회 | `0 18 * * *` | 03:00 | audit-archive |
+| 일 1회 | `0 19 * * *` | 04:00 | system-errors-cleanup, paper-ledger-expire |
+
+**Secrets** (GitHub repo Settings → Secrets and variables → Actions):
+- `PROD_BASE_URL` = `https://nox.ai.kr`
+- `CRON_SECRET` = Cloud Run env 의 `CRON_SECRET` 와 동일 값
+
+**수동 실행**: workflow_dispatch — 단일 endpoint 강제 트리거 (디버깅 용).
+
+**모니터링**: `cron_heartbeats` 테이블 (mig 090) 에 stamp.
+`/ops/watchdog` 페이지에서 stale cron 자동 검출.
 
 ## Architecture
 
