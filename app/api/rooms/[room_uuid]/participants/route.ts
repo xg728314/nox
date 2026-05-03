@@ -104,47 +104,7 @@ export async function GET(
     const nameMap = new Map<string, string>()
     const managerMap = new Map<string, { manager_membership_id: string | null }>()
 
-    // 2026-05-01 R-Counter-Speed: managers + hostesses 병렬.
-    if (membershipIds.length > 0) {
-      const [mgrsRes, hstsRes] = await Promise.all([
-        supabase
-          .from("managers")
-          .select("membership_id, name")
-          .in("membership_id", membershipIds),
-        supabase
-          .from("hostesses")
-          .select("membership_id, name, manager_membership_id")
-          .in("membership_id", membershipIds),
-      ])
-      for (const m of mgrsRes.data ?? []) nameMap.set(m.membership_id, m.name)
-      for (const h of hstsRes.data ?? []) {
-        nameMap.set(h.membership_id, h.name)
-        managerMap.set(h.membership_id, { manager_membership_id: h.manager_membership_id ?? null })
-      }
-    }
-
-    // 담당실장 이름 조회 — session 단위 + hostesses fallback 모두 수집
-    // session_participants.manager_membership_id (세션 단위)
-    const sessionManagerIds = (participants ?? [])
-      .map((p: { manager_membership_id: string | null }) => p.manager_membership_id)
-      .filter((id): id is string => !!id)
-    // hostesses.manager_membership_id (기본 담당, fallback)
-    const hostessManagerIds = [...managerMap.values()]
-      .map(v => v.manager_membership_id)
-      .filter((id): id is string => !!id)
-    const allManagerIds = [...new Set([...sessionManagerIds, ...hostessManagerIds])]
-    const managerNameMap = new Map<string, string>()
-
-    if (allManagerIds.length > 0) {
-      const { data: mgrNames } = await supabase
-        .from("managers")
-        .select("membership_id, name")
-        .in("membership_id", allManagerIds)
-      for (const m of mgrNames ?? []) managerNameMap.set(m.membership_id, m.name)
-    }
-
-    // 5. 매칭 판정용: origin_store 기준 스태프 이름 Set (매장별로 캐시)
-    // participant마다 origin_store_uuid가 다를 수 있으므로 store별 Set 구축
+    // 매칭 판정용: origin_store 기준 스태프 이름 Set (매장별로 캐시)
     const relevantStoreUuids = [...new Set([
       authContext.store_uuid,
       ...(participants ?? [])
@@ -153,48 +113,96 @@ export async function GET(
     ])]
     const hostessNameSetByStore = new Map<string, Set<string>>()
     const storeNameById = new Map<string, string>()
+    const managerNameMap = new Map<string, string>()
 
-    if (relevantStoreUuids.length > 0) {
-      // 매장별 이름 조회
-      const { data: storeMembers } = await supabase
-        .from("store_memberships")
-        .select("id, store_uuid")
-        .in("store_uuid", relevantStoreUuids)
-        .eq("role", "hostess")
-        .is("deleted_at", null)
-      const membersByStore = new Map<string, string[]>()
-      for (const sm of storeMembers ?? []) {
-        const arr = membersByStore.get(sm.store_uuid) ?? []
-        arr.push(sm.id)
-        membersByStore.set(sm.store_uuid, arr)
-      }
-      const allMemberIds = (storeMembers ?? []).map((sm: { id: string }) => sm.id)
-      if (allMemberIds.length > 0) {
-        const { data: allH } = await supabase
-          .from("hostesses")
-          .select("membership_id, name, stage_name")
-          .in("membership_id", allMemberIds)
-        // membership_id → store_uuid 역매핑
-        const memberToStore = new Map<string, string>()
-        for (const [storeUuid, mids] of membersByStore) {
-          for (const mid of mids) memberToStore.set(mid, storeUuid)
-        }
-        for (const h of allH ?? []) {
-          const sUuid = memberToStore.get(h.membership_id)
-          if (!sUuid) continue
-          if (!hostessNameSetByStore.has(sUuid)) hostessNameSetByStore.set(sUuid, new Set())
-          const nameSet = hostessNameSetByStore.get(sUuid)!
-          if (h.name) nameSet.add(h.name)
-          if (h.stage_name) nameSet.add(h.stage_name)
-        }
-      }
+    // 2026-05-01 R-Counter-Speed v2: 1차 Wave — participant 정보만 의존하는 4 query
+    //   동시 fire (managers, hostesses, store_memberships, stores).
+    //   기존 직렬 4 wave → 1 wave.
+    const [mgrsRes, hstsRes, storeMembersRes, storesDataRes] = await Promise.all([
+      membershipIds.length > 0
+        ? supabase
+            .from("managers")
+            .select("membership_id, name")
+            .in("membership_id", membershipIds)
+        : Promise.resolve({ data: [] as Array<{ membership_id: string; name: string }> }),
+      membershipIds.length > 0
+        ? supabase
+            .from("hostesses")
+            .select("membership_id, name, manager_membership_id")
+            .in("membership_id", membershipIds)
+        : Promise.resolve({ data: [] as Array<{ membership_id: string; name: string; manager_membership_id: string | null }> }),
+      relevantStoreUuids.length > 0
+        ? supabase
+            .from("store_memberships")
+            .select("id, store_uuid")
+            .in("store_uuid", relevantStoreUuids)
+            .eq("role", "hostess")
+            .is("deleted_at", null)
+        : Promise.resolve({ data: [] as Array<{ id: string; store_uuid: string }> }),
+      relevantStoreUuids.length > 0
+        ? supabase
+            .from("stores")
+            .select("id, store_name")
+            .in("id", relevantStoreUuids)
+        : Promise.resolve({ data: [] as Array<{ id: string; store_name: string }> }),
+    ])
 
-      // 매장 이름 조회 (origin_store_name 표시용)
-      const { data: storesData } = await supabase
-        .from("stores")
-        .select("id, store_name")
-        .in("id", relevantStoreUuids)
-      for (const s of storesData ?? []) storeNameById.set(s.id, s.store_name)
+    for (const m of mgrsRes.data ?? []) nameMap.set(m.membership_id, m.name)
+    for (const h of hstsRes.data ?? []) {
+      nameMap.set(h.membership_id, h.name)
+      managerMap.set(h.membership_id, { manager_membership_id: h.manager_membership_id ?? null })
+    }
+    for (const s of storesDataRes.data ?? []) storeNameById.set(s.id, s.store_name)
+
+    // 담당실장 이름 조회 — session 단위 + hostesses fallback 모두 수집
+    const sessionManagerIds = (participants ?? [])
+      .map((p: { manager_membership_id: string | null }) => p.manager_membership_id)
+      .filter((id): id is string => !!id)
+    const hostessManagerIds = [...managerMap.values()]
+      .map(v => v.manager_membership_id)
+      .filter((id): id is string => !!id)
+    const allManagerIds = [...new Set([...sessionManagerIds, ...hostessManagerIds])]
+
+    const storeMembers = storeMembersRes.data ?? []
+    const membersByStore = new Map<string, string[]>()
+    for (const sm of storeMembers) {
+      const arr = membersByStore.get(sm.store_uuid) ?? []
+      arr.push(sm.id)
+      membersByStore.set(sm.store_uuid, arr)
+    }
+    const allMemberIds = storeMembers.map((sm) => sm.id)
+
+    // 2026-05-01 R-Counter-Speed v2: 2차 Wave — 1차 결과에 의존하는 2 query 동시 fire
+    //   (managers for names, hostesses for name set). 기존 직렬 2 wave → 1 wave.
+    const [mgrNamesRes, allHRes] = await Promise.all([
+      allManagerIds.length > 0
+        ? supabase
+            .from("managers")
+            .select("membership_id, name")
+            .in("membership_id", allManagerIds)
+        : Promise.resolve({ data: [] as Array<{ membership_id: string; name: string }> }),
+      allMemberIds.length > 0
+        ? supabase
+            .from("hostesses")
+            .select("membership_id, name, stage_name")
+            .in("membership_id", allMemberIds)
+        : Promise.resolve({ data: [] as Array<{ membership_id: string; name: string | null; stage_name: string | null }> }),
+    ])
+
+    for (const m of mgrNamesRes.data ?? []) managerNameMap.set(m.membership_id, m.name)
+
+    // membership_id → store_uuid 역매핑
+    const memberToStore = new Map<string, string>()
+    for (const [storeUuid, mids] of membersByStore) {
+      for (const mid of mids) memberToStore.set(mid, storeUuid)
+    }
+    for (const h of allHRes.data ?? []) {
+      const sUuid = memberToStore.get(h.membership_id)
+      if (!sUuid) continue
+      if (!hostessNameSetByStore.has(sUuid)) hostessNameSetByStore.set(sUuid, new Set())
+      const nameSet = hostessNameSetByStore.get(sUuid)!
+      if (h.name) nameSet.add(h.name)
+      if (h.stage_name) nameSet.add(h.stage_name)
     }
 
     // 6. 이름 수정 이력은 session_participants.name_edited_at 컬럼에서

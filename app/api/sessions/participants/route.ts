@@ -35,9 +35,18 @@ export async function POST(request: Request) {
       time_type?: string
       manager_deduction?: number
       greeting_confirmed?: boolean
+      // 2026-05-01 R-Counter-Speed: chat-bulk add 가 POST + PATCH + PATCH 3번
+      //   직렬로 호출하던 것을 단일 POST 로 통합. 둘 다 placeholder
+      //   participant 의 부수 정보로, 별도 PATCH endpoint 없이 INSERT 시 박을 수 있음.
+      external_name?: string
+      origin_store_uuid?: string | null
+      origin_store_name?: string
     }>(request)
     if (parsed.error) return parsed.error
     const { session_id, membership_id, role, category, time_minutes, time_type, manager_deduction, greeting_confirmed } = parsed.body
+    const externalNameRaw = parsed.body.external_name
+    const originStoreUuidParam = parsed.body.origin_store_uuid
+    const originStoreNameParam = parsed.body.origin_store_name
 
     if (!session_id || !isValidUUID(session_id)) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "session_id is required and must be a valid UUID." }, { status: 400 })
@@ -67,12 +76,31 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    const { data: session, error: sessionError } = await supabase
-      .from("room_sessions")
-      .select("id, store_uuid, status, business_day_id")
-      .eq("id", session_id)
-      .maybeSingle()
+    // 2026-05-01 R-Counter-Speed: session 검증 + origin store resolve 병렬 fire.
+    //   session 은 store_uuid + status 검증, store 는 origin_store_name → uuid resolve.
+    //   둘 다 body params 만 의존. 직렬 → Promise.all.
+    const originNameTrimmed =
+      typeof originStoreNameParam === "string" && originStoreNameParam.trim().length > 0
+        ? originStoreNameParam.trim()
+        : null
+    const [sessionRes, originStoreRes] = await Promise.all([
+      supabase
+        .from("room_sessions")
+        .select("id, store_uuid, status, business_day_id")
+        .eq("id", session_id)
+        .maybeSingle(),
+      originNameTrimmed
+        ? supabase
+            .from("stores")
+            .select("id")
+            .eq("store_name", originNameTrimmed)
+            .is("deleted_at", null)
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { id?: string } | null }),
+    ])
 
+    const { data: session, error: sessionError } = sessionRes
     if (sessionError || !session) {
       return NextResponse.json({ error: "SESSION_NOT_FOUND", message: "Session not found." }, { status: 404 })
     }
@@ -87,70 +115,80 @@ export async function POST(request: Request) {
       const guard = await assertBusinessDayOpen(supabase, session.business_day_id)
       if (guard) return guard
     }
+    const preResolvedOriginStoreId =
+      (originStoreRes.data as { id?: string } | null)?.id ?? null
 
     let originStoreUuid: string | null = null
     let transferRequestId: string | null = null
 
     if (!isPlaceholder) {
-    const { data: membership, error: membershipError } = await supabase
-      .from("store_memberships")
-      .select("id, store_uuid, status")
-      .eq("id", membership_id)
-      .eq("status", "approved")
-      .maybeSingle()
-
-    if (membershipError || !membership) {
-      return NextResponse.json({ error: "MEMBERSHIP_NOT_FOUND", message: "Membership not found." }, { status: 404 })
-    }
-
-    if (membership.store_uuid !== authContext.store_uuid) {
-      const { data: cswr } = await supabase
-        .from("cross_store_work_records")
-        .select("id, origin_store_uuid")
-        .eq("session_id", session_id)
-        .eq("hostess_membership_id", membership_id)
-        .eq("working_store_uuid", authContext.store_uuid)
-        .in("status", ["pending", "approved"])
-        .is("deleted_at", null)
-        .maybeSingle()
-
-      if (!cswr) {
-        return NextResponse.json({ error: "CROSS_STORE_NOT_FOUND", message: "타점 출근 기록이 없습니다." }, { status: 404 })
+      // 2026-05-03 R-Perf: cross-store hostess 추가 시 membership + cswr 동시 fetch.
+      //   기존: membership → cswr (그 결과로 cross-store 여부 판정) → transfer_requests SELECT
+      //     → INSERT (없으면). 직렬 4 RTT.
+      //   신규: membership + cswr 병렬 (cswr 는 hostess_membership_id + working_store
+      //         + session_id 만 의존). 그 다음 transfer_requests 검사 (cross-store 일 때만).
+      //         핵심 path 직렬 RTT 1 감소.
+      const [membershipRes, cswrRes] = await Promise.all([
+        supabase
+          .from("store_memberships")
+          .select("id, store_uuid, status")
+          .eq("id", membership_id)
+          .eq("status", "approved")
+          .maybeSingle(),
+        supabase
+          .from("cross_store_work_records")
+          .select("id, origin_store_uuid")
+          .eq("session_id", session_id)
+          .eq("hostess_membership_id", membership_id)
+          .eq("working_store_uuid", authContext.store_uuid)
+          .in("status", ["pending", "approved"])
+          .is("deleted_at", null)
+          .maybeSingle(),
+      ])
+      const { data: membership, error: membershipError } = membershipRes
+      if (membershipError || !membership) {
+        return NextResponse.json({ error: "MEMBERSHIP_NOT_FOUND", message: "Membership not found." }, { status: 404 })
       }
-      originStoreUuid = cswr.origin_store_uuid
 
-      const { data: transferReq } = await supabase
-        .from("transfer_requests")
-        .select("id")
-        .eq("hostess_membership_id", membership_id)
-        .eq("to_store_uuid", authContext.store_uuid)
-        .eq("from_store_uuid", cswr.origin_store_uuid)
-        .in("status", ["pending", "approved", "fully_approved"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (transferReq) {
-        transferRequestId = transferReq.id
-      } else {
-        const { data: newTr, error: trErr } = await supabase
-          .from("transfer_requests")
-          .insert({
-            hostess_membership_id: membership_id,
-            from_store_uuid: cswr.origin_store_uuid,
-            to_store_uuid: authContext.store_uuid,
-            status: "approved",
-            reason: "cross-store work record auto-transfer",
-          })
-          .select("id")
-          .single()
-
-        if (trErr || !newTr) {
-          return NextResponse.json({ error: "TRANSFER_CREATE_FAILED", message: trErr?.message || "auto transfer_request failed" }, { status: 500 })
+      if (membership.store_uuid !== authContext.store_uuid) {
+        const cswr = cswrRes.data
+        if (!cswr) {
+          return NextResponse.json({ error: "CROSS_STORE_NOT_FOUND", message: "타점 출근 기록이 없습니다." }, { status: 404 })
         }
-        transferRequestId = newTr.id
+        originStoreUuid = cswr.origin_store_uuid
+
+        const { data: transferReq } = await supabase
+          .from("transfer_requests")
+          .select("id")
+          .eq("hostess_membership_id", membership_id)
+          .eq("to_store_uuid", authContext.store_uuid)
+          .eq("from_store_uuid", cswr.origin_store_uuid)
+          .in("status", ["pending", "approved", "fully_approved"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (transferReq) {
+          transferRequestId = transferReq.id
+        } else {
+          const { data: newTr, error: trErr } = await supabase
+            .from("transfer_requests")
+            .insert({
+              hostess_membership_id: membership_id,
+              from_store_uuid: cswr.origin_store_uuid,
+              to_store_uuid: authContext.store_uuid,
+              status: "approved",
+              reason: "cross-store work record auto-transfer",
+            })
+            .select("id")
+            .single()
+
+          if (trErr || !newTr) {
+            return NextResponse.json({ error: "TRANSFER_CREATE_FAILED", message: trErr?.message || "auto transfer_request failed" }, { status: 500 })
+          }
+          transferRequestId = newTr.id
+        }
       }
-    }
     } // end !isPlaceholder
 
     // ── Time type resolution ──
@@ -212,12 +250,36 @@ export async function POST(request: Request) {
 
     const hostess_payout = Math.max(0, price_amount - resolvedManagerDeduction)
 
+    // 2026-05-01 R-Counter-Speed: chat-bulk add 단일 POST 통합 — external_name +
+    //   origin_store_uuid (또는 store_name 으로 서버 resolve) 를 INSERT 에 직접 박음.
+    //   기존 POST + 2 PATCH 직렬 → POST 1회. store_name resolve 는 위
+    //   Promise.all 에서 session 검증과 동시에 fire 됨.
+    let resolvedOriginStoreUuid: string | null = originStoreUuid
+    if (resolvedOriginStoreUuid === null && originStoreUuidParam !== undefined) {
+      resolvedOriginStoreUuid = originStoreUuidParam ?? null
+    }
+    if (resolvedOriginStoreUuid === null && preResolvedOriginStoreId) {
+      resolvedOriginStoreUuid = preResolvedOriginStoreId
+    }
+    // working store 와 동일하면 null 로 정규화 (cross-store 마커 의미 없음).
+    if (resolvedOriginStoreUuid === authContext.store_uuid) {
+      resolvedOriginStoreUuid = null
+    }
+
+    const externalName =
+      typeof externalNameRaw === "string" && externalNameRaw.trim().length > 0
+        ? externalNameRaw.trim()
+        : null
+    const memoValue = isPlaceholder ? (externalName ?? "미지정") : null
+
     const { data: participant, error: participantError } = await supabase
       .from("session_participants")
       .insert({
         session_id,
         membership_id: isPlaceholder ? null : membership_id,
-        memo: isPlaceholder ? "미지정" : null,
+        memo: memoValue,
+        external_name: externalName,
+        name_edited_at: externalName ? new Date().toISOString() : null,
         role: role as ParticipantRole,
         category: (isPlaceholder && !category) ? null : category as ParticipantCategory,
         time_minutes,
@@ -230,12 +292,12 @@ export async function POST(request: Request) {
         waiter_tip_received: false,
         waiter_tip_amount: 0,
         greeting_confirmed: greeting_confirmed ?? false,
-        origin_store_uuid: originStoreUuid,
+        origin_store_uuid: resolvedOriginStoreUuid,
         transfer_request_id: transferRequestId,
         status: "active",
         store_uuid: authContext.store_uuid,
       })
-      .select("id, session_id, membership_id, role, category, time_minutes, price_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, manager_payout_amount, hostess_payout_amount, greeting_confirmed, status, entered_at")
+      .select("id, session_id, membership_id, role, category, time_minutes, price_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, manager_payout_amount, hostess_payout_amount, greeting_confirmed, status, entered_at, external_name, origin_store_uuid")
       .single()
 
     if (participantError || !participant) {
@@ -279,6 +341,8 @@ export async function POST(request: Request) {
         hostess_payout: participant.hostess_payout_amount,
         status: participant.status,
         entered_at: participant.entered_at,
+        external_name: (participant as { external_name?: string | null }).external_name ?? null,
+        origin_store_uuid: (participant as { origin_store_uuid?: string | null }).origin_store_uuid ?? null,
       },
       { status: 201 }
     )

@@ -6,9 +6,12 @@ import { getRooms } from "@/lib/server/queries/rooms"
 import { cached } from "@/lib/cache/inMemoryTtl"
 
 // R29-perf: 380명 동시 사용 시 매장당 분당 수백 회 호출됨.
-//   process-local 3초 TTL 캐시 → 부하 70% 감소.
-//   카운터 화면에 5초 폴링 가정. 3초 TTL 이면 한 폴링 사이클 동안 1번만 DB.
-const ROOMS_TTL_MS = 3000
+//   process-local TTL 캐시 → 부하 70% 감소.
+//   카운터 화면에 5초 폴링 가정.
+// 2026-05-03 R-Speed-x10: 3s → 5s (폴링 주기 = TTL → SWR 백그라운드 fetch 패턴 활용).
+//   inMemoryTtl.cached 가 stale-while-revalidate 모드라 stale 반환 즉시 +
+//   백그라운드 refresh. 사용자 응답은 cache hit (1ms 수준).
+const ROOMS_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -29,8 +32,11 @@ export async function GET(request: Request) {
         () => getRooms(authContext),
       )
       const res = NextResponse.json(data)
-      // 클라이언트도 1초 stale-while-revalidate 가능
-      res.headers.set("Cache-Control", "private, max-age=1, stale-while-revalidate=2")
+      // 2026-05-03 R-Speed-x10:
+      //   max-age=3 → 폴링 5초마다인데 3초간 브라우저 cache hit.
+      //   60% 폴링이 네트워크 hit 없이 즉시 반환 (0ms).
+      //   stale-while-revalidate=10 → 추가 7초까지 stale 반환 + 백그라운드 fetch.
+      res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
       return res
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to query rooms."

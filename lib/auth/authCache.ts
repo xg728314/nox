@@ -65,8 +65,14 @@ export type CachedAuth = {
 type Entry = CachedAuth & { expiresAt: number }
 
 // ROUND-CLEANUP-002: 60_000 → 15_000. Revocation latency 를 15s 로 축소.
-// Logout / change-password 는 invalidate 경로를 통해 즉시 0s 반영.
-const TTL_MS = 15_000
+// 2026-05-03 R-Speed-x10: 15_000 → 60_000.
+//   사용자 호소 "사용 안 할 때 40분만에 로그아웃 + 응답 너무 느림".
+//   auth cache miss = 3 RTT (auth.getUser + memberships + global_roles).
+//   카운터 5s 폴링 패턴에서 15s 마다 cache miss → 매분 4번 cold path.
+//   60s TTL 로 늘리면 매분 1번만 cold path → 75% 감소.
+//   Logout / change-password 가 explicit invalidate 호출하므로 revocation
+//   latency 도 사실상 0s 유지 (TTL 은 idle 만료 fallback).
+const TTL_MS = 60_000
 const MAX_ENTRIES = 500
 
 const cache = new Map<string, Entry>()

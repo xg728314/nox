@@ -37,6 +37,10 @@ type UseOrderMutationsReturn = {
 export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
   const [orderForm, setOrderForm] = useState<OrderFormState>(ORDER_FORM_INIT)
 
+  // 2026-05-03 R-Speed-x10: 주문 추가 후 fetchOrders/fetchRooms/fetchInventory 를
+  //   await 하면 사용자 체감 latency = POST + 3개 GET 합계 (1.5~3초).
+  //   POST 응답에 신규 order 가 포함되므로 그걸 즉시 focusData 에 박고 (optimistic)
+  //   백그라운드 fetch 만 fire — 사용자는 POST 응답 즉시 busy 해제.
   async function handleAddOrder() {
     const { focusData, ensureSession, fetchOrders, fetchRooms, fetchInventory, setFocusData, setBusy, setError, setOrderOpen } = deps
     if (!focusData || !orderForm.item_name) return
@@ -52,8 +56,16 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
       if (!res.ok) { setError(data.message || "주문 실패"); return }
       setOrderForm(ORDER_FORM_INIT)
       setOrderOpen(false)
-      const [orders] = await Promise.all([fetchOrders(sessionId), fetchRooms(), fetchInventory()])
-      setFocusData(prev => prev ? { ...prev, orders } : null)
+      // Optimistic: POST 응답 데이터를 그대로 focusData.orders 에 prepend.
+      if (data?.order) {
+        setFocusData(prev => prev ? { ...prev, orders: [...prev.orders, data.order as Order] } : null)
+      }
+      // 백그라운드 refresh — 응답 latency 에 합산되지 않음.
+      void Promise.all([fetchOrders(sessionId), fetchRooms(), fetchInventory()])
+        .then(([orders]) => {
+          setFocusData(prev => prev ? { ...prev, orders } : null)
+        })
+        .catch(() => { /* polling 이 catch up */ })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -78,8 +90,15 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || "추가 실패"); return }
-      const [orders] = await Promise.all([fetchOrders(focusData.sessionId), fetchRooms(), fetchInventory()])
-      setFocusData(prev => prev ? { ...prev, orders } : null)
+      // Optimistic: 신규 order 즉시 표시.
+      if (data?.order) {
+        setFocusData(prev => prev ? { ...prev, orders: [...prev.orders, data.order as Order] } : null)
+      }
+      void Promise.all([fetchOrders(focusData.sessionId), fetchRooms(), fetchInventory()])
+        .then(([orders]) => {
+          setFocusData(prev => prev ? { ...prev, orders } : null)
+        })
+        .catch(() => { /* polling 이 catch up */ })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -92,8 +111,13 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
     try {
       const res = await apiFetch(`/api/sessions/orders/${orderId}`, { method: "DELETE" })
       if (!res.ok) { const d = await res.json(); setError(d.message || "삭제 실패"); return }
-      const [orders] = await Promise.all([fetchOrders(focusData.sessionId), fetchRooms()])
-      setFocusData(prev => prev ? { ...prev, orders } : null)
+      // Optimistic: 즉시 list 에서 제거.
+      setFocusData(prev => prev ? { ...prev, orders: prev.orders.filter(x => x.id !== orderId) } : null)
+      void Promise.all([fetchOrders(focusData.sessionId), fetchRooms()])
+        .then(([orders]) => {
+          setFocusData(prev => prev ? { ...prev, orders } : null)
+        })
+        .catch(() => { /* polling 이 catch up */ })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }

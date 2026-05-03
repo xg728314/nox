@@ -125,37 +125,56 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 1. Look up session and verify active status
-    const { data: session, error: sessionError } = await supabase
-      .from("room_sessions")
-      .select("id, store_uuid, business_day_id, status")
-      .eq("id", session_id!)
-      .maybeSingle()
+    // 2026-05-03 R-Speed-x10: session 검증 + business_day 검증 병렬화.
+    //   기존: session (1 RTT) → business_day (1 RTT) 직렬.
+    //   현재: 둘 다 동시 fire — store 의 가장 최근 2개 영업일을 미리 가져와서
+    //   session.business_day_id 와 매칭되면 즉시 사용. 1 RTT 절감.
+    const [sessionRes, bizDayRes] = await Promise.all([
+      supabase
+        .from("room_sessions")
+        .select("id, store_uuid, business_day_id, status")
+        .eq("id", session_id!)
+        .maybeSingle(),
+      supabase
+        .from("store_operating_days")
+        .select("id, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .order("business_date", { ascending: false })
+        .limit(2),
+    ])
 
+    const { data: session, error: sessionError } = sessionRes
     if (sessionError || !session) {
       return NextResponse.json(
         { error: "SESSION_NOT_FOUND", message: "Session not found." },
         { status: 404 }
       )
     }
-
     if (session.status !== "active") {
       return NextResponse.json(
         { error: "SESSION_NOT_ACTIVE", message: "Session is not active." },
         { status: 400 }
       )
     }
-
-    // 2. Verify store_uuid scope
     if (session.store_uuid !== authContext.store_uuid) {
       return NextResponse.json(
         { error: "STORE_MISMATCH", message: "Session does not belong to your store." },
         { status: 403 }
       )
     }
+    if (!session.business_day_id) {
+      return NextResponse.json(
+        { error: "BUSINESS_DAY_NOT_FOUND", message: "Session has no business_day_id. Cannot create order." },
+        { status: 400 }
+      )
+    }
 
-    // 3. Verify business_day is not closed
-    if (session.business_day_id) {
+    // business_day 상태 — Promise.all 결과 우선 매칭, 없으면 fallback 1회 fetch.
+    const bizDays = (bizDayRes.data ?? []) as Array<{ id: string; status: string }>
+    const matched = bizDays.find((d) => d.id === session.business_day_id)
+    let bizDayStatus = matched?.status ?? null
+    if (!matched) {
       const { data: bizDay } = await supabase
         .from("store_operating_days")
         .select("status")
@@ -163,18 +182,12 @@ export async function POST(request: Request) {
         .eq("store_uuid", authContext.store_uuid)
         .is("deleted_at", null)
         .maybeSingle()
-      if (bizDay && bizDay.status === "closed") {
-        return NextResponse.json(
-          { error: "BUSINESS_DAY_CLOSED", message: "영업일이 마감되었습니다. 주문을 추가할 수 없습니다." },
-          { status: 403 }
-        )
-      }
+      bizDayStatus = bizDay?.status ?? null
     }
-
-    if (!session.business_day_id) {
+    if (bizDayStatus === "closed") {
       return NextResponse.json(
-        { error: "BUSINESS_DAY_NOT_FOUND", message: "Session has no business_day_id. Cannot create order." },
-        { status: 400 }
+        { error: "BUSINESS_DAY_CLOSED", message: "영업일이 마감되었습니다. 주문을 추가할 수 없습니다." },
+        { status: 403 }
       )
     }
 

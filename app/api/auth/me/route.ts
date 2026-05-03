@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     let mfaEnabled = false
     let backupCodesRemaining = 0
     let storeName: string | null = null
+    let storeFloor: number | null = null
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
       const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -24,19 +25,19 @@ export async function GET(request: Request) {
             .eq("user_id", authContext.user_id)
             .is("deleted_at", null)
             .maybeSingle(),
-          // R-store-name (2026-04-30): 상단 banner 가 매장명 표시할 수 있도록
-          //   /api/auth/me 에서 함께 노출. 추가 RTT 1회 (Promise.all 병렬).
+          // 2026-05-02 R-Cafe: floor 도 함께 노출 (카페 owner UI 분기용).
           sb
             .from("stores")
-            .select("store_name")
+            .select("store_name, floor")
             .eq("id", authContext.store_uuid)
             .maybeSingle(),
         ])
         const r = mfaRes.data as { is_enabled?: boolean; backup_codes_hashed?: string[] } | null
         mfaEnabled = !!r?.is_enabled
         backupCodesRemaining = Array.isArray(r?.backup_codes_hashed) ? r!.backup_codes_hashed!.length : 0
-        const s = storeRes.data as { store_name?: string } | null
+        const s = storeRes.data as { store_name?: string; floor?: number } | null
         storeName = s?.store_name ?? null
+        storeFloor = typeof s?.floor === "number" ? s.floor : null
       }
     } catch {
       // best-effort — me 응답은 MFA / store 조회 실패해도 정상 동작.
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
       membership_id: authContext.membership_id,
       store_uuid: authContext.store_uuid,
       store_name: storeName,
+      store_floor: storeFloor,
       role: authContext.role,
       membership_status: authContext.membership_status,
       is_super_admin: authContext.is_super_admin,

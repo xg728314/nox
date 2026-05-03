@@ -224,11 +224,16 @@ export async function POST(request: Request) {
         store_uuid: membership.store_uuid,
       })
 
-      // 2026-04-28: 운영 정책 — 로그인 유지시간 4시간. cookie maxAge
-      // 는 access_token JWT 의 expires_in 을 한도로 사용 (Supabase
-      // 프로젝트 JWT 만료 ≥ 4h 로 dashboard 에서 설정 필요. 미설정 시
-      // JWT 가 1h 에 만료돼 4h 쿠키여도 서버 검증 실패함).
-      const FOUR_HOURS_S = 4 * 60 * 60
+      // 2026-04-28: 운영 정책 — 로그인 유지시간 4시간.
+      // 2026-05-01 R-Session-Refresh: Supabase 기본 JWT TTL 1시간이라 access_token
+      //   만으로는 1시간에 로그아웃됨. refresh_token cookie 도 함께 저장해서
+      //   /api/auth/refresh 가 새 access_token 발급.
+      // 2026-05-03: 4h → 5h. useIdleLogout DEFAULT_MS 와 통일.
+      //   운영자 호소 "사용 안 할 때 40분만에 로그아웃됐다" 대응.
+      //   refresh_token cookie 유효 기간을 5h 로 확장하면 idle 페이지가
+      //   useIdleLogout 의 백그라운드 silent refresh (50분 간격) 로 access_token 을
+      //   갱신해 5h 까지 끊김 없음.
+      const SESSION_MAX_S = 5 * 60 * 60
       const sessionExpires = typeof data.session.expires_in === "number"
         ? data.session.expires_in
         : 3600
@@ -239,8 +244,19 @@ export async function POST(request: Request) {
         sameSite: "lax",
         path: "/",
         secure: process.env.NODE_ENV === "production",
-        maxAge: Math.min(FOUR_HOURS_S, sessionExpires),
+        maxAge: Math.min(SESSION_MAX_S, sessionExpires),
       })
+      if (data.session.refresh_token) {
+        res.cookies.set({
+          name: "nox_refresh_token",
+          value: data.session.refresh_token,
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+          maxAge: SESSION_MAX_S, // 5시간 = 운영 정책. 그 이후엔 재로그인 강제.
+        })
+      }
 
       return res
     }

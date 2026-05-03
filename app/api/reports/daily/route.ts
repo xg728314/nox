@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: 카운터/매니저 화면이 폴링 패턴으로 호출 →
+//   매장당 분당 ~30회. TTL 5초 + SWR 로 DB 호출 80% 감소.
+const DAILY_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -32,32 +37,68 @@ export async function GET(request: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const cacheKey = `${authContext.store_uuid}:${authContext.role}:${businessDayId}`
 
-    // 1. Verify business_day belongs to store
-    const { data: opDay, error: opError } = await supabase
-      .from("store_operating_days")
-      .select("id, business_date, status")
-      .eq("id", businessDayId)
-      .eq("store_uuid", authContext.store_uuid)
-      .single()
+    return cached("reports_daily", cacheKey, DAILY_TTL_MS, async () =>
+      buildDailyReport(supabase, authContext, businessDayId)
+    ).then((data) =>
+      NextResponse.json(data, {
+        headers: { "Cache-Control": "private, max-age=2, stale-while-revalidate=5" },
+      })
+    )
+  } catch (error) {
+    if (error instanceof AuthError) {
+      const status =
+        error.type === "AUTH_MISSING" ? 401 :
+        error.type === "AUTH_INVALID" ? 401 :
+        error.type === "MEMBERSHIP_NOT_FOUND" ? 403 :
+        error.type === "MEMBERSHIP_INVALID" ? 403 :
+        error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
+        error.type === "SERVER_CONFIG_ERROR" ? 500 : 500
+      return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR", message: "Unexpected error." }, { status: 500 })
+  }
+}
 
+// 2026-05-03 R-Speed-x10: GET 본문을 buildDailyReport 로 추출 — cached() 호환.
+//   supabase 의 정확한 generic 은 추적 비용이 너무 커서 here 에서는 any 로 받음
+//   (호출은 GET 안에서만 하므로 타입 안전성은 caller 단계에서 확보).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function buildDailyReport(
+  supabase: any,
+  authContext: Awaited<ReturnType<typeof resolveAuthContext>>,
+  businessDayId: string,
+) {
+  try {
+
+    // 2026-05-01 R-Counter-Speed: opDay + receipts 병렬. archivedAtFilter probe
+    //   첫 호출 시 1 round-trip 소비하지만 모듈 캐시 → 이후 무료.
+    //   기존 직렬 4-wave → 2-wave.
+    const applyArchivedNull = await archivedAtFilter(supabase, "receipts")
+    const [opDayRes, receiptsRes] = await Promise.all([
+      supabase
+        .from("store_operating_days")
+        .select("id, business_date, status")
+        .eq("id", businessDayId)
+        .eq("store_uuid", authContext.store_uuid)
+        .single(),
+      applyArchivedNull(
+        supabase
+          .from("receipts")
+          .select("id, session_id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status")
+          .eq("store_uuid", authContext.store_uuid)
+          .eq("business_day_id", businessDayId)
+      ),
+    ])
+    const { data: opDay, error: opError } = opDayRes
     if (opError || !opDay) {
       return NextResponse.json(
         { error: "NOT_FOUND", message: "Operating day not found." },
         { status: 404 }
       )
     }
-
-    // 2. Receipts by session (session-level settlement summaries)
-    // 2026-04-25: archive 된 영수증 제외. 인쇄+archive 이후 리포트 중복 집계 차단.
-    const applyArchivedNull = await archivedAtFilter(supabase, "receipts")
-    const { data: receipts } = await applyArchivedNull(
-      supabase
-        .from("receipts")
-        .select("id, session_id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("business_day_id", businessDayId)
-    )
+    const { data: receipts } = receiptsRes
 
     const receiptList = receipts ?? []
 
@@ -83,11 +124,29 @@ export async function GET(request: Request) {
     }
 
     // 3. Participant-level breakdown by membership (manager/hostess payouts)
-    const { data: participants } = await supabase
-      .from("session_participants")
-      .select("membership_id, role, category, time_minutes, price_amount, manager_payout_amount, hostess_payout_amount, margin_amount")
-      .eq("store_uuid", authContext.store_uuid)
-      .in("session_id", receiptList.map(r => r.session_id))
+    // 2026-05-01 R-Counter-Speed: owner 분기 일 때 managers + hostesses 도
+    //   participants 와 동시 fire. 셋 다 store_uuid 만 의존.
+    const isOwner = authContext.role === "owner"
+    const [partsRes, ownerMgrRes, ownerHstRes] = await Promise.all([
+      supabase
+        .from("session_participants")
+        .select("membership_id, role, category, time_minutes, price_amount, manager_payout_amount, hostess_payout_amount, margin_amount")
+        .eq("store_uuid", authContext.store_uuid)
+        .in("session_id", receiptList.map((r: { session_id: string }) => r.session_id)),
+      isOwner
+        ? supabase
+            .from("managers")
+            .select("membership_id, show_profit_to_owner, show_hostess_profit_to_owner")
+            .eq("store_uuid", authContext.store_uuid)
+        : Promise.resolve({ data: null as Array<{ membership_id: string; show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }> | null }),
+      isOwner
+        ? supabase
+            .from("hostesses")
+            .select("membership_id, manager_membership_id")
+            .eq("store_uuid", authContext.store_uuid)
+        : Promise.resolve({ data: null as Array<{ membership_id: string; manager_membership_id: string | null }> | null }),
+    ])
+    const { data: participants } = partsRes
 
     // Group by membership_id + role
     const staffMap = new Map<string, {
@@ -133,11 +192,8 @@ export async function GET(request: Request) {
     //   manager_breakdown / hostess_breakdown 도 share=true 인 매니저 본인/
     //   소속 hostess 만 노출.
     if (authContext.role === "owner") {
-      // 1) 매니저별 visibility map. 동시에 hostess->manager 매핑.
-      const { data: mgrRows } = await supabase
-        .from("managers")
-        .select("membership_id, show_profit_to_owner, show_hostess_profit_to_owner")
-        .eq("store_uuid", authContext.store_uuid)
+      // 1) 매니저별 visibility map. 2026-05-01 — 위 Promise.all 결과 사용.
+      const mgrRows = ownerMgrRes.data
       const mgrShareSelf = new Set<string>()
       const mgrShareHostess = new Set<string>()
       for (const m of (mgrRows ?? []) as Array<{ membership_id: string; show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }>) {
@@ -146,10 +202,7 @@ export async function GET(request: Request) {
       }
 
       // 2) hostess -> manager 매핑 (해당 호스티스의 owner_view 가능 여부 결정).
-      const { data: hostessRows } = await supabase
-        .from("hostesses")
-        .select("membership_id, manager_membership_id")
-        .eq("store_uuid", authContext.store_uuid)
+      const hostessRows = ownerHstRes.data
       const hostessToManager = new Map<string, string>()
       for (const h of (hostessRows ?? []) as Array<{ membership_id: string; manager_membership_id: string | null }>) {
         if (h.manager_membership_id) hostessToManager.set(h.membership_id, h.manager_membership_id)
@@ -204,7 +257,7 @@ export async function GET(request: Request) {
         return mgr ? mgrShareHostess.has(mgr) : false
       })
 
-      return NextResponse.json({
+      return {
         business_day_id: businessDayId,
         business_date: opDay.business_date,
         day_status: opDay.status,
@@ -212,10 +265,10 @@ export async function GET(request: Request) {
         receipts: ownerReceipts,
         manager_breakdown: ownerManagerBreakdown,
         hostess_breakdown: ownerHostessBreakdown,
-      })
+      }
     }
 
-    return NextResponse.json({
+    return {
       business_day_id: businessDayId,
       business_date: opDay.business_date,
       day_status: opDay.status,
@@ -223,19 +276,11 @@ export async function GET(request: Request) {
       receipts: receiptList,
       manager_breakdown: managerBreakdown,
       hostess_breakdown: hostessBreakdown,
-    })
-
-  } catch (error) {
-    if (error instanceof AuthError) {
-      const status =
-        error.type === "AUTH_MISSING" ? 401 :
-        error.type === "AUTH_INVALID" ? 401 :
-        error.type === "MEMBERSHIP_NOT_FOUND" ? 403 :
-        error.type === "MEMBERSHIP_INVALID" ? 403 :
-        error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
-        error.type === "SERVER_CONFIG_ERROR" ? 500 : 500
-      return NextResponse.json({ error: error.type, message: error.message }, { status })
     }
-    return NextResponse.json({ error: "INTERNAL_ERROR", message: "Unexpected error." }, { status: 500 })
+  } catch (e) {
+    // 2026-05-03 R-Speed-x10: cached() 안에서 throw 하면 다음 요청에 다시
+    //   blocking fetch 함. 의미있는 정보 보존 위해 에러도 응답으로 반환.
+    const msg = e instanceof Error ? e.message : "daily report failed"
+    throw new Error(msg)
   }
 }

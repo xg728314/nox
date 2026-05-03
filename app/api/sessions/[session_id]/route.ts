@@ -43,17 +43,50 @@ export async function PATCH(
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // Try with customer fields; fall back if columns don't exist yet (migration 014)
+    // 2026-05-03 R-Perf: session 조회 + receipts(finalized) 체크 + 옵션
+    //   manager 검증을 단일 Promise.all 로 fire — 직렬 3 RTT → 1 RTT.
+    //   각 query 는 서로 의존 X (전부 session_id + store_uuid 만 필요).
+    //   manager 검증은 body 에 manager_membership_id 가 있고 UUID 일 때만.
+    const wantsManagerVerify =
+      hasManagerField &&
+      body.is_external_manager !== true &&
+      body.manager_membership_id !== null &&
+      body.manager_membership_id !== undefined &&
+      isValidUUID(body.manager_membership_id)
+
+    const [sessionFullRes, receiptRes, mgrCheckRes] = await Promise.all([
+      supabase
+        .from("room_sessions")
+        .select("id, store_uuid, status, manager_name, manager_membership_id, is_external_manager, customer_id, customer_name_snapshot, customer_party_size")
+        .eq("id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .maybeSingle(),
+      supabase
+        .from("receipts")
+        .select("id, status")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      wantsManagerVerify
+        ? supabase
+            .from("store_memberships")
+            .select("id")
+            .eq("id", body.manager_membership_id!)
+            .eq("store_uuid", authContext.store_uuid)
+            .eq("role", "manager")
+            .eq("status", "approved")
+            .is("deleted_at", null)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null } as { data: null; error: null }),
+    ])
+
     let session: Record<string, unknown> | null = null
-    const { data: s1, error: sErr1 } = await supabase
-      .from("room_sessions")
-      .select("id, store_uuid, status, manager_name, manager_membership_id, is_external_manager, customer_id, customer_name_snapshot, customer_party_size")
-      .eq("id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
-    if (!sErr1 && s1) {
-      session = s1 as Record<string, unknown>
+    if (!sessionFullRes.error && sessionFullRes.data) {
+      session = sessionFullRes.data as Record<string, unknown>
     } else {
+      // customer columns 부재 fallback (migration 014 미적용 환경).
       const { data: s2, error: sErr2 } = await supabase
         .from("room_sessions")
         .select("id, store_uuid, status, manager_name, manager_membership_id, is_external_manager")
@@ -64,7 +97,6 @@ export async function PATCH(
         return NextResponse.json({ error: "SESSION_NOT_FOUND", message: "Session not found." }, { status: 404 })
       }
       session = s2 as Record<string, unknown>
-      // If customer fields requested but columns don't exist, reject customer update
       if (hasCustomerField) {
         return NextResponse.json({ error: "MIGRATION_REQUIRED", message: "Customer columns not available. Apply migration 014." }, { status: 400 })
       }
@@ -75,15 +107,7 @@ export async function PATCH(
     }
 
     // finalized 세션 차단
-    const { data: receipt } = await supabase
-      .from("receipts")
-      .select("id, status")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
+    const receipt = receiptRes.data
     if (receipt && receipt.status === "finalized") {
       return NextResponse.json({ error: "ALREADY_FINALIZED", message: "정산이 확정된 세션입니다." }, { status: 409 })
     }
@@ -111,24 +135,14 @@ export async function PATCH(
           return NextResponse.json({ error: "BAD_REQUEST", message: "manager_membership_id must be a valid UUID." }, { status: 400 })
         }
         // 2026-04-24 P0 fix: 같은 매장의 승인된 manager 만 허용.
-        //   이전에는 클라가 임의 UUID 를 보내도 DB 에 그대로 저장 → 다른
-        //   매장 실장 명의로 세션 메타 변경 가능.
-        const { data: mgrRow, error: mgrErr } = await supabase
-          .from("store_memberships")
-          .select("id")
-          .eq("id", body.manager_membership_id)
-          .eq("store_uuid", authContext.store_uuid)
-          .eq("role", "manager")
-          .eq("status", "approved")
-          .is("deleted_at", null)
-          .maybeSingle()
-        if (mgrErr) {
+        // 2026-05-03 R-Perf: 위 Promise.all 에서 사전 검증 — 결과만 사용.
+        if (mgrCheckRes.error) {
           return NextResponse.json(
             { error: "MANAGER_VERIFY_FAILED", message: "실장 검증에 실패했습니다." },
             { status: 500 },
           )
         }
-        if (!mgrRow) {
+        if (!mgrCheckRes.data) {
           return NextResponse.json(
             {
               error: "MANAGER_INVALID",
@@ -207,7 +221,8 @@ export async function PATCH(
       return NextResponse.json({ error: "UPDATE_FAILED", message: "Failed to update session." }, { status: 500 })
     }
 
-    await writeSessionAudit(supabase, {
+    // 2026-05-03 R-Perf: audit 은 background fire — 응답 latency 차감 100~200ms.
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "room_sessions",
@@ -215,6 +230,8 @@ export async function PATCH(
       action: auditAction,
       before: beforeState,
       after: afterState,
+    }).catch((e) => {
+      console.warn("[session PATCH] audit failed:", e instanceof Error ? e.message : e)
     })
 
     return NextResponse.json({

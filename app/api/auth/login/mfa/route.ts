@@ -302,7 +302,8 @@ export async function POST(request: Request) {
       backup_codes_remaining: backupCodesRemaining,
     })
     // 2026-04-28: 4h 운영 정책 — login/route.ts 와 동일 로직.
-    const FOUR_HOURS_S = 4 * 60 * 60
+    // 2026-05-03: 4h → 5h. 사용자 요청 ("40분만에 로그아웃" → 5시간 유지).
+    const SESSION_MAX_S = 5 * 60 * 60
     const sessionExpires = typeof signIn.session.expires_in === "number"
       ? signIn.session.expires_in
       : 3600
@@ -313,8 +314,20 @@ export async function POST(request: Request) {
       sameSite: "lax",
       path: "/",
       secure: process.env.NODE_ENV === "production",
-      maxAge: Math.min(FOUR_HOURS_S, sessionExpires),
+      maxAge: Math.min(SESSION_MAX_S, sessionExpires),
     })
+    // 2026-05-01 R-Session-Refresh: refresh_token cookie 추가.
+    if (signIn.session.refresh_token) {
+      res.cookies.set({
+        name: "nox_refresh_token",
+        value: signIn.session.refresh_token,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: SESSION_MAX_S,
+      })
+    }
     return res
   } catch {
     return NextResponse.json({ error: "INTERNAL_ERROR", message: "서버 오류." }, { status: 500 })

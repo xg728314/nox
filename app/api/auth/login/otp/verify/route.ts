@@ -367,6 +367,18 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       maxAge: cookieMaxAge,
     })
+    // 2026-05-01 R-Session-Refresh: refresh_token cookie 추가.
+    if (otpData.session.refresh_token) {
+      res.cookies.set({
+        name: "nox_refresh_token",
+        value: otpData.session.refresh_token,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: FOUR_HOURS_S,
+      })
+    }
     return res
   } catch {
     return NextResponse.json(

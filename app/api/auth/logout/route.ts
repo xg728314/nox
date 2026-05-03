@@ -49,5 +49,15 @@ export async function POST(request: Request) {
     secure: process.env.NODE_ENV === "production",
     maxAge: 0,
   })
+  // 2026-05-01 R-Session-Refresh: refresh_token 도 함께 정리.
+  res.cookies.set({
+    name: "nox_refresh_token",
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 0,
+  })
   return res
 }

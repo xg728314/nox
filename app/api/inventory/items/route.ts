@@ -2,11 +2,20 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { getInventoryItems } from "@/lib/server/queries/inventoryItems"
+import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 /**
  * POST /api/inventory/items — 품목 등록
  * GET  /api/inventory/items — 품목 목록 (저재고 경고 포함)
+ *
+ * 2026-05-03 R-Speed-x10:
+ *   GET 은 카운터 화면에서 주문 추가 후 매번 호출됨 (재고 차감 반영).
+ *   품목 자체는 거의 변경 X (소매 store_price 등). TTL 캐시 + SWR 적용.
+ *   stock 변경은 실시간 반영해야 하므로 짧은 TTL (3초) — 사용자가 주문 후
+ *   다음 fetch 까지 ~5초 폴링 → cache hit 다수.
+ *   POST/PATCH 시 invalidate 호출.
  */
+const ITEMS_TTL_MS = 3000
 
 export async function POST(request: Request) {
   try {
@@ -78,6 +87,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "CREATE_FAILED", message: "품목 등록에 실패했습니다." }, { status: 500 })
     }
 
+    // 2026-05-03 R-Speed-x10: GET 캐시 무효화 (신규 품목 즉시 반영).
+    invalidateCache("inventory_items")
+
     // 초기 재고가 있으면 입고 트랜잭션 기록
     if ((current_stock ?? 0) > 0) {
       await supabase.from("inventory_transactions").insert({
@@ -128,8 +140,17 @@ export async function GET(request: Request) {
     const showInactive = searchParams.get("include_inactive") === "true"
 
     try {
-      const data = await getInventoryItems(authContext, { include_inactive: showInactive })
-      return NextResponse.json(data)
+      // 2026-05-03 R-Speed-x10: TTL 캐시 + 브라우저 max-age=3.
+      const cacheKey = `${authContext.store_uuid}:${showInactive ? "all" : "active"}`
+      const data = await cached(
+        "inventory_items",
+        cacheKey,
+        ITEMS_TTL_MS,
+        () => getInventoryItems(authContext, { include_inactive: showInactive }),
+      )
+      const res = NextResponse.json(data)
+      res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+      return res
     } catch {
       return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
