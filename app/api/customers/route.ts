@@ -3,11 +3,21 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { escapeLikeValue } from "@/lib/security/postgrestEscape"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { cached } from "@/lib/cache/inMemoryTtl"
 
 /**
  * GET  /api/customers?q=xxx&scope=mine|all — 손님 검색 (store_uuid 기준)
  * POST /api/customers — 손님 신규 생성
+ *
+ * 2026-05-03 R-Speed-x10:
+ *   - dead code 제거 (receipts query 가 데이터를 만들기만 하고 사용 안 함 →
+ *     매 호출마다 finalized 영수증 전체 fetch 라는 거대한 낭비).
+ *   - q="" (초기 로드) 은 5초 TTL 캐시 (CustomerPicker 모달 매번 hit).
+ *   - audit log 진짜 background fire (`void` + 무await).
+ *   - Cache-Control: private, max-age=2, stale-while-revalidate=8.
  */
+
+const CUSTOMERS_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -25,135 +35,167 @@ export async function GET(request: Request) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const { searchParams } = new URL(request.url)
-    const q = searchParams.get("q")?.trim()
+    const q = searchParams.get("q")?.trim() ?? ""
     const scope = searchParams.get("scope") || "all"
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 100)
 
-    let query = supabase
-      .from("customers")
-      .select("id, name, phone, memo, tags, manager_membership_id, created_at, updated_at")
-      .eq("store_uuid", authContext.store_uuid)
-      .order("updated_at", { ascending: false })
-      .limit(limit)
+    // q (검색어) 가 있더라도 같은 검색어가 5초 내 반복되면 캐시 (실제로 빠른
+    // 타이핑 또는 입력 후 즉시 클릭 시나리오에서 hit). caller membership 까지
+    // key 에 포함해 manager mine_only filter 안전성 유지.
+    const cacheKey = `${authContext.store_uuid}:${authContext.role}:${authContext.membership_id}:${scope}:${q}:${limit}`
 
-    // Manager scope filtering (CUSTOMER-4)
-    if (authContext.role === "manager" && scope === "mine") {
-      query = query.eq("manager_membership_id", authContext.membership_id)
-    }
-
-    if (q && q.length > 0) {
-      // SECURITY (R-4): escape LIKE wildcards (`%`, `_`, `\`) so a
-      // user-supplied `%` matches the literal character, not
-      // "match everything". Digit-only search uses a phone prefix
-      // match — no wildcards in the input anyway, but we still run
-      // the escaper for defence-in-depth.
-      const safeQ = escapeLikeValue(q)
+    // 검색어 검증은 캐시 진입 전에 (BAD_REQUEST 응답을 캐시 안 하기 위해).
+    let safeQ: string | null | undefined = undefined
+    if (q.length > 0) {
+      safeQ = escapeLikeValue(q)
       if (safeQ === null) {
         return NextResponse.json(
           { error: "BAD_REQUEST", message: "q is too long." },
           { status: 400 },
         )
       }
-      if (safeQ.length > 0) {
-        const isDigits = /^\d+$/.test(safeQ)
-        if (isDigits) {
-          query = query.like("phone", `${safeQ}%`)
-        } else {
-          query = query.ilike("name", `%${safeQ}%`)
-        }
-      }
     }
 
-    const { data: customers, error: queryError } = await query
-
-    if (queryError) {
-      console.error("[customers GET] query failed:", queryError)
-      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
+    type Enriched = {
+      id: string
+      name: string
+      phone: string | null
+      memo: string | null
+      tags: string[]
+      manager_membership_id: string | null
+      created_at: string
+      updated_at: string
+      visit_count: number
+      total_amount: number
+      last_visit: string | null
     }
 
-    // Enrich with visit stats from room_sessions
-    const customerIds = (customers ?? []).map((c: { id: string }) => c.id)
-    let visitStatsMap = new Map<string, { visit_count: number; total_amount: number; last_visit: string | null }>()
+    const enriched = await cached<Enriched[]>(
+      "customers_list",
+      cacheKey,
+      CUSTOMERS_TTL_MS,
+      async () => {
+        let query = supabase
+          .from("customers")
+          .select(
+            "id, name, phone, memo, tags, manager_membership_id, created_at, updated_at",
+          )
+          .eq("store_uuid", authContext.store_uuid)
+          .order("updated_at", { ascending: false })
+          .limit(limit)
 
-    if (customerIds.length > 0) {
-      const { data: sessions } = await supabase
-        .from("room_sessions")
-        .select("customer_id, started_at, ended_at")
-        .eq("store_uuid", authContext.store_uuid)
-        .in("customer_id", customerIds)
-        .order("started_at", { ascending: false })
-
-      if (sessions) {
-        for (const s of sessions) {
-          const cid = (s as { customer_id: string }).customer_id
-          const existing = visitStatsMap.get(cid) || { visit_count: 0, total_amount: 0, last_visit: null }
-          existing.visit_count++
-          if (!existing.last_visit) existing.last_visit = (s as { started_at: string }).started_at
-          visitStatsMap.set(cid, existing)
+        // Manager scope filtering (CUSTOMER-4)
+        if (authContext.role === "manager" && scope === "mine") {
+          query = query.eq("manager_membership_id", authContext.membership_id)
         }
-      }
 
-      // Get receipt totals per customer
-      const { data: receipts } = await supabase
-        .from("receipts")
-        .select("session_id, gross_total")
-        .eq("store_uuid", authContext.store_uuid)
-        .eq("status", "finalized")
-
-      if (receipts) {
-        // Build session→customer map
-        const sessionCustomerMap = new Map<string, string>()
-        if (sessions) {
-          for (const s of sessions) {
-            sessionCustomerMap.set(
-              (s as { customer_id: string; started_at: string }).customer_id,
-              (s as { customer_id: string }).customer_id
-            )
+        // SECURITY (R-4): escape LIKE wildcards (`%`, `_`, `\`).
+        if (safeQ && safeQ.length > 0) {
+          const isDigits = /^\d+$/.test(safeQ)
+          if (isDigits) {
+            query = query.like("phone", `${safeQ}%`)
+          } else {
+            query = query.ilike("name", `%${safeQ}%`)
           }
         }
 
-        // Get session IDs linked to these customers
-        const customerSessionIds = new Set<string>()
-        if (sessions) {
-          for (const s of sessions) {
-            customerSessionIds.add((s as unknown as { id: string }).id)
+        const { data: customers, error: queryError } = await query
+        if (queryError) {
+          console.error("[customers GET] query failed:", queryError)
+          throw new Error(`QUERY_FAILED:${queryError.message}`)
+        }
+
+        const rows = (customers ?? []) as Array<{
+          id: string
+          name: string
+          phone: string | null
+          memo: string | null
+          tags: string[]
+          manager_membership_id: string | null
+          created_at: string
+          updated_at: string
+        }>
+        const customerIds = rows.map((c) => c.id)
+
+        // 방문 횟수 + 마지막 방문 시각 (가벼운 단일 쿼리).
+        // 2026-05-03: receipts join 으로 total_amount 계산하던 구 코드는 결과를
+        //   사용 안 하면서 store 전체 finalized 영수증 fetch — 최대 수천 row,
+        //   매 검색마다 200ms+ 추가. 완전 제거. total_amount 는 항상 0 으로
+        //   유지 (UI 에서 표시 안 함).
+        const visitStatsMap = new Map<
+          string,
+          { visit_count: number; last_visit: string | null }
+        >()
+
+        if (customerIds.length > 0) {
+          const { data: sessions } = await supabase
+            .from("room_sessions")
+            .select("customer_id, started_at")
+            .eq("store_uuid", authContext.store_uuid)
+            .in("customer_id", customerIds)
+            .order("started_at", { ascending: false })
+
+          if (sessions) {
+            for (const s of sessions as Array<{
+              customer_id: string
+              started_at: string
+            }>) {
+              const existing = visitStatsMap.get(s.customer_id)
+              if (existing) {
+                existing.visit_count++
+              } else {
+                visitStatsMap.set(s.customer_id, {
+                  visit_count: 1,
+                  last_visit: s.started_at,
+                })
+              }
+            }
           }
         }
-      }
-    }
 
-    const enriched = (customers ?? []).map((c: { id: string; name: string; phone: string | null; memo: string | null; tags: string[]; manager_membership_id: string | null; created_at: string; updated_at: string }) => {
-      const stats = visitStatsMap.get(c.id)
-      return {
-        ...c,
-        visit_count: stats?.visit_count ?? 0,
-        total_amount: stats?.total_amount ?? 0,
-        last_visit: stats?.last_visit ?? null,
-      }
-    })
+        return rows.map((c) => {
+          const stats = visitStatsMap.get(c.id)
+          return {
+            ...c,
+            visit_count: stats?.visit_count ?? 0,
+            total_amount: 0,
+            last_visit: stats?.last_visit ?? null,
+          }
+        })
+      },
+    )
 
     // R28-PII: 손님 이름/전화 응답 시 audit log (개인정보보호법 대응).
+    //   2026-05-03: 진짜 background fire — await 제거.
     if (enriched.length > 0) {
-      logAuditEvent(supabase, {
+      void logAuditEvent(supabase, {
         auth: authContext,
         action: "customers_viewed",
-        entity_table: "credits", // 가까운 entity_table — customers 가 audit type 에 없으므로 reuse
+        entity_table: "credits",
         entity_id: authContext.store_uuid,
         status: "success",
         metadata: {
           row_count: enriched.length,
           search_query: q ? "yes" : "no",
           scope,
-          contains_phone: enriched.some(c => c.phone),
+          contains_phone: enriched.some((c) => c.phone),
         },
-      }).catch(() => { /* silent */ })
+      }).catch(() => {
+        /* silent */
+      })
     }
 
-    return NextResponse.json({ customers: enriched })
+    const res = NextResponse.json({ customers: enriched })
+    // 손님 데이터는 자주 바뀌지 않음 — 짧은 max-age + SWR 로 polling 부담 ↓.
+    res.headers.set("Cache-Control", "private, max-age=2, stale-while-revalidate=8")
+    return res
   } catch (error) {
     if (error instanceof AuthError) {
       const status = error.type === "AUTH_MISSING" || error.type === "AUTH_INVALID" ? 401 : 403
       return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    if (error instanceof Error && error.message.startsWith("QUERY_FAILED:")) {
+      return NextResponse.json({ error: "QUERY_FAILED" }, { status: 500 })
     }
     console.error("[customers GET] unexpected:", error)
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })

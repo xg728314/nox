@@ -3,6 +3,11 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getStoreStaff } from "@/lib/server/queries/store/staff"
 import { loadAttendanceVisibility } from "@/lib/server/queries/ops/attendanceVisibility"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: BulkManagerPicker / hostess pool 등 자주 호출 →
+//   동일 store + role 조합은 5초간 캐시. 변경 빈도 낮은 데이터.
+const STAFF_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -47,36 +52,46 @@ export async function GET(request: Request) {
 
     try {
       // 2026-05-01 R-Counter-Speed: visibility + staff 병렬 fire.
-      //   getStoreStaff 는 visibilityMode 가 마지막 filter 단계에서만 필요 →
-      //   임시로 store_shared 로 fetch 후 라우트에서 재필터.
       // 2026-05-03 R-Privacy: GET 경로는 store_name 절대 사용 불가.
       //   store_uuid 만 전달.
-      const [visibilityMode, rawData] = await Promise.all([
-        loadAttendanceVisibility(getServiceClient(), authContext),
-        getStoreStaff(
-          authContext,
-          {
-            store_name: null,
-            store_uuid: storeUuidParam,
-            role: roleParam,
-          },
-          { visibilityMode: "store_shared" },
-        ),
-      ])
+      // 2026-05-03 R-Speed-x10: TTL 캐시. 같은 (store, target_uuid, role) 조합은
+      //   5초 내 hit. 캐시 key 에 caller membership_id 포함 (manager mine_only filter).
+      const cacheKey = `${authContext.store_uuid}:${storeUuidParam ?? ""}:${roleParam ?? ""}:${authContext.membership_id}`
+      const data = await cached(
+        "store_staff",
+        cacheKey,
+        STAFF_TTL_MS,
+        async () => {
+          const [visibilityMode, rawData] = await Promise.all([
+            loadAttendanceVisibility(getServiceClient(), authContext),
+            getStoreStaff(
+              authContext,
+              {
+                store_name: null,
+                store_uuid: storeUuidParam,
+                role: roleParam,
+              },
+              { visibilityMode: "store_shared" },
+            ),
+          ])
 
-      // 실 visibility 가 mine_only 면 manager 본인 담당 hostess 만 노출.
-      let staff = rawData.staff
-      if (
-        !authContext.is_super_admin &&
-        authContext.role === "manager" &&
-        visibilityMode === "mine_only"
-      ) {
-        staff = staff.filter((s) =>
-          s.role !== "hostess" || s.manager_membership_id === authContext.membership_id
-        )
-      }
-      const data = { ...rawData, staff }
-      return NextResponse.json({ ...data, visibility_mode: visibilityMode })
+          // 실 visibility 가 mine_only 면 manager 본인 담당 hostess 만 노출.
+          let staff = rawData.staff
+          if (
+            !authContext.is_super_admin &&
+            authContext.role === "manager" &&
+            visibilityMode === "mine_only"
+          ) {
+            staff = staff.filter((s) =>
+              s.role !== "hostess" || s.manager_membership_id === authContext.membership_id
+            )
+          }
+          return { ...rawData, staff, visibility_mode: visibilityMode }
+        },
+      )
+      const res = NextResponse.json(data)
+      res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+      return res
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err)
       console.error("store staff error:", msg)

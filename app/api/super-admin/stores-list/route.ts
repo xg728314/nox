@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: stores 정보는 거의 변경 X — 60초 TTL 충분.
+//   super_admin 의 모든 페이지 진입 시 호출됨 (StoreContextBar dropdown).
+const STORES_TTL_MS = 60_000
 
 /**
  * GET /api/super-admin/stores-list
@@ -40,33 +45,52 @@ export async function GET(request: Request) {
       )
     }
 
-    const supabase = supa()
     // 2026-05-03 fix: stores 테이블 컬럼은 `floor` 임 (`floor_no` 아님).
     //   기존 select/order 가 floor_no 로 작성되어 PG 가 컬럼 부재로 500 반환 →
     //   /owner 페이지 super_admin 매장 목록 fetch 가 실패하던 문제.
-    const { data, error } = await supabase
-      .from("stores")
-      .select("id, store_name, floor")
-      .is("deleted_at", null)
-      .order("floor", { ascending: true, nullsFirst: false })
-      .order("store_name", { ascending: true })
+    // 2026-05-03 R-Speed-x10: stores 변경 빈도 매우 낮음 (월 1~2회) → 60초 TTL.
+    //   super_admin 페이지 진입마다 호출되던 부담 제거.
+    const stores = await cached(
+      "super_admin_stores_list",
+      "all",
+      STORES_TTL_MS,
+      async () => {
+        const supabase = supa()
+        const { data, error } = await supabase
+          .from("stores")
+          .select("id, store_name, floor")
+          .is("deleted_at", null)
+          .order("floor", { ascending: true, nullsFirst: false })
+          .order("store_name", { ascending: true })
 
-    if (error) {
-      return NextResponse.json({ error: "DB_ERROR", message: error.message }, { status: 500 })
-    }
+        if (error) {
+          throw new Error(`DB_ERROR:${error.message}`)
+        }
 
-    // 응답 형태는 floor_no 로 유지 (클라이언트 호환). 서버 측에서 floor → floor_no 매핑.
-    return NextResponse.json({
-      stores: (data ?? []).map((s) => ({
-        store_uuid: s.id,
-        store_name: s.store_name,
-        floor_no: s.floor,
-      })),
-    })
+        // 응답 형태는 floor_no 로 유지 (클라이언트 호환). 서버 측에서 floor → floor_no 매핑.
+        return (data ?? []).map((s) => ({
+          store_uuid: s.id,
+          store_name: s.store_name,
+          floor_no: s.floor,
+        }))
+      },
+    )
+
+    const res = NextResponse.json({ stores })
+    // 브라우저/CDN 캐시: stores list 는 30초 신선도 + 2분 SWR 충분.
+    res.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=120")
+    return res
   } catch (e) {
     if (e instanceof AuthError) {
       const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
       return NextResponse.json({ error: e.type, message: e.message }, { status })
+    }
+    // cached() 내부 throw 된 DB_ERROR 메시지 그대로 노출 (디버깅 편의).
+    if (e instanceof Error && e.message.startsWith("DB_ERROR:")) {
+      return NextResponse.json(
+        { error: "DB_ERROR", message: e.message.slice("DB_ERROR:".length) },
+        { status: 500 },
+      )
     }
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
   }
