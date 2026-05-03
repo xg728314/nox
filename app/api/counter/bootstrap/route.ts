@@ -9,6 +9,12 @@ import {
   getUserPreferencesBundle,
   getForcedPreferencesBundle,
 } from "@/lib/server/queries/preferences"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: bootstrap 자체를 5초 TTL 캐시.
+//   카운터 페이지 mount 마다 6개 슬롯 ~600-800ms 부담 → 같은 user 가 5s 내
+//   재진입 시 ~5ms hit. preferences 같은 거의 안 바뀌는 데이터 포함이라 안전.
+const BOOTSTRAP_TTL_MS = 5000
 
 // 2026-04-30 R-Perf-PrefBundle: 카운터 페이지가 자주 쓰는 prefs scope 화이트리스트.
 //   클라가 ensureLoaded 시점에 고를 수 있는 모든 scope 를 사전에 fetch.
@@ -79,41 +85,89 @@ export async function GET(request: Request) {
   const tStart = Date.now()
   const supabase = supa()
 
-  const [chatR, inventoryR, hostessStatsR, hostessPoolR, prefUserR, prefForcedR] =
-    await Promise.all([
-      slot("counter", "chat_unread", () => getChatUnread(auth)),
-      slot("counter", "inventory", () => getInventoryItems(auth)),
-      slot("counter", "hostess_stats", () => getManagerHostessStats(auth)),
-      slot("counter", "hostess_pool", () => getStoreStaff(auth, { role: "hostess" })),
-      slot("counter", "pref_user", () =>
-        getUserPreferencesBundle(supabase, auth, [...COUNTER_PREF_SCOPES_USER]),
-      ),
-      slot("counter", "pref_forced", () =>
-        getForcedPreferencesBundle(supabase, auth, [...COUNTER_PREF_SCOPES_FORCED]),
-      ),
-    ])
-  console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "counter", ms: Date.now() - tStart }))
+  // 캐시 key 는 user + store + role 조합 (super_admin 매장 전환 시 다른 cache).
+  const cacheKey = `${auth.user_id}:${auth.store_uuid}:${auth.role}:${auth.membership_id}`
 
-  return NextResponse.json({
-    chat_unread: chatR.ok ? (chatR.data.unread_count ?? 0) : null,
-    inventory: inventoryR.ok ? inventoryR.data : null,
-    hostess_stats: hostessStatsR.ok ? hostessStatsR.data : null,
-    hostess_pool: hostessPoolR.ok ? (hostessPoolR.data.staff ?? []) : null,
-    // 2026-04-30 R-Perf-PrefBundle: preferences 다중 scope 한 번에 hydrate.
-    //   client preferencesStore.hydrateBundle 이 받아서 ensureLoaded skip.
-    //   기존 5번 round trip (각 1초+) → 0번. 효과 명확.
-    preferences: {
-      user: prefUserR.ok ? prefUserR.data : null,
-      forced: prefForcedR.ok ? prefForcedR.data : null,
-    },
+  type BootstrapPayload = {
+    chat_unread: number | null
+    inventory: unknown
+    hostess_stats: unknown
+    hostess_pool: unknown
+    preferences: { user: unknown; forced: unknown }
     errors: {
-      chat_unread: chatR.ok ? null : chatR.error,
-      inventory: inventoryR.ok ? null : inventoryR.error,
-      hostess_stats: hostessStatsR.ok ? null : hostessStatsR.error,
-      hostess_pool: hostessPoolR.ok ? null : hostessPoolR.error,
-      pref_user: prefUserR.ok ? null : prefUserR.error,
-      pref_forced: prefForcedR.ok ? null : prefForcedR.error,
+      chat_unread: string | null
+      inventory: string | null
+      hostess_stats: string | null
+      hostess_pool: string | null
+      pref_user: string | null
+      pref_forced: string | null
+    }
+    generated_at: string
+  }
+
+  const payload = await cached<BootstrapPayload>(
+    "counter_bootstrap",
+    cacheKey,
+    BOOTSTRAP_TTL_MS,
+    async () => {
+      const [
+        chatR,
+        inventoryR,
+        hostessStatsR,
+        hostessPoolR,
+        prefUserR,
+        prefForcedR,
+      ] = await Promise.all([
+        slot("counter", "chat_unread", () => getChatUnread(auth)),
+        slot("counter", "inventory", () => getInventoryItems(auth)),
+        slot("counter", "hostess_stats", () => getManagerHostessStats(auth)),
+        slot("counter", "hostess_pool", () =>
+          getStoreStaff(auth, { role: "hostess" }),
+        ),
+        slot("counter", "pref_user", () =>
+          getUserPreferencesBundle(supabase, auth, [...COUNTER_PREF_SCOPES_USER]),
+        ),
+        slot("counter", "pref_forced", () =>
+          getForcedPreferencesBundle(
+            supabase,
+            auth,
+            [...COUNTER_PREF_SCOPES_FORCED],
+          ),
+        ),
+      ])
+      console.log(
+        JSON.stringify({
+          tag: "perf.bootstrap.total",
+          route: "counter",
+          ms: Date.now() - tStart,
+        }),
+      )
+      return {
+        chat_unread: chatR.ok ? (chatR.data.unread_count ?? 0) : null,
+        inventory: inventoryR.ok ? inventoryR.data : null,
+        hostess_stats: hostessStatsR.ok ? hostessStatsR.data : null,
+        hostess_pool: hostessPoolR.ok ? (hostessPoolR.data.staff ?? []) : null,
+        preferences: {
+          user: prefUserR.ok ? prefUserR.data : null,
+          forced: prefForcedR.ok ? prefForcedR.data : null,
+        },
+        errors: {
+          chat_unread: chatR.ok ? null : chatR.error,
+          inventory: inventoryR.ok ? null : inventoryR.error,
+          hostess_stats: hostessStatsR.ok ? null : hostessStatsR.error,
+          hostess_pool: hostessPoolR.ok ? null : hostessPoolR.error,
+          pref_user: prefUserR.ok ? null : prefUserR.error,
+          pref_forced: prefForcedR.ok ? null : prefForcedR.error,
+        },
+        generated_at: new Date().toISOString(),
+      }
     },
-    generated_at: new Date().toISOString(),
-  })
+  )
+
+  const res = NextResponse.json(payload)
+  res.headers.set(
+    "Cache-Control",
+    "private, max-age=3, stale-while-revalidate=10",
+  )
+  return res
 }
