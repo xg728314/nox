@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { assertUuidForOr } from "@/lib/security/postgrestEscape"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: 이적 요청은 자주 polling 됨 (transfer 페이지).
+//   approve 시점이 아니면 변동 없음. 5초 TTL + SWR 안전.
+const TRANSFER_LIST_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -27,53 +32,79 @@ export async function GET(request: Request) {
     const statusFilter = url.searchParams.get("status") // pending, approved, cancelled
     const direction = url.searchParams.get("direction")  // from, to, all (default: all)
 
-    // Build query: show transfers where caller's store is from_store or to_store
-    let query = supabase
-      .from("transfer_requests")
-      .select("id, hostess_membership_id, from_store_uuid, to_store_uuid, business_day_id, status, from_store_approved_by, from_store_approved_at, to_store_approved_by, to_store_approved_at, reason, created_at, updated_at")
-      .order("created_at", { ascending: false })
-
-    if (direction === "from") {
-      query = query.eq("from_store_uuid", authContext.store_uuid)
-    } else if (direction === "to") {
-      query = query.eq("to_store_uuid", authContext.store_uuid)
-    } else {
-      // SECURITY (R-4 defence-in-depth): authContext.store_uuid is
-      // server-trusted (comes from resolveAuthContext which reads it
-      // from `store_memberships`), but we still validate it is a
-      // well-formed UUID before splicing into the `.or()` expression.
-      // If somehow a bad value reaches here, fail-closed with 500 —
-      // nobody should see this, and it would indicate a severe bug.
-      const safeStoreUuid = assertUuidForOr(authContext.store_uuid)
-      if (safeStoreUuid === null) {
+    // direction=all 일 때만 store_uuid OR 표현식 사용 → 사전 검증.
+    let safeStoreUuidForOr: string | null = null
+    if (direction !== "from" && direction !== "to") {
+      safeStoreUuidForOr = assertUuidForOr(authContext.store_uuid)
+      if (safeStoreUuidForOr === null) {
         return NextResponse.json(
           { error: "INTERNAL_ERROR", message: "Invalid store scope." },
           { status: 500 },
         )
       }
-      query = query.or(
-        `from_store_uuid.eq.${safeStoreUuid},to_store_uuid.eq.${safeStoreUuid}`,
-      )
     }
 
-    if (statusFilter) {
-      query = query.eq("status", statusFilter)
+    type TransferRow = {
+      id: string
+      hostess_membership_id: string
+      from_store_uuid: string
+      to_store_uuid: string
+      business_day_id: string | null
+      status: string
+      from_store_approved_by: string | null
+      from_store_approved_at: string | null
+      to_store_approved_by: string | null
+      to_store_approved_at: string | null
+      reason: string | null
+      created_at: string
+      updated_at: string
     }
 
-    const { data: transfers, error: fetchError } = await query
+    const cacheKey = `${authContext.store_uuid}:${direction ?? "all"}:${statusFilter ?? ""}`
+    const transfers = await cached<TransferRow[]>(
+      "transfer_list",
+      cacheKey,
+      TRANSFER_LIST_TTL_MS,
+      async () => {
+        let query = supabase
+          .from("transfer_requests")
+          .select(
+            "id, hostess_membership_id, from_store_uuid, to_store_uuid, business_day_id, status, from_store_approved_by, from_store_approved_at, to_store_approved_by, to_store_approved_at, reason, created_at, updated_at",
+          )
+          .order("created_at", { ascending: false })
 
-    if (fetchError) {
-      return NextResponse.json(
-        { error: "FETCH_FAILED", message: "Failed to fetch transfer requests." },
-        { status: 500 }
-      )
-    }
+        if (direction === "from") {
+          query = query.eq("from_store_uuid", authContext.store_uuid)
+        } else if (direction === "to") {
+          query = query.eq("to_store_uuid", authContext.store_uuid)
+        } else {
+          query = query.or(
+            `from_store_uuid.eq.${safeStoreUuidForOr},to_store_uuid.eq.${safeStoreUuidForOr}`,
+          )
+        }
 
-    return NextResponse.json({
+        if (statusFilter) {
+          query = query.eq("status", statusFilter)
+        }
+
+        const { data, error: fetchError } = await query
+        if (fetchError) {
+          throw new Error("FETCH_FAILED")
+        }
+        return (data ?? []) as TransferRow[]
+      },
+    )
+
+    const res = NextResponse.json({
       store_uuid: authContext.store_uuid,
-      count: (transfers ?? []).length,
-      transfers: transfers ?? [],
+      count: transfers.length,
+      transfers,
     })
+    res.headers.set(
+      "Cache-Control",
+      "private, max-age=3, stale-while-revalidate=15",
+    )
+    return res
 
   } catch (error) {
     if (error instanceof AuthError) {
@@ -85,6 +116,12 @@ export async function GET(request: Request) {
         error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
         error.type === "SERVER_CONFIG_ERROR" ? 500 : 500
       return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    if (error instanceof Error && error.message === "FETCH_FAILED") {
+      return NextResponse.json(
+        { error: "FETCH_FAILED", message: "Failed to fetch transfer requests." },
+        { status: 500 },
+      )
     }
     return NextResponse.json({ error: "INTERNAL_ERROR", message: "Unexpected error." }, { status: 500 })
   }

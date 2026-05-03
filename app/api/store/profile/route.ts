@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getStoreProfile } from "@/lib/server/queries/store/profile"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: store profile (이름/floor/타임존 등) 거의 안 바뀜.
+//   여러 페이지가 mount 시 호출 → 60초 TTL 안전. cache hit 시 ~1ms.
+const PROFILE_TTL_MS = 60_000
 
 export async function GET(request: Request) {
   try {
@@ -14,8 +19,18 @@ export async function GET(request: Request) {
     }
 
     try {
-      const data = await getStoreProfile(authContext)
-      return NextResponse.json(data)
+      const data = await cached(
+        "store_profile",
+        authContext.store_uuid,
+        PROFILE_TTL_MS,
+        () => getStoreProfile(authContext),
+      )
+      const res = NextResponse.json(data)
+      res.headers.set(
+        "Cache-Control",
+        "private, max-age=30, stale-while-revalidate=300",
+      )
+      return res
     } catch (e) {
       const msg = e instanceof Error ? e.message : "err"
       if (msg === "STORE_NOT_FOUND") {
