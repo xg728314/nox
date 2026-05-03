@@ -13,98 +13,19 @@ import { useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { apiFetch } from "@/lib/apiFetch"
-
-type Tab = "ops" | "owner" | "manager"
-
-type SessionInfo = {
-  id: string
-  status: string
-  started_at: string
-  ended_at: string | null
-  participant_count: number
-  gross_total: number
-  participant_total: number
-  order_total: number
-  manager_name: string | null
-  customer_name_snapshot: string | null
-  customer_party_size: number
-}
-type RoomInfo = {
-  id: string
-  room_no: string
-  room_name: string
-  is_active: boolean
-  session: SessionInfo | null
-  closed_session: SessionInfo | null
-}
-
-type MonitorData = {
-  store: { id: string; store_name: string; store_code: string | null; floor: number | null; is_active: boolean }
-  business_day: { id: string; business_date: string; status: string; opened_at: string | null; closed_at: string | null } | null
-  rooms: RoomInfo[]
-  kpis_today: {
-    total_sessions: number
-    gross_total: number
-    finalized_count: number
-    draft_count: number
-    unsettled_count: number
-  }
-}
-
-type OwnerSettlementData = {
-  store_uuid: string
-  business_day_id: string | null
-  business_date: string | null
-  business_day_status: string | null
-  summary: {
-    total_sessions: number
-    tc_count: number
-    liquor_sales: number
-    owner_revenue: number
-    waiter_tips: number
-    purchases: number
-    gross_total: number
-    owner_margin: number
-    finalized_count: number
-    draft_count: number
-    unsettled_count: number
-  } | null
-  sessions: {
-    session_id: string
-    room_name: string | null
-    session_status: string
-    tc_count: number
-    liquor_sales: number
-    waiter_tips: number
-    purchases: number
-    gross_total: number | null
-    owner_margin: number | null
-    receipt_status: string | null
-  }[]
-}
-
-type ManagerSettlementData = {
-  store_uuid: string
-  business_day_id: string | null
-  managers: {
-    manager_membership_id: string
-    manager_name: string
-    hostess_count: number
-    settlement_sessions: number
-    total_gross: number
-    total_manager_amount: number
-    total_hostess_amount: number
-    finalized_count: number
-    draft_count: number
-  }[]
-}
-
-function fmtWon(n: number | null | undefined) {
-  const v = typeof n === "number" ? n : 0
-  if (v === 0) return "0원"
-  if (v >= 10_000) return `${Math.floor(v / 10_000).toLocaleString()}만 ${((v % 10_000)).toLocaleString()}원`.replace(" 0원", "")
-  return `${v.toLocaleString()}원`
-}
+// 2026-05-03: 분할 — types + helpers + Kpi 컴포넌트 별도.
+import {
+  fmtWon,
+  type Tab,
+  type SessionInfo,
+  type RoomInfo,
+  type MonitorData,
+  type OwnerSettlementData,
+  type ManagerSettlementData,
+  type ForceCloseTarget,
+  type RecoverTarget,
+} from "./types"
+import Kpi from "./Kpi"
 
 function sessionStatusBadge(room: RoomInfo) {
   if (room.session?.status === "active") {
@@ -115,20 +36,6 @@ function sessionStatusBadge(room: RoomInfo) {
   }
   return <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-500">비어있음</span>
 }
-
-type ForceCloseTarget = {
-  session_id: string
-  room_name: string
-  started_at: string
-  manager_name: string | null
-  gross_total: number
-  participant_count: number
-} | null
-
-type RecoverTarget = {
-  session_id: string
-  room_name: string
-} | null
 
 type RecoverReport = {
   ok: boolean
@@ -947,24 +854,4 @@ export default function SuperAdminStorePage({
   )
 }
 
-function Kpi({
-  label,
-  value,
-  accent,
-}: {
-  label: string
-  value: string
-  accent?: "cyan" | "emerald" | "amber"
-}) {
-  const color =
-    accent === "emerald" ? "text-emerald-300" :
-    accent === "cyan" ? "text-cyan-300" :
-    accent === "amber" ? "text-amber-300" :
-    "text-white"
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5">
-      <div className="text-[10px] text-slate-500">{label}</div>
-      <div className={`mt-1 text-base font-bold ${color}`}>{value}</div>
-    </div>
-  )
-}
+// 2026-05-03: Kpi 는 ./Kpi.tsx 로 분리.

@@ -20,212 +20,60 @@
  * nodes/edges. The function NEVER throws — the route relies on this.
  */
 
-import type { ReadClient } from "../readClient"
-import { maskName } from "../pii"
 import { capEdges, capNodes } from "../graph/aggregator"
 import { buildAuditNodes } from "./auditNodes"
 import type {
-  NetworkAuditCategory,
   NetworkEdge,
-  NetworkEdgeType,
   NetworkNode,
   NetworkNodeType,
-  NetworkScopeKind,
   NetworkStatus,
   NetworkWarning,
 } from "../shapes"
+// 2026-05-03: 분할 — types 와 helpers 는 별도 모듈.
+import type {
+  NetworkQueryInput,
+  NetworkQueryOk,
+  NetworkQueryErr,
+  StoreRow,
+  MembershipRow,
+  HostessRow,
+  ManagerRow,
+  ProfileRow,
+  SessionRow,
+  RoomRow,
+  SettlementRow,
+  SettlementItemRow,
+  PayoutRow,
+  ParticipantRow,
+  CrossStoreRow,
+  TransferRow,
+} from "./network.types"
+import {
+  MEMBERSHIP_ROLES_OF_INTEREST,
+  PAYOUT_RISK_STATUSES,
+  PAYOUT_RISK_TYPES,
+  SETTLEMENT_WARNING_STATUSES,
+  CROSS_STORE_CLOSED_STATUSES,
+  toNum,
+  clamp01,
+  storeNodeId,
+  personNodeId,
+  sessionNodeId,
+  settlementNodeId,
+  edgeId,
+  mapRoleToNodeType,
+  formatWonShort,
+  resolveHostessLabel,
+  resolveManagerLabel,
+  resolveStaffLabel,
+} from "./network.helpers"
 
-const MEMBERSHIP_ROLES_OF_INTEREST: ReadonlyArray<{
-  role: string
-  nodeType: NetworkNodeType
-}> = [
-  { role: "manager", nodeType: "manager" },
-  { role: "hostess", nodeType: "hostess" },
-  { role: "waiter", nodeType: "staff" },
-  { role: "staff", nodeType: "staff" },
-]
-
-// Risky payout signals — DB constraints (post-038):
-//   status        ∈ {pending, completed, cancelled}
-//   payout_type   ∈ {full, partial, prepayment, cross_store_prepay, reversal}
-// We treat status='cancelled' OR payout_type='reversal' as risk; status
-// 'pending' falls through to 'normal' (operationally normal pre-payout).
-const PAYOUT_RISK_STATUSES = new Set(["cancelled"])
-const PAYOUT_RISK_TYPES = new Set(["reversal"])
-
-// Settlement statuses that are pre-finalize → 'warning'.
-const SETTLEMENT_WARNING_STATUSES = new Set(["draft", "open", "partial"])
-
-// cross_store_settlements statuses considered "closed" / non-outstanding.
-const CROSS_STORE_CLOSED_STATUSES = new Set(["closed", "settled"])
-
-function toNum(v: unknown): number {
-  if (v == null) return 0
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-
-function clamp01(v: number): number {
-  if (!Number.isFinite(v) || v <= 0) return 0
-  if (v >= 1) return 1
-  return v
-}
-
-export type NetworkQueryInput = {
-  client: ReadClient
-  scope_kind: NetworkScopeKind
-  store_uuid: string | null
-  include_node_types: NetworkNodeType[]
-  business_day_ids: string[]
-  node_cap: number
-  edge_cap: number
-  unmasked: boolean
-  /** P2.1d: which audit_events.action categories to surface as nodes. */
-  audit_categories: NetworkAuditCategory[]
-  /** Resolved KST yyyy-mm-dd, inclusive (used to derive audit_events
-   *  created_at UTC window). */
-  business_date_from: string
-  business_date_to: string
-}
-
-export type NetworkQueryOk = {
-  ok: true
-  nodes: NetworkNode[]
-  edges: NetworkEdge[]
-  source_tables: string[]
-  warnings: NetworkWarning[]
-  truncated: boolean
-}
-
-export type NetworkQueryErr = {
-  ok: false
-  status: number
-  error: string
-  message: string
-}
-
-type StoreRow = {
-  id: string
-  store_name: string
-  store_code: string | null
-  floor: number | null
-}
-
-type MembershipRow = {
-  id: string
-  profile_id: string
-  store_uuid: string
-  role: string
-}
-
-type HostessRow = {
-  id: string
-  membership_id: string
-  store_uuid: string
-  stage_name: string | null
-  name: string | null
-  manager_membership_id: string | null
-}
-
-type ManagerRow = {
-  id: string
-  membership_id: string
-  store_uuid: string
-  nickname: string | null
-  name: string | null
-}
-
-type ProfileRow = {
-  id: string
-  full_name: string | null
-  nickname: string | null
-}
-
-// ─── P2.1c row types ────────────────────────────────────────────────────
-
-type SessionRow = {
-  id: string
-  store_uuid: string
-  room_uuid: string | null
-  business_day_id: string
-  status: string
-  started_at: string | null
-  ended_at: string | null
-}
-
-type RoomRow = {
-  id: string
-  room_no: string | null
-}
-
-type SettlementRow = {
-  id: string
-  store_uuid: string
-  session_id: string
-  status: string
-  total_amount: unknown
-  manager_amount: unknown
-  hostess_amount: unknown
-  store_amount: unknown
-  confirmed_at: string | null
-}
-
-type SettlementItemRow = {
-  id: string
-  settlement_id: string
-  store_uuid: string
-  role_type: string
-  amount: unknown
-  participant_id: string | null
-  membership_id: string | null
-}
-
-type PayoutRow = {
-  id: string
-  settlement_id: string | null
-  settlement_item_id: string | null
-  status: string
-  amount: unknown
-  target_store_uuid: string | null
-  payout_type: string | null
-}
-
-type ParticipantRow = {
-  id: string
-  session_id: string
-  store_uuid: string
-  membership_id: string
-  role: string
-  price_amount: unknown
-  origin_store_uuid: string | null
-}
-
-type CrossStoreRow = {
-  id: string
-  // Schema migrated in 038 (cross_store_legacy_drop): legacy columns
-  // `store_uuid` / `target_store_uuid` were dropped from the header.
-  // The current source-of-truth columns are `from_store_uuid` (debtor)
-  // and `to_store_uuid` (creditor). The semantic direction is identical
-  // to the original `owes_to` edge: from → to means "from owes to".
-  from_store_uuid: string
-  to_store_uuid: string
-  total_amount: unknown
-  prepaid_amount: unknown
-  remaining_amount: unknown
-  status: string
-  created_at: string | null
-}
-
-type TransferRow = {
-  id: string
-  hostess_membership_id: string
-  from_store_uuid: string
-  to_store_uuid: string
-  business_day_id: string | null
-  status: string
-  created_at: string | null
-}
+// Re-export public types for existing imports.
+export type {
+  NetworkQueryInput,
+  NetworkQueryOk,
+  NetworkQueryErr,
+} from "./network.types"
 
 export async function queryNetworkGraph(
   input: NetworkQueryInput,
@@ -1190,85 +1038,5 @@ export async function queryNetworkGraph(
   }
 }
 
-// ─── id helpers ──────────────────────────────────────────────────────────
-
-function storeNodeId(uuid: string): string {
-  return `store:${uuid}`
-}
-
-function personNodeId(type: NetworkNodeType, membershipId: string): string {
-  return `${type}:${membershipId}`
-}
-
-function sessionNodeId(uuid: string): string {
-  return `session:${uuid}`
-}
-
-function settlementNodeId(uuid: string): string {
-  return `settlement:${uuid}`
-}
-
-function edgeId(type: NetworkEdgeType, key: string): string {
-  return `${type}:${key}`
-}
-
-function mapRoleToNodeType(role: string): NetworkNodeType | null {
-  const hit = MEMBERSHIP_ROLES_OF_INTEREST.find((r) => r.role === role)
-  return hit?.nodeType ?? null
-}
-
-// Compact KRW formatter for node labels (graph context — short string).
-function formatWonShort(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "0"
-  const abs = Math.abs(n)
-  const sign = n < 0 ? "-" : ""
-  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}억`
-  if (abs >= 10_000_000) return `${sign}${(abs / 10_000_000).toFixed(1)}천만`
-  if (abs >= 10_000) return `${sign}${Math.floor(abs / 10_000).toLocaleString()}만`
-  return `${sign}${Math.round(abs).toLocaleString()}`
-}
-
-// ─── label helpers (PII default = mask; super_admin unmask = real) ───
-
-function resolveHostessLabel(
-  h: HostessRow | null,
-  profile: ProfileRow | null,
-  unmasked: boolean,
-): string {
-  // stage_name (예명) is non-PII performer alias — surface even when masked.
-  const stage = h?.stage_name?.trim() || null
-  if (unmasked) {
-    return stage ?? h?.name ?? profile?.full_name ?? "(아가씨)"
-  }
-  if (stage) return stage
-  return maskName(h?.name ?? profile?.nickname ?? profile?.full_name ?? "")
-    || "(아가씨)"
-}
-
-function resolveManagerLabel(
-  m: ManagerRow | null,
-  profile: ProfileRow | null,
-  unmasked: boolean,
-): string {
-  const nick = m?.nickname?.trim() || profile?.nickname?.trim() || null
-  if (unmasked) {
-    return nick ?? m?.name ?? profile?.full_name ?? "(실장)"
-  }
-  // nickname is operator-chosen handle; treat as non-PII label.
-  if (nick) return nick
-  return maskName(m?.name ?? profile?.full_name ?? "") || "(실장)"
-}
-
-function resolveStaffLabel(
-  profile: ProfileRow | null,
-  unmasked: boolean,
-): string {
-  const nick = profile?.nickname?.trim() || null
-  if (unmasked) {
-    return nick ?? profile?.full_name ?? "(스태프)"
-  }
-  if (nick) return nick
-  return maskName(profile?.full_name ?? "") || "(스태프)"
-}
-
+// 2026-05-03: id / label / formatter helpers 는 ./network.helpers.ts 로 분리.
 // (Cap enforcement now lives in `lib/visualize/graph/aggregator.ts`.)

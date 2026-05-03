@@ -9,6 +9,8 @@ import DailyOpsCheckGate from "@/components/DailyOpsCheckGate"
 import VisibilityControl from "./components/VisibilityControl"
 import HostessCard from "./components/HostessCard"
 import ManagerPermissionsModal from "./components/ManagerPermissionsModal"
+// 2026-05-03: 최근 근무 로그 리스트 분할.
+import RecentWorkLogList from "./components/RecentWorkLogList"
 import {
   STATUS_STYLES,
   type StaffStatus,
@@ -668,234 +670,18 @@ export default function StaffPage() {
           ))}
         </div>
 
-        {/* ─── Phase 1: 최근 근무 로그 (최신 10건, origin scope) ─── */}
-        <div className="px-4 mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-slate-300">최근 근무 로그</div>
-            <button
-              onClick={loadRecentLogs}
-              className="text-[11px] text-slate-500 hover:text-cyan-300"
-            >
-              새로고침
-            </button>
-          </div>
-          {lifecycleToast && (
-            <div className="mb-2 text-[11px] text-emerald-300">{lifecycleToast}</div>
-          )}
-          {recentLogsLoading && (
-            <div className="text-[11px] text-slate-500">로딩 중...</div>
-          )}
-          {!recentLogsLoading && recentLogs.length === 0 && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
-              <p className="text-xs text-slate-500">기록된 근무 로그가 없습니다.</p>
-            </div>
-          )}
-          {/* ── 담당 실장 없음 로그 접기/펼치기 (기본 숨김) ──
-              현재 /api/staff-work-logs 응답은 cross_store_work_records
-              기반 이라 manager_membership_id 가 항상 null → 모든 로그가
-              이 분기에 잡힘. 운영 화면 혼잡도 해소용 토글. */}
-          {(() => {
-            const unassignedCount = recentLogs.filter((l) => !l.session_manager_membership_id).length
-            if (unassignedCount === 0) return null
-            return (
-              <div className="mb-2 flex items-center justify-between text-[11px]">
-                <span className="text-slate-500">
-                  {showUnassignedLogs
-                    ? `담당 실장 없음 ${unassignedCount}건 표시됨`
-                    : `담당 실장 없음 ${unassignedCount}건 숨김`}
-                </span>
-                <button
-                  type="button"
-                  onClick={toggleUnassignedLogs}
-                  className="text-cyan-300 hover:text-cyan-200 font-medium"
-                >
-                  {showUnassignedLogs
-                    ? "담당 실장 없음 로그 숨기기"
-                    : "담당 실장 없음 로그 보기"}
-                </button>
-              </div>
-            )
-          })()}
-          {(() => {
-            const visibleRecentLogs = showUnassignedLogs
-              ? recentLogs
-              : recentLogs.filter((l) => !!l.session_manager_membership_id)
-            if (recentLogs.length > 0 && visibleRecentLogs.length === 0) {
-              return (
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
-                  <p className="text-xs text-slate-500">
-                    표시할 로그가 없습니다. 모든 항목이 담당 실장 미지정 상태입니다.
-                  </p>
-                </div>
-              )
-            }
-            if (visibleRecentLogs.length === 0) return null
-            return (
-            <div className="space-y-1.5">
-              {visibleRecentLogs.map((log) => {
-                // Phase 10 P1 (2026-04-24): 시간 SSOT = room_sessions.started_at
-                //   (방 담당실장 기준). log.created_at 은 origin 등록 시각 (참고).
-                const ssot = log.session_started_at
-                const regIso = log.created_at
-                const fmtHHMM = (iso: string | null) => {
-                  if (!iso) return "--:--"
-                  const d = new Date(iso)
-                  return Number.isNaN(d.getTime())
-                    ? "--:--"
-                    : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-                }
-                const workHHMM = fmtHHMM(ssot)
-                const regHHMM = fmtHHMM(regIso)
-                const showRegDiff = ssot && regIso && ssot !== regIso
-                const statusLabel =
-                  (log.status === "pending" || log.status === "draft") ? "미확정"
-                  : log.status === "confirmed" ? "확정"
-                  : log.status === "disputed" ? "이의"
-                  : log.status === "voided" ? "무효"
-                  : log.status === "settled" ? "정산완료"
-                  : log.status
-                const isTerminal = log.status === "settled" || log.status === "voided"
-                const isSameStore =
-                  !!log.origin_store_uuid &&
-                  !!log.working_store_uuid &&
-                  log.origin_store_uuid === log.working_store_uuid
-                const hasNoManager = !log.session_manager_membership_id
-                const hasNoSessionLink = !log.session_started_at
-                return (
-                  <div
-                    key={log.id}
-                    className={`rounded-xl border px-3 py-2 text-[12px] ${
-                      isTerminal
-                        ? "border-white/[0.04] bg-white/[0.015] opacity-80"
-                        : "border-white/[0.06] bg-white/[0.03]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        title="근무 시작시간 (방 담당실장 기준)"
-                        className="text-cyan-300 font-mono text-[11px]"
-                      >
-                        {workHHMM}
-                      </span>
-                      <span className={`font-medium truncate min-w-0 ${log.status === "voided" ? "text-slate-500 line-through" : "text-slate-100"}`}>
-                        {log.hostess_name || "?"}
-                      </span>
-                      <span className="text-slate-500">→</span>
-                      <span className="text-slate-300 truncate min-w-0">
-                        {log.working_store_name || "?"}
-                        {log.room_no ? ` / ${log.room_no}번방` : ""}
-                      </span>
-                      {log.session_manager_name && (
-                        <>
-                          <span className="text-slate-500">·</span>
-                          <span
-                            title="방 담당실장 (근무시간 SSOT)"
-                            className="text-purple-300 text-[11px] truncate"
-                          >
-                            {log.session_manager_name}
-                          </span>
-                        </>
-                      )}
-                      <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${
-                        (log.status === "pending" || log.status === "draft") ? "bg-slate-500/15 text-slate-400 border-slate-500/20"
-                        : log.status === "confirmed" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
-                        : log.status === "disputed" ? "bg-amber-500/15 text-amber-300 border-amber-500/25"
-                        : log.status === "voided" ? "bg-red-500/10 text-red-400 border-red-500/20"
-                        : log.status === "settled" ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25"
-                        : "bg-slate-500/15 text-slate-400 border-slate-500/20"
-                      }`}>
-                        {statusLabel}
-                        {isTerminal && <span className="ml-1 opacity-60">· 종착</span>}
-                      </span>
-                    </div>
-                    {/* 등록시각 (SSOT 와 다를 때만 표시) */}
-                    {showRegDiff && (
-                      <div className="text-[10px] text-slate-500 mt-0.5">
-                        등록시각 {regHHMM} · 근무시간 {workHHMM} (방 담당실장 기준)
-                      </div>
-                    )}
-                    {/* 경고 배지 */}
-                    {(isSameStore || hasNoManager || hasNoSessionLink) && !isTerminal && (
-                      <div className="flex flex-wrap items-center gap-1 mt-1">
-                        {isSameStore && (
-                          <span
-                            title="본 매장 근무 — cross-store 정산 편입 대상 아님"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
-                          >
-                            ⚠ 본 매장 (정산 제외)
-                          </span>
-                        )}
-                        {hasNoSessionLink && (
-                          <span
-                            title="room_sessions 조인 실패 — session 이 삭제되었을 수 있음"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20"
-                          >
-                            ⚠ 세션 링크 없음
-                          </span>
-                        )}
-                        {hasNoManager && !hasNoSessionLink && (
-                          <span
-                            title="방 담당실장 미지정 — confirm 시 MANAGER_REQUIRED"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20"
-                          >
-                            ⚠ 담당 실장 없음
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {/* Phase 2: inline lifecycle action buttons.
-                        서버가 최종 권한 검증 — UI 는 힌트. */}
-                    {(() => {
-                      const acts = availableActions(log)
-                      if (acts.length === 0) return null
-                      return (
-                        <div className="flex gap-1 mt-1.5 justify-end">
-                          {acts.includes("confirm") && (
-                            <button
-                              onClick={() => startLifecycle(log.id, "confirm")}
-                              disabled={lifecycleBusyId === log.id}
-                              className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/25 disabled:opacity-50"
-                            >
-                              확정
-                            </button>
-                          )}
-                          {acts.includes("resolve") && (
-                            <button
-                              onClick={() => startLifecycle(log.id, "resolve")}
-                              disabled={lifecycleBusyId === log.id}
-                              className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/25 disabled:opacity-50"
-                            >
-                              해결
-                            </button>
-                          )}
-                          {acts.includes("dispute") && (
-                            <button
-                              onClick={() => startLifecycle(log.id, "dispute")}
-                              disabled={lifecycleBusyId === log.id}
-                              className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25 hover:bg-amber-500/25 disabled:opacity-50"
-                            >
-                              이의
-                            </button>
-                          )}
-                          {acts.includes("void") && (
-                            <button
-                              onClick={() => startLifecycle(log.id, "void")}
-                              disabled={lifecycleBusyId === log.id}
-                              className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 disabled:opacity-50"
-                            >
-                              무효
-                            </button>
-                          )}
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )
-              })}
-            </div>
-            )
-          })()}
-        </div>
+        {/* ─── Phase 1: 최근 근무 로그 — extracted to RecentWorkLogList ─── */}
+        <RecentWorkLogList
+          recentLogs={recentLogs}
+          loading={recentLogsLoading}
+          showUnassignedLogs={showUnassignedLogs}
+          toggleUnassignedLogs={toggleUnassignedLogs}
+          loadRecentLogs={loadRecentLogs}
+          lifecycleToast={lifecycleToast}
+          lifecycleBusyId={lifecycleBusyId}
+          availableActions={availableActions}
+          startLifecycle={startLifecycle}
+        />
       </div>
 
       {/* Phase 1 work log modal — hostess 1명 draft 기록. */}

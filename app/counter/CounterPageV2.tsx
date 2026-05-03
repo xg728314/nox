@@ -18,8 +18,9 @@ import BulkManagerPickerV2 from "./components/modals/BulkManagerPickerV2"
 import ParticipantInlineEditor, { type InlineEditMode, type InlineEditCommit } from "./components/ParticipantInlineEditor"
 import ManagerChangeModalV2 from "./components/modals/ManagerChangeModalV2"
 import CustomerModal from "./components/modals/CustomerModal"
-import ClosedRoomCardV2 from "./components/cards/ClosedRoomCardV2"
 import CounterSidebar from "./components/CounterSidebar"
+import CounterHostessStatsBar from "./components/CounterHostessStatsBar"
+import CounterClosedRoomsSection from "./components/CounterClosedRoomsSection"
 import InterimModeModal from "./components/modals/InterimModeModal"
 import CreditSection from "./components/CreditSection"
 import AccountSelectTrigger from "./components/AccountSelectTrigger"
@@ -124,11 +125,16 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
   //   가 잠깐이라도 깜빡 노출되지 않도록 early-return).
   const isStaffRole =
     currentProfile?.role === "hostess" || currentProfile?.role === "staff"
+  // 2026-05-02 R-Cafe: 카페 owner (floor=3) 가 /counter 직진 시 /cafe/manage 로 redirect.
+  //   카페는 일반 매장 카운터 UI (방/세션/호스티스/정산 등) 무관 — 별도 흐름.
+  const isCafeOwner = currentProfile?.store_floor === 3
   useEffect(() => {
     if (isStaffRole) {
       router.replace("/me/home")
+    } else if (isCafeOwner) {
+      router.replace("/cafe/manage")
     }
-  }, [isStaffRole, router])
+  }, [isStaffRole, isCafeOwner, router])
 
   // R29-refactor: viewMode 는 useViewMode 훅으로 이전.
   const { viewMode, effectiveMode, applyViewMode } = useViewMode()
@@ -716,20 +722,9 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
         </div>
       </div>
 
-      {/* ─── Hostess stats bar ─────────────────────────────────────────── */}
+      {/* ─── Hostess stats bar — extracted to CounterHostessStatsBar ───── */}
       {hostessStats && hostessStats.managed_total > 0 && (
-        <div className="px-4 py-1.5 bg-[#0d1020]/80 border-b border-white/[0.05] flex items-center gap-3">
-          <span className="text-[10px] text-slate-500">{hostessStats.scope === "manager" ? "내 관리" : "매장"}</span>
-          <div className="flex items-center gap-2.5 text-[11px]">
-            <span className="text-slate-400">총인원 <span className="text-cyan-300 font-bold">{hostessStats.managed_total}</span></span>
-            <span className="text-slate-600">·</span>
-            <span className="text-slate-400">출근 <span className="text-emerald-400 font-bold">{hostessStats.on_duty_count}</span></span>
-            <span className="text-slate-600">·</span>
-            <span className="text-slate-400">대기 <span className="text-amber-300 font-bold">{hostessStats.waiting_count}</span></span>
-            <span className="text-slate-600">·</span>
-            <span className="text-slate-400">접객 <span className="text-red-300 font-bold">{hostessStats.in_room_count}</span></span>
-          </div>
-        </div>
+        <CounterHostessStatsBar stats={hostessStats} />
       )}
 
       {error && <div className="mx-3 mt-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
@@ -821,27 +816,13 @@ export function CounterPageV2({ initialRoomId }: CounterPageV2Props = {}) {
               </button>
             </div>
 
-            {/* Closed rooms section — tighter grid in mobile preview */}
-            {closedRooms.length > 0 && (
-              <div className="mt-4">
-                <div className="flex items-center gap-2 mb-2 px-1">
-                  <span className="text-[10px] text-slate-500 font-semibold">완료</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-500 font-medium">
-                    {closedCount}건
-                  </span>
-                </div>
-                <div className={`grid ${effectiveMode === "mobile" ? "grid-cols-3" : "grid-cols-4"} gap-1.5`}>
-                  {closedRooms.map(room => (
-                    <ClosedRoomCardV2
-                      key={`closed-${room.id}`}
-                      room={room}
-                      onClickClosed={handleClosedRoomClick}
-                      onReopened={() => { void fetchRooms() }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Closed rooms section — extracted to CounterClosedRoomsSection */}
+            <CounterClosedRoomsSection
+              closedRooms={closedRooms}
+              effectiveMode={effectiveMode}
+              onClickClosed={handleClosedRoomClick}
+              onReopened={() => { void fetchRooms() }}
+            />
           </>
         )
         return effectiveMode === "mobile"

@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
-import {
-  computePresenceConfidence,
-  buildConfidenceContextByMember,
-  type CorrectionHistoryRow,
-} from "@/lib/ble/computePresenceConfidence"
 import { defaultRoomName } from "@/lib/rooms/formatRoomLabel"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import { cached } from "@/lib/cache/inMemoryTtl"
+import { deriveRecommendations, type Rec } from "@/lib/monitor/recommendations"
+import { fetchRecentMovement } from "@/lib/monitor/movementEvents"
+import { buildBleOverlay } from "@/lib/monitor/bleOverlay"
 
 // R29-perf: 가장 무거운 endpoint. 380명 × 5초 폴링 = ~76 req/s.
 //   3초 TTL → DB 직격 50% 감소 (서버 인스턴스마다).
 //   stale-while-revalidate 로 클라 측에도 공유.
-const MONITOR_TTL_MS = 3000
+// 2026-05-03 R-Speed-x10: 3s → 5s. SWR 가 stale 즉시 반환 + 백그라운드 갱신.
+const MONITOR_TTL_MS = 5000
 
 class MonitorQueryError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = "MonitorQueryError" }
@@ -65,72 +64,8 @@ class MonitorQueryError extends Error {
 
 type Row = Record<string, unknown>
 
-// ── Server-derived recommendation facts ────────────────────────────
-// Raw numbers the client can filter by user alert prefs. NO state
-// mutation and NO business impact. Baselines below are small sanity
-// floors so we don't flood the payload — client prefs apply a higher
-// floor on top.
-type RecCode = "long_mid_out" | "long_session" | "overdue" | "extension_reminder"
-type Rec = { code: RecCode; minutes?: number; message: string }
-
-const SERVER_LONG_MID_OUT_FLOOR = 5     // minutes (baseline emit threshold)
-const SERVER_LONG_SESSION_FLOOR = 60    // minutes
-
-function deriveRecommendations(input: {
-  status: string
-  entered_at: string
-  left_at: string | null
-  time_minutes: number
-  operator_status: "normal" | "still_working" | "ended" | "extended"
-  extension_count: number
-  latest_action_id: string | null
-  last_applied_action_id: string | null
-  nowMs: number
-}): Rec[] {
-  const out: Rec[] = []
-  const { status, entered_at, left_at, time_minutes, nowMs } = input
-
-  // long_mid_out — use left_at as the mid-out anchor if available; else
-  // entered_at as the safe fallback.
-  if (status === "mid_out" || status === "left") {
-    const baseIso = left_at || entered_at
-    const baseMs = new Date(baseIso).getTime()
-    if (Number.isFinite(baseMs)) {
-      const mins = Math.max(0, Math.floor((nowMs - baseMs) / 60_000))
-      if (mins >= SERVER_LONG_MID_OUT_FLOOR) {
-        out.push({ code: "long_mid_out", minutes: mins, message: `자리비움 ${mins}분` })
-      }
-    }
-  }
-
-  // long_session — elapsed since entered_at for active participants.
-  if (status === "active") {
-    const enteredMs = new Date(entered_at).getTime()
-    if (Number.isFinite(enteredMs)) {
-      const mins = Math.max(0, Math.floor((nowMs - enteredMs) / 60_000))
-      if (mins >= SERVER_LONG_SESSION_FLOOR) {
-        out.push({ code: "long_session", minutes: mins, message: `경과 ${mins}분` })
-      }
-      // overdue — active participant whose booked time_minutes has elapsed.
-      if (time_minutes > 0) {
-        const overdue = mins - time_minutes
-        if (overdue > 0) {
-          out.push({ code: "overdue", minutes: overdue, message: `예상 종료 초과 ${overdue}분` })
-        }
-      }
-    }
-  }
-
-  // extension_reminder — operator recorded an extension but hasn't
-  // applied yet (latest action != last applied cursor). Categorical.
-  if (input.operator_status === "extended"
-      && input.latest_action_id
-      && input.latest_action_id !== input.last_applied_action_id) {
-    out.push({ code: "extension_reminder", message: `연장 ${input.extension_count}회 적용 대기` })
-  }
-
-  return out
-}
+// 2026-05-03: deriveRecommendations + 관련 types/constants 는
+//   lib/monitor/recommendations.ts 로 분리.
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -168,7 +103,8 @@ export async function GET(request: Request) {
       },
     )
     const res = NextResponse.json(cachedData)
-    res.headers.set("Cache-Control", "private, max-age=1, stale-while-revalidate=2")
+    // 2026-05-03 R-Speed-x10: max-age=3 + SWR=10 → 폴링 5s 간격에서 60% 브라우저 cache hit.
+    res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
     return res
   } catch (error) {
     if (error instanceof AuthError) {
@@ -837,281 +773,26 @@ async function buildMonitorResponse(
       })
 
     // ── BLE presence overlay (read-only) ────────────────────────────
-    // Joins `ble_tag_presence` (TTL-filtered to 5 min) with `ble_tags`
-    // and `ble_gateways` to derive a zone per detection.
-    //
-    // Strict safety:
-    //   - scoped to caller's store_uuid
-    //   - only rows with an ACTIVE tag + resolvable home-store membership
-    //     (foreign hostesses already surface via active-session
-    //     participants; a BLE read for a foreign hostess not in an
-    //     active local session is suppressed to respect rule 11-13)
-    //   - the presence data never mutates participants, sessions,
-    //     time_segments, or settlements — it is pure display overlay
-    //
-    // Zone derivation uses `ble_gateways.gateway_type` (existing
-    // column, already defaults to 'room'). Recognized values:
-    //   'room' | 'counter' | 'restroom' | 'elevator' |
-    //   'external_floor' | 'lounge'
-    // Unknown/missing values fall back to 'unknown'.
-    type BleZone = "room" | "counter" | "restroom" | "elevator" | "external_floor" | "lounge" | "unknown"
-    type BlePresenceOut = {
-      membership_id: string
-      display_name: string
-      zone: BleZone
-      room_uuid: string | null
-      last_seen_at: string
-      last_event_type: string | null
-      /** "ble" = raw BLE reading; "corrected" = human correction overlay. */
-      source: "ble" | "corrected"
-      corrected_by_membership_id?: string | null
-      corrected_at?: string | null
-      // Confidence fields populated by the later compute fold. Declared
-      // optional here so the initial push() remains concise; the fold
-      // always assigns all three before the response is serialized.
-      confidence_level?: "high" | "medium" | "low"
-      confidence_score?: number
-      confidence_reasons?: string[]
-    }
-    let blePresence: BlePresenceOut[] = []
-    let bleConfidence: "manual" | "hybrid" = "manual"
-    try {
-      const cutoffIso = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-      const { data: presRows } = await supabase
-        .from("ble_tag_presence")
-        .select("minor, room_uuid, membership_id, last_event_type, last_seen_at")
-        .eq("store_uuid", storeUuid)
-        .gt("last_seen_at", cutoffIso)
-      const presList = (presRows ?? []) as Array<{
-        minor: number
-        room_uuid: string | null
-        membership_id: string | null
-        last_event_type: string | null
-        last_seen_at: string
-      }>
-
-      if (presList.length > 0) {
-        // Only emit rows whose membership is a known home-store active hostess.
-        // (Foreign workers already render via the active-session path.)
-        const allowedMemberships = new Set(
-          homeHostesses.map(h => h.membership_id),
-        )
-
-        // Resolve gateway_type per presence row by room_uuid match
-        // (the ingest upserts `room_uuid` equal to the gateway's room).
-        // Gateways with no room_uuid (hallway gateways) are matched by
-        // gateway_type when no better binding exists; for this read we
-        // keep it simple — if presence.room_uuid is null we mark zone
-        // as 'unknown'.
-        const bleRoomUuids = Array.from(
-          new Set(presList.map(p => p.room_uuid).filter((r): r is string => !!r)),
-        )
-        const gatewayTypeByRoom = new Map<string, string>()
-        if (bleRoomUuids.length > 0) {
-          const { data: gwRows } = await supabase
-            .from("ble_gateways")
-            .select("room_uuid, gateway_type")
-            .eq("store_uuid", storeUuid)
-            .in("room_uuid", bleRoomUuids)
-            .eq("is_active", true)
-          for (const g of (gwRows ?? []) as Array<{ room_uuid: string | null; gateway_type: string | null }>) {
-            if (g.room_uuid) gatewayTypeByRoom.set(g.room_uuid, g.gateway_type ?? "room")
-          }
-        }
-
-        const RECOGNIZED: ReadonlyArray<BleZone> =
-          ["room", "counter", "restroom", "elevator", "external_floor", "lounge"] as const
-        const mapZone = (gt: string | null | undefined, hasRoom: boolean): BleZone => {
-          if (!gt) return hasRoom ? "room" : "unknown"
-          if ((RECOGNIZED as ReadonlyArray<string>).includes(gt)) return gt as BleZone
-          return hasRoom ? "room" : "unknown"
-        }
-
-        for (const p of presList) {
-          if (!p.membership_id || !allowedMemberships.has(p.membership_id)) continue
-          const zone = mapZone(
-            p.room_uuid ? gatewayTypeByRoom.get(p.room_uuid) ?? null : null,
-            !!p.room_uuid,
-          )
-          const name = homeNameMap.get(p.membership_id) ?? null
-          if (!name) continue // skip unknown-name rows to avoid leaking raw ids
-          blePresence.push({
-            membership_id: p.membership_id,
-            display_name: name,
-            zone,
-            room_uuid: p.room_uuid,
-            last_seen_at: p.last_seen_at,
-            last_event_type: p.last_event_type,
-            source: "ble",
-          })
-        }
-      }
-
-      // ── Human correction overlay ──────────────────────────────────
-      // Fetch latest active corrections for this store. Scope by
-      // currently visible context so a correction whose session /
-      // participant has ended stops affecting live display (the row
-      // persists in DB for analytics).
-      type CorrRow = {
-        membership_id: string
-        participant_id: string | null
-        session_id: string | null
-        corrected_zone: string
-        corrected_room_uuid: string | null
-        corrected_by_membership_id: string | null
-        corrected_at: string
-      }
-      const { data: corrRaw } = await supabase
-        .from("ble_presence_corrections")
-        .select("membership_id, participant_id, session_id, corrected_zone, corrected_room_uuid, corrected_by_membership_id, corrected_at")
-        .eq("store_uuid", storeUuid)
-        .eq("is_active", true)
-        .order("corrected_at", { ascending: false })
-      const corrRows = (corrRaw ?? []) as CorrRow[]
-      if (corrRows.length > 0) {
-        const activeSessionIdSet = new Set(activeSessions.map(s => s.id))
-        const visibleParticipantIdSet = new Set(participants.map(p => p.id))
-        const visibleMemberships = new Set<string>()
-        for (const h of homeHostesses) visibleMemberships.add(h.membership_id)
-        for (const p of participants) {
-          if (p.membership_id) visibleMemberships.add(p.membership_id)
-        }
-
-        const RECOGNIZED: ReadonlyArray<BleZone> =
-          ["room", "counter", "restroom", "elevator", "external_floor", "lounge"] as const
-
-        // Keep latest correction per membership (rows are already ordered DESC).
-        const latestByMember = new Map<string, CorrRow>()
-        for (const c of corrRows) {
-          if (latestByMember.has(c.membership_id)) continue
-          // Scope filter — correction must be relevant to current context.
-          if (!visibleMemberships.has(c.membership_id)) continue
-          if (c.participant_id && !visibleParticipantIdSet.has(c.participant_id)) continue
-          if (c.session_id && !activeSessionIdSet.has(c.session_id)) continue
-          if (!(RECOGNIZED as ReadonlyArray<string>).includes(c.corrected_zone)) continue
-          latestByMember.set(c.membership_id, c)
-        }
-
-        // Apply overlay — mutate existing ble rows OR append synthetic
-        // rows for corrected memberships with no raw BLE reading. The
-        // raw `ble_tag_presence` table is NEVER touched.
-        for (const row of blePresence) {
-          const c = latestByMember.get(row.membership_id)
-          if (!c) continue
-          row.zone = c.corrected_zone as BleZone
-          row.room_uuid = c.corrected_room_uuid
-          row.source = "corrected"
-          row.corrected_by_membership_id = c.corrected_by_membership_id
-          row.corrected_at = c.corrected_at
-          latestByMember.delete(row.membership_id)
-        }
-        // Any correction whose membership isn't in raw BLE → synthesize
-        // a new presence entry so the UI can still show the correction.
-        for (const [memberId, c] of latestByMember) {
-          const name = homeNameMap.get(memberId) ?? null
-          if (!name) continue
-          blePresence.push({
-            membership_id: memberId,
-            display_name: name,
-            zone: c.corrected_zone as BleZone,
-            room_uuid: c.corrected_room_uuid,
-            last_seen_at: c.corrected_at,
-            last_event_type: null,
-            source: "corrected",
-            corrected_by_membership_id: c.corrected_by_membership_id,
-            corrected_at: c.corrected_at,
-          })
-        }
-      }
-
-      // ── Confidence fold (read-time only, never persisted) ─────────
-      // Compute a per-row confidence from signals we already have in
-      // scope: the presence row itself and the recent corrections for
-      // this store. We intentionally run this AFTER the correction
-      // overlay so `row.source` already reflects human-corrected
-      // state when applicable. The correction list used for scoring
-      // is the same one already loaded above — no new queries.
-      {
-        const corrForContext: CorrectionHistoryRow[] = (corrRows ?? []).map(c => ({
-          membership_id: c.membership_id,
-          corrected_zone: c.corrected_zone,
-          corrected_room_uuid: c.corrected_room_uuid,
-          corrected_at: c.corrected_at,
-        }))
-        const ctxByMember = buildConfidenceContextByMember(corrForContext)
-        const emptyCtx = { recentCorrections: [] as CorrectionHistoryRow[] }
-        for (const row of blePresence) {
-          const ctx = ctxByMember.get(row.membership_id) ?? emptyCtx
-          const c = computePresenceConfidence(
-            {
-              membership_id: row.membership_id,
-              zone: row.zone,
-              room_uuid: row.room_uuid,
-              last_seen_at: row.last_seen_at,
-              source: row.source,
-            },
-            ctx,
-          )
-          row.confidence_level = c.level
-          row.confidence_score = c.score
-          row.confidence_reasons = c.reasons
-        }
-      }
-
-      if (blePresence.length > 0) {
-        bleConfidence = "hybrid"
-        // Fold BLE-derived zone counts into summary for 화장실 / 외부(타층).
-        // Manual-derived 재실/이탈/대기 are NOT overridden — BLE is overlay.
-        // Corrections participate in these counts since corrected zone
-        // replaces raw zone on each row.
-        summary.restroom = blePresence.filter(b => b.zone === "restroom").length
-        summary.external_floor = blePresence.filter(b => b.zone === "external_floor").length
-      }
-    } catch {
-      // Any failure → fall back to manual-only. Never surface 500 just
-      // because BLE overlay failed to load.
-      blePresence = []
-      bleConfidence = "manual"
+    // 2026-05-03: lib/monitor/bleOverlay.ts 로 분리.
+    //   strict safety / zone derivation / confidence fold 전부 모듈에 위임.
+    //   monitor route 는 호출 + summary delta merge 만.
+    const bleResult = await buildBleOverlay(supabase, {
+      storeUuid,
+      homeHostesses,
+      homeNameMap,
+      participants,
+      activeSessions,
+    })
+    const blePresence = bleResult.blePresence
+    const bleConfidence = bleResult.bleConfidence
+    if (bleResult.zoneSummaryDelta) {
+      summary.restroom = bleResult.zoneSummaryDelta.restroom
+      summary.external_floor = bleResult.zoneSummaryDelta.external_floor
     }
 
-    // ── Recent movement events (derived — manual sources only) ──────
-    // Pulled from audit_events for this store, narrowed to state-affecting
-    // session actions. Read-only and safe.
-    let movement: Array<{
-      at: string
-      kind: string
-      actor_role: string | null
-      entity_table: string | null
-      entity_id: string | null
-      room_uuid: string | null
-      session_id: string | null
-    }> = []
-    try {
-      const { data: auditRows } = await supabase
-        .from("audit_events")
-        .select("created_at, action, actor_role, entity_table, entity_id, room_uuid, session_id")
-        .eq("store_uuid", storeUuid)
-        .in("action", [
-          "session_checkin",
-          "session_checkout",
-          "participant_added",
-          "participant_mid_out",
-          "participant_deleted",
-        ])
-        .order("created_at", { ascending: false })
-        .limit(20)
-      movement = (auditRows ?? []).map((r: Row) => ({
-        at: String(r.created_at),
-        kind: String(r.action),
-        actor_role: (r.actor_role as string | null) ?? null,
-        entity_table: (r.entity_table as string | null) ?? null,
-        entity_id: (r.entity_id as string | null) ?? null,
-        room_uuid: (r.room_uuid as string | null) ?? null,
-        session_id: (r.session_id as string | null) ?? null,
-      }))
-    } catch {
-      movement = []
-    }
+    // ── Recent movement events ───────────────────────────────────────
+    // 2026-05-03: lib/monitor/movementEvents.ts 로 분리.
+    const movement = await fetchRecentMovement(supabase, storeUuid)
 
     return {
       store_uuid: storeUuid,
