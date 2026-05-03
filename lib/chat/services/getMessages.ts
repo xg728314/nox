@@ -62,46 +62,57 @@ export async function getMessages(
 
   const { data: messages } = await query
 
-  // Sender name resolution
-  const senderIds = [...new Set((messages ?? []).map((m: { sender_membership_id: string }) => m.sender_membership_id))]
-  const nameMap = await resolveMemberNames(supabase, input.store_uuid, senderIds)
-
-  // Per-message read counts (excluding sender)
   const messageIds = (messages ?? []).map((m: { id: string }) => m.id)
+  const senderIds = [...new Set((messages ?? []).map((m: { sender_membership_id: string }) => m.sender_membership_id))]
   const senderByMessage = new Map<string, string>()
   for (const m of (messages ?? []) as { id: string; sender_membership_id: string }[]) {
     senderByMessage.set(m.id, m.sender_membership_id)
   }
-  const readCountMap = new Map<string, number>()
-  if (messageIds.length > 0) {
-    const { data: reads } = await supabase
-      .from("chat_message_reads")
-      .select("message_id, membership_id")
-      .eq("store_uuid", input.store_uuid)
+
+  // 2026-05-03 R-Speed-x10: 3개 lookup 병렬 fire (모두 messages 결과만 의존).
+  //   기존 직렬 3 wave → 1 wave. cursor 조회는 last_read 의존이라 sequential 유지.
+  const [nameMap, readsRes, cursorRowRes] = await Promise.all([
+    resolveMemberNames(supabase, input.store_uuid, senderIds),
+    messageIds.length > 0
+      ? supabase
+          .from("chat_message_reads")
+          .select("message_id, membership_id")
+          .eq("store_uuid", input.store_uuid)
+          .eq("room_id", input.chatRoomId)
+          .in("message_id", messageIds)
+      : Promise.resolve({ data: [] as Array<{ message_id: string; membership_id: string }> }),
+    supabase
+      .from("chat_read_cursors")
+      .select("last_read_message_id")
       .eq("room_id", input.chatRoomId)
-      .in("message_id", messageIds)
-    for (const r of (reads ?? []) as { message_id: string; membership_id: string }[]) {
-      if (senderByMessage.get(r.message_id) === r.membership_id) continue
-      readCountMap.set(r.message_id, (readCountMap.get(r.message_id) ?? 0) + 1)
-    }
+      .eq("membership_id", input.membership_id)
+      .eq("store_uuid", input.store_uuid)
+      .maybeSingle(),
+  ])
+
+  const readCountMap = new Map<string, number>()
+  for (const r of (readsRes.data ?? []) as { message_id: string; membership_id: string }[]) {
+    if (senderByMessage.get(r.message_id) === r.membership_id) continue
+    readCountMap.set(r.message_id, (readCountMap.get(r.message_id) ?? 0) + 1)
   }
 
-  // Caller's read cursor for is_read_by_me
-  const { data: cursorRow } = await supabase
-    .from("chat_read_cursors")
-    .select("last_read_message_id")
-    .eq("room_id", input.chatRoomId)
-    .eq("membership_id", input.membership_id)
-    .eq("store_uuid", input.store_uuid)
-    .maybeSingle()
+  const cursorRow = cursorRowRes.data
   let cursorCreatedAt: string | null = null
   if (cursorRow?.last_read_message_id) {
-    const { data: cursorMsg } = await supabase
-      .from("chat_messages")
-      .select("created_at")
-      .eq("id", cursorRow.last_read_message_id)
-      .maybeSingle()
-    cursorCreatedAt = cursorMsg?.created_at ?? null
+    // last_read_message_id 가 messages 안에 있으면 추가 RTT 없이 처리.
+    const inLoaded = (messages ?? []).find(
+      (m: { id: string; created_at: string }) => m.id === cursorRow.last_read_message_id,
+    )
+    if (inLoaded) {
+      cursorCreatedAt = inLoaded.created_at
+    } else {
+      const { data: cursorMsg } = await supabase
+        .from("chat_messages")
+        .select("created_at")
+        .eq("id", cursorRow.last_read_message_id)
+        .maybeSingle()
+      cursorCreatedAt = cursorMsg?.created_at ?? null
+    }
   }
 
   const enriched: EnrichedMessage[] = (messages ?? []).map((m: {
