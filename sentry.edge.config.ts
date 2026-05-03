@@ -13,7 +13,8 @@ if (dsn) {
   Sentry.init({
     dsn,
     enabled: process.env.NODE_ENV === "production",
-    tracesSampleRate: 0.05,
+    // 2026-05-03 R-Speed-x10: 5% → 2% (server config 와 동일).
+    tracesSampleRate: 0.02,
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
     sendDefaultPii: false,
   })

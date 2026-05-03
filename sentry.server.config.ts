@@ -19,8 +19,10 @@ if (dsn) {
     dsn,
     // 프로덕션에서만 sampling. dev 환경 로컬 노이즈 차단.
     enabled: process.env.NODE_ENV === "production",
-    // 트랜잭션 5%. 비용 통제 + 핵심 흐름 가시성.
-    tracesSampleRate: 0.05,
+    // 2026-05-03 R-Speed-x10: 5% → 2%. 매 request 의 instrumentation 오버헤드
+    //   감소 (API hot path 응답 변동 제거). 통계적으로 2% 도 평균 분당 91 trace
+    //   (380명 × 5s 폴링 환경) — 핵심 흐름 가시성 충분.
+    tracesSampleRate: 0.02,
     // 환경 태그 — staging/production 분리.
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
     // PII 보호. user.id 만 보내고 email/IP 는 안 보냄.
