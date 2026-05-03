@@ -67,29 +67,32 @@ export async function GET(request: Request) {
     }
     const rows = (data ?? []) as BoardRow[]
 
-    // 매장 이름 lookup (UI 표시용)
+    // 2026-05-03 R-Speed-x10: stores + responses 직렬 → Promise.all 병렬.
+    //   둘 다 rows 결과만 의존 (서로 무관). 직렬 ~2 RTT → 1 RTT.
     const storeIds = Array.from(new Set(rows.map((r) => r.store_uuid)))
+    const [storesRes, respRowsRes] = await Promise.all([
+      storeIds.length > 0
+        ? supabase
+            .from("stores")
+            .select("id, store_name, floor_no")
+            .in("id", storeIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; store_name: string; floor_no: number | null }> }),
+      rows.length > 0
+        ? supabase
+            .from("staff_request_responses")
+            .select("request_id")
+            .in("request_id", rows.map((r) => r.id))
+        : Promise.resolve({ data: [] as Array<{ request_id: string }> }),
+    ])
+
     const storeNameMap = new Map<string, string>()
-    if (storeIds.length > 0) {
-      const { data: stores } = await supabase
-        .from("stores")
-        .select("id, store_name, floor_no")
-        .in("id", storeIds)
-      for (const s of (stores ?? []) as Array<{ id: string; store_name: string; floor_no: number | null }>) {
-        storeNameMap.set(s.id, `${s.floor_no ? `${s.floor_no}층 ` : ""}${s.store_name}`)
-      }
+    for (const s of (storesRes.data ?? []) as Array<{ id: string; store_name: string; floor_no: number | null }>) {
+      storeNameMap.set(s.id, `${s.floor_no ? `${s.floor_no}층 ` : ""}${s.store_name}`)
     }
 
-    // 응답 수 lookup (요청별)
     const responseCount = new Map<string, number>()
-    if (rows.length > 0) {
-      const { data: respRows } = await supabase
-        .from("staff_request_responses")
-        .select("request_id")
-        .in("request_id", rows.map((r) => r.id))
-      for (const r of (respRows ?? []) as Array<{ request_id: string }>) {
-        responseCount.set(r.request_id, (responseCount.get(r.request_id) ?? 0) + 1)
-      }
+    for (const r of (respRowsRes.data ?? []) as Array<{ request_id: string }>) {
+      responseCount.set(r.request_id, (responseCount.get(r.request_id) ?? 0) + 1)
     }
 
     return NextResponse.json({
