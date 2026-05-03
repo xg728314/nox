@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { parseUuid } from "@/lib/security/guards"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: 영업일 상태는 영업 중에는 거의 안 바뀜.
+//   close/reopen 시점에만 변화. 10초 TTL 충분.
+const STATUS_TTL_MS = 10_000
 
 /**
  * STEP-017: GET /api/operating-days/status
@@ -39,36 +44,53 @@ export async function GET(request: Request) {
           { status: 400 }
         )
       }
-      const { data: day } = await supabase
-        .from("store_operating_days")
-        .select("id, store_uuid, business_date, status, closed_at, closed_by")
-        .eq("id", bdid)
-        .eq("store_uuid", auth.store_uuid)
-        .maybeSingle()
+      // 2026-05-03 R-Speed-x10: day + report 직렬 → Promise.all (둘 다 bdid 만 의존).
+      const [dayRes, reportRes] = await Promise.all([
+        supabase
+          .from("store_operating_days")
+          .select("id, store_uuid, business_date, status, closed_at, closed_by")
+          .eq("id", bdid)
+          .eq("store_uuid", auth.store_uuid)
+          .maybeSingle(),
+        supabase
+          .from("closing_reports")
+          .select("id, status, confirmed_at")
+          .eq("store_uuid", auth.store_uuid)
+          .eq("business_day_id", bdid)
+          .maybeSingle(),
+      ])
+      const day = dayRes.data
       if (!day) {
         return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
       }
-      const { data: report } = await supabase
-        .from("closing_reports")
-        .select("id, status, confirmed_at")
-        .eq("store_uuid", auth.store_uuid)
-        .eq("business_day_id", bdid)
-        .maybeSingle()
-      return NextResponse.json({
+      const res = NextResponse.json({
         business_day: day,
-        closing_report: report,
+        closing_report: reportRes.data,
         locked: day.status === "closed",
       })
+      res.headers.set("Cache-Control", "private, max-age=5, stale-while-revalidate=30")
+      return res
     }
 
-    const { data: rows } = await supabase
-      .from("store_operating_days")
-      .select("id, business_date, status, closed_at")
-      .eq("store_uuid", auth.store_uuid)
-      .order("business_date", { ascending: false })
-      .limit(10)
+    type DayRow = { id: string; business_date: string; status: string; closed_at: string | null }
+    const rows = await cached<DayRow[]>(
+      "operating_days_recent",
+      auth.store_uuid,
+      STATUS_TTL_MS,
+      async () => {
+        const { data } = await supabase
+          .from("store_operating_days")
+          .select("id, business_date, status, closed_at")
+          .eq("store_uuid", auth.store_uuid)
+          .order("business_date", { ascending: false })
+          .limit(10)
+        return (data ?? []) as DayRow[]
+      },
+    )
 
-    return NextResponse.json({ days: rows ?? [] })
+    const res = NextResponse.json({ days: rows })
+    res.headers.set("Cache-Control", "private, max-age=5, stale-while-revalidate=30")
+    return res
   } catch (e) {
     if (e instanceof AuthError) {
       const status = e.type === "AUTH_MISSING" || e.type === "AUTH_INVALID" ? 401 : 403
