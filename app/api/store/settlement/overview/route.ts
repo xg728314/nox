@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getStoreSettlementOverview } from "@/lib/server/queries/store/settlementOverview"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: 정산 overview 는 영업 중에 자주 바뀌지만 (체크아웃마다)
+//   사용자가 owner 페이지에 머무르는 동안 N초마다 polling. 5초 TTL + SWR 로 충분.
+//   현재 영업일 (business_day_id 없음) vs 과거 영업일 (closed) 둘 다 캐시 안전.
+const OVERVIEW_TTL_MS = 5000
 
 export async function GET(request: Request) {
   try {
@@ -17,8 +23,22 @@ export async function GET(request: Request) {
     const paramBusinessDayId = searchParams.get("business_day_id")
 
     try {
-      const data = await getStoreSettlementOverview(authContext, { business_day_id: paramBusinessDayId })
-      return NextResponse.json(data)
+      const cacheKey = `${authContext.store_uuid}:${authContext.role}:${authContext.membership_id}:${paramBusinessDayId ?? "today"}`
+      const data = await cached(
+        "store_settlement_overview",
+        cacheKey,
+        OVERVIEW_TTL_MS,
+        () =>
+          getStoreSettlementOverview(authContext, {
+            business_day_id: paramBusinessDayId,
+          }),
+      )
+      const res = NextResponse.json(data)
+      res.headers.set(
+        "Cache-Control",
+        "private, max-age=3, stale-while-revalidate=15",
+      )
+      return res
     } catch (e) {
       const msg = e instanceof Error ? e.message : "err"
       return NextResponse.json(
