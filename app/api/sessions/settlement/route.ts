@@ -36,7 +36,11 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 1. Verify session exists and belongs to this store
+    // 2026-05-03 R-Speed-x10: 정산 query 병렬화.
+    //   기존: session(1) → bizDay(1) → existingReceipt(1) → participants(1) →
+    //         orders(1) → settings(1) → preSettlements(1). 7 RTT 직렬 ~600ms.
+    //   현재: session 먼저 (다른 query 들이 결과 의존) → 나머지 6개 Promise.all.
+    //   1 + max(6) RTT ≈ 200ms.
     const { data: session, error: sessionError } = await supabase
       .from("room_sessions")
       .select("id, store_uuid, room_uuid, business_day_id, status")
@@ -65,33 +69,67 @@ export async function POST(request: Request) {
       )
     }
 
-    // 1.5 마감 후 수정 제한
-    {
-      const { data: bizDay } = await supabase
+    // 1단계 6개 query 병렬화 — 모두 session_id + store_uuid + business_day_id 만 의존.
+    //   inventory_items 만 orders 결과에 의존하므로 다음 wave.
+    const [
+      bizDayRes,
+      existingReceiptRes,
+      participantsRes,
+      ordersRes,
+      settingsRes,
+      preSettlementsRes,
+    ] = await Promise.all([
+      supabase
         .from("store_operating_days")
         .select("status")
         .eq("id", session.business_day_id)
         .eq("store_uuid", authContext.store_uuid)
         .is("deleted_at", null)
-        .maybeSingle()
-      if (bizDay && bizDay.status === "closed") {
-        return NextResponse.json(
-          { error: "BUSINESS_DAY_CLOSED", message: "영업일이 마감되었습니다. 정산을 수정할 수 없습니다." },
-          { status: 403 }
-        )
-      }
+        .maybeSingle(),
+      supabase
+        .from("receipts")
+        .select("id, status, version")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("session_participants")
+        .select("id, membership_id, role, category, price_amount, manager_payout_amount, hostess_payout_amount, time_minutes, status, origin_store_uuid")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null),
+      supabase
+        .from("orders")
+        .select("id, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, inventory_item_id")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null),
+      supabase
+        .from("store_settings")
+        .select("tc_rate, rounding_unit")
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("pre_settlements")
+        .select("id, amount")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("status", "active")
+        .is("deleted_at", null),
+    ])
+
+    if (bizDayRes.data && bizDayRes.data.status === "closed") {
+      return NextResponse.json(
+        { error: "BUSINESS_DAY_CLOSED", message: "영업일이 마감되었습니다. 정산을 수정할 수 없습니다." },
+        { status: 403 }
+      )
     }
 
-    // 2. Check for existing draft receipt (prevent duplicate)
-    const { data: existingReceipt } = await supabase
-      .from("receipts")
-      .select("id, status, version")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
+    const existingReceipt = existingReceiptRes.data
     if (existingReceipt && existingReceipt.status === "finalized") {
       return NextResponse.json(
         { error: "ALREADY_FINALIZED", message: "Settlement is already finalized. Cannot overwrite." },
@@ -99,14 +137,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // 3. Fetch session_participants (scoped by store_uuid)
-    const { data: participants, error: participantsError } = await supabase
-      .from("session_participants")
-      .select("id, membership_id, role, category, price_amount, manager_payout_amount, hostess_payout_amount, time_minutes, status, origin_store_uuid")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-
+    const { data: participants, error: participantsError } = participantsRes
     if (participantsError) {
       return NextResponse.json(
         { error: "QUERY_FAILED", message: "Failed to query participants." },
@@ -114,14 +145,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // 4. Fetch orders (scoped by store_uuid)
-    const { data: orders, error: ordersError } = await supabase
-      .from("orders")
-      .select("id, qty, unit_price, store_price, sale_price, manager_amount, customer_amount, inventory_item_id")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-
+    const { data: orders, error: ordersError } = ordersRes
     if (ordersError) {
       return NextResponse.json(
         { error: "QUERY_FAILED", message: "Failed to query orders." },
@@ -129,7 +153,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // 4.5 Fetch inventory unit_cost for inventory-linked orders
+    // 2단계 (orders 의존): inventory_items unit_cost lookup.
     const typedOrders = (orders ?? []) as OrderRow[]
     const inventoryItemIds = Array.from(
       new Set(typedOrders.map((o) => o.inventory_item_id).filter((x): x is string => !!x))
@@ -146,14 +170,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 5. Fetch store settings for TC rate
-    const { data: settings } = await supabase
-      .from("store_settings")
-      .select("tc_rate, rounding_unit")
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .limit(1)
-      .maybeSingle()
+    const settings = settingsRes.data
 
     const tcRate = Number(settings?.tc_rate ?? 0)
     const roundingUnit = settings?.rounding_unit ?? 1000
@@ -167,14 +184,8 @@ export async function POST(request: Request) {
       { tcRate, roundingUnit }
     )
 
-    // 5.5 선정산
-    const { data: preSettlements } = await supabase
-      .from("pre_settlements")
-      .select("id, amount")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("status", "active")
-      .is("deleted_at", null)
+    // 5.5 선정산 — 위 Promise.all 결과 사용 (직렬 RTT 1회 절감).
+    const preSettlements = preSettlementsRes.data
 
     // 2026-04-24 P0 fix: NUMERIC string / null / NaN 으로 들어와도 grossTotal
     //   오염 안 되도록 엄격 변환. finite 숫자만 합산.
@@ -374,8 +385,8 @@ export async function POST(request: Request) {
         .eq("store_uuid", authContext.store_uuid)
     }
 
-    // 8. Audit event
-    await writeSessionAudit(supabase, {
+    // 8. Audit event — background fire (응답 latency 차감 ~150ms).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "receipts",
@@ -402,6 +413,8 @@ export async function POST(request: Request) {
         participant_total_amount: totals.participantTotal,
         status: "draft",
       },
+    }).catch((e) => {
+      console.warn("[settlement] audit failed:", e instanceof Error ? e.message : e)
     })
 
     // 9. Owner visibility

@@ -103,50 +103,54 @@ export async function POST(request: Request) {
       updateFields.margin_amount = 0
     }
 
-    const { error: updateError } = await supabase
+    // 2026-05-03 R-Speed-x10: 4 RTT (UPDATE → SELECT → UPDATE exit_type → audit)
+    //   → 1 RTT (UPDATE returning + audit background). 약 400ms 절감.
+    updateFields.exit_type = exitType
+
+    type UpdatedRow = { id: string; session_id: string; status: string; left_at: string; price_amount: number }
+    let updated: UpdatedRow | null = null
+    const { data: u1, error: u1Err } = await supabase
       .from("session_participants")
       .update(updateFields)
       .eq("id", participant_id)
       .eq("store_uuid", authContext.store_uuid)
-
-    if (updateError) {
-      return NextResponse.json(
-        {
-          error: "MID_OUT_FAILED",
-          message: `Failed to update participant: ${updateError.message}`,
-          detail: updateError.details || null,
-          hint: updateError.hint || null,
-          code: updateError.code || null,
-        },
-        { status: 500 }
-      )
-    }
-
-    // Re-fetch the updated participant for response/audit
-    const { data: updated } = await supabase
-      .from("session_participants")
       .select("id, session_id, status, left_at, price_amount")
-      .eq("id", participant_id)
-      .eq("store_uuid", authContext.store_uuid)
       .single()
+
+    if (!u1Err && u1) {
+      updated = u1 as UpdatedRow
+    } else {
+      // exit_type 컬럼 부재 (migration 013 미적용) fallback.
+      const fallbackFields = { ...updateFields }
+      delete fallbackFields.exit_type
+      const { data: u2, error: u2Err } = await supabase
+        .from("session_participants")
+        .update(fallbackFields)
+        .eq("id", participant_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .select("id, session_id, status, left_at, price_amount")
+        .single()
+      if (u2Err || !u2) {
+        return NextResponse.json(
+          {
+            error: "MID_OUT_FAILED",
+            message: `Failed to update participant: ${(u1Err ?? u2Err)?.message ?? "unknown"}`,
+          },
+          { status: 500 }
+        )
+      }
+      updated = u2 as UpdatedRow
+    }
 
     if (!updated) {
       return NextResponse.json(
-        { error: "MID_OUT_FAILED", message: "Update succeeded but re-fetch failed.", participant_id },
+        { error: "MID_OUT_FAILED", message: "Update succeeded but no row returned.", participant_id },
         { status: 500 }
       )
     }
 
-    // 4-1. exit_type 컬럼 업데이트 (migration 013 미적용 시에도 핵심 로직 차단 방지)
-    await supabase
-      .from("session_participants")
-      .update({ exit_type: exitType })
-      .eq("id", participant_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .then(() => {}, () => {})
-
-    // 5. Record audit event
-    await writeSessionAudit(supabase, {
+    // 5. Audit — background fire (응답 latency 차감 ~150ms).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "session_participants",
@@ -159,6 +163,8 @@ export async function POST(request: Request) {
         exit_type: exitType,
         price_amount: updated.price_amount,
       },
+    }).catch((e) => {
+      console.warn("[mid-out] audit failed:", e instanceof Error ? e.message : e)
     })
 
     return NextResponse.json(

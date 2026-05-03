@@ -132,7 +132,8 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 1. Look up session
+    // 2026-05-03 R-Speed-x10: session 먼저 (room/store/receipt 가 결과 의존),
+    //   그 다음 3개 query Promise.all. 4 RTT 직렬 → 2 RTT.
     const { data: session, error: sessionError } = await supabase
       .from("room_sessions")
       .select("id, store_uuid, room_uuid, started_at, ended_at, status, manager_name, customer_name_snapshot, customer_party_size")
@@ -153,34 +154,33 @@ export async function POST(request: Request) {
       )
     }
 
-    // 2. Fetch room label
-    const { data: room } = await supabase
-      .from("rooms")
-      .select("room_no, room_name")
-      .eq("id", session.room_uuid)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .maybeSingle()
-
+    // 2-3. room + store + receipt 동시 fetch.
+    const [roomRes, storeRes, receiptRes] = await Promise.all([
+      supabase
+        .from("rooms")
+        .select("room_no, room_name")
+        .eq("id", session.room_uuid)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .maybeSingle(),
+      supabase
+        .from("stores")
+        .select("store_name")
+        .eq("id", authContext.store_uuid)
+        .maybeSingle(),
+      supabase
+        .from("receipts")
+        .select("id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status, payment_method, card_fee_amount")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+    const room = roomRes.data
     const roomLabel = formatRoomLabel(room)
-
-    // 2.5 Fetch store display name
-    const { data: storeRow } = await supabase
-      .from("stores")
-      .select("store_name")
-      .eq("id", authContext.store_uuid)
-      .maybeSingle()
-    const storeName: string | null = storeRow?.store_name ?? null
-
-    // 3. Fetch receipt (settlement data) — optional for interim
-    const { data: receipt } = await supabase
-      .from("receipts")
-      .select("id, gross_total, tc_amount, manager_amount, hostess_amount, margin_amount, order_total_amount, participant_total_amount, status, payment_method, card_fee_amount")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const storeName: string | null = storeRes.data?.store_name ?? null
+    const receipt = receiptRes.data
 
     if (receiptType === "final" && !receipt) {
       console.warn("[receipt POST] final receipt requested without settlement row; generating from live snapshot", { session_id })
@@ -232,8 +232,8 @@ export async function POST(request: Request) {
     // Patch snapshot_id into document
     document.snapshot_id = snapshot.id
 
-    // 6. Audit event
-    await writeSessionAudit(supabase, {
+    // 6. Audit event — background fire (응답 latency 차감 ~150ms).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "receipt_snapshots",
@@ -250,6 +250,8 @@ export async function POST(request: Request) {
         grand_total: document.grand_total,
         created_at: document.created_at,
       },
+    }).catch((e) => {
+      console.warn("[receipt POST] audit failed:", e instanceof Error ? e.message : e)
     })
 
     // 7. Owner visibility strip

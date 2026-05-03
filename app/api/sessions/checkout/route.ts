@@ -148,7 +148,9 @@ export async function POST(request: Request) {
     }
 
     // ── Audit (app-layer post-success) ──────────────────────────────────
-    await writeSessionAudit(supabase, {
+    // 2026-05-03 R-Speed-x10: 3개 audit await → background fire.
+    //   기존: 직렬 3 RTT (~450ms). 현재: 즉시 응답, audit 백그라운드.
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "room_sessions",
@@ -160,10 +162,12 @@ export async function POST(request: Request) {
         ended_at: result.ended_at,
         closed_by: authContext.user_id,
       },
+    }).catch((e) => {
+      console.warn("[checkout] session audit failed:", e instanceof Error ? e.message : e)
     })
 
     if (result.participants_closed_count > 0) {
-      await writeSessionAudit(supabase, {
+      void writeSessionAudit(supabase, {
         auth: authContext,
         session_id,
         entity_table: "session_participants",
@@ -175,16 +179,16 @@ export async function POST(request: Request) {
           left_at: result.ended_at,
           participants_closed_count: result.participants_closed_count,
         },
+      }).catch((e) => {
+        console.warn("[checkout] participants audit failed:", e instanceof Error ? e.message : e)
       })
     }
 
     if (result.chat_closed) {
       // NOTE: post-cutover audit entity_id is the session_id rather than the
-      // chat_room.id returned by the previous app-layer SELECT. The chat_rooms
-      // row is 1:1 with session_id for type='room_session', so lookups by
-      // session_id remain unambiguous. Minor semantic drift preserved
-      // intentionally to avoid a second round-trip to recover the chat row id.
-      await writeSessionAudit(supabase, {
+      // chat_room.id returned by the previous app-layer SELECT. chat_rooms
+      // row 는 type='room_session' 인 경우 1:1 이라 session_id 로 식별 가능.
+      void writeSessionAudit(supabase, {
         auth: authContext,
         session_id,
         entity_table: "chat_rooms",
@@ -196,6 +200,8 @@ export async function POST(request: Request) {
           closed_at: result.ended_at,
           closed_reason: "checkout",
         },
+      }).catch((e) => {
+        console.warn("[checkout] chat audit failed:", e instanceof Error ? e.message : e)
       })
     }
 
