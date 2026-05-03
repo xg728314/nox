@@ -77,13 +77,14 @@ export async function POST(request: Request) {
     const supabase = svc.supabase
 
     // 2026-05-01 R-Counter-Speed: session 검증 + origin store resolve 병렬 fire.
-    //   session 은 store_uuid + status 검증, store 는 origin_store_name → uuid resolve.
-    //   둘 다 body params 만 의존. 직렬 → Promise.all.
+    // 2026-05-03 R-Speed-x10: business_day 도 같이 prefetch 해서 추가 RTT 절감.
+    //   매장의 가장 최근 2개 영업일 미리 가져와서 session.business_day_id 와
+    //   매칭되면 즉시 사용 (orders POST 와 동일 패턴).
     const originNameTrimmed =
       typeof originStoreNameParam === "string" && originStoreNameParam.trim().length > 0
         ? originStoreNameParam.trim()
         : null
-    const [sessionRes, originStoreRes] = await Promise.all([
+    const [sessionRes, originStoreRes, recentBizDaysRes] = await Promise.all([
       supabase
         .from("room_sessions")
         .select("id, store_uuid, status, business_day_id")
@@ -98,6 +99,13 @@ export async function POST(request: Request) {
             .limit(1)
             .maybeSingle()
         : Promise.resolve({ data: null as { id?: string } | null }),
+      supabase
+        .from("store_operating_days")
+        .select("id, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .order("business_date", { ascending: false })
+        .limit(2),
     ])
 
     const { data: session, error: sessionError } = sessionRes
@@ -110,10 +118,22 @@ export async function POST(request: Request) {
     if (session.store_uuid !== authContext.store_uuid) {
       return NextResponse.json({ error: "STORE_MISMATCH", message: "Session does not belong to your store." }, { status: 403 })
     }
-    // Business day closure guard
+    // Business day closure guard — Promise.all prefetch 매칭 우선, fallback 만 추가 RTT.
     {
-      const guard = await assertBusinessDayOpen(supabase, session.business_day_id)
-      if (guard) return guard
+      const cached = (recentBizDaysRes.data ?? []) as Array<{ id: string; status: string }>
+      const matched = cached.find((d) => d.id === session.business_day_id)
+      if (matched) {
+        if (matched.status === "closed") {
+          return NextResponse.json(
+            { error: "BUSINESS_DAY_CLOSED", message: "영업일이 마감되었습니다." },
+            { status: 403 },
+          )
+        }
+      } else {
+        // session 의 business_day 가 최근 2건 안에 없는 케이스 (드물게).
+        const guard = await assertBusinessDayOpen(supabase, session.business_day_id)
+        if (guard) return guard
+      }
     }
     const preResolvedOriginStoreId =
       (originStoreRes.data as { id?: string } | null)?.id ?? null

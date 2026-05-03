@@ -11,6 +11,7 @@ import StaffChatInput from "../../components/StaffChatInput"
 import { parseStaffChat } from "../../helpers/staffChatParser"
 import { ticketToPreset } from "../../hooks/useParticipantMutations"
 import CafeOrderButton from "@/components/cafe/CafeOrderButton"
+import { apiFetch } from "@/lib/apiFetch"
 
 export default function StaffChatInputWidget() {
   const {
@@ -50,30 +51,87 @@ export default function StaffChatInputWidget() {
           let successCount = 0
           let lastParticipantId: string | null = null
           const successParticipantIds: string[] = []
-          // 2026-05-01 R-Counter-Speed: 직렬 for-of → Promise.all 병렬.
-          //   서버는 각 POST 가 독립 INSERT 라 순서 의존 없음. 4명 entry 면
-          //   직렬 4× RTT → 1× RTT (max-of-4).
-          const results = await Promise.all(
-            entries.map((entry) =>
-              onAddHostessWithName({
-                external_name: entry.name,
-                session_id: activeSessionId,
-                origin_store_name: entry.origin_store_name,
-                category: entry.category,
-                ticket_type: entry.ticket_type,
-              }).then((res) => ({ entry, res }))
-            )
-          )
-          for (const { entry, res } of results) {
-            if (res.ok) {
-              successCount++
-              if (res.participant_id) {
-                lastParticipantId = res.participant_id
-                successParticipantIds.push(res.participant_id)
+
+          // 2026-05-03 R-Speed-x10: N명 entry 시 batch endpoint 사용.
+          //   기존: Promise.all 병렬 fire 했지만 Cloud Run 단일 instance + cpu=1
+          //   라 서버 내부에서 부분 직렬화 → 11명 6.8초.
+          //   현재: /api/sessions/participants/batch 1 RTT 로 N개 INSERT.
+          if (entries.length >= 2 && activeSessionId) {
+            // session_id 가 없는 경우 (방이 비어있음) 만 단일 path → checkin 필요.
+            // 활성 세션이 있으면 batch 가능.
+            try {
+              const batchEntries = entries.map((entry) => {
+                const cat = entry.category ?? null
+                const preset = cat ? ticketToPreset(entry.ticket_type, cat) : null
+                return {
+                  membership_id: "00000000-0000-0000-0000-000000000000",
+                  role: "hostess" as const,
+                  external_name: entry.name,
+                  origin_store_name: entry.origin_store_name ?? undefined,
+                  category: cat ?? undefined,
+                  time_type: preset?.time_type,
+                  time_minutes: preset?.time_minutes ?? 0,
+                  greeting_confirmed: true,
+                }
+              })
+              const res = await apiFetch("/api/sessions/participants/batch", {
+                method: "POST",
+                body: JSON.stringify({
+                  session_id: activeSessionId,
+                  entries: batchEntries,
+                }),
+              })
+              const data = await res.json()
+              if (!res.ok) {
+                failures.push(data?.message ?? "batch 실패")
+              } else {
+                const results: Array<
+                  | { ok: true; participant_id: string; index: number; origin_store_uuid: string | null }
+                  | { ok: false; index: number; error: string }
+                > = data?.results ?? []
+                for (const r of results) {
+                  if ("ok" in r && r.ok) {
+                    successCount++
+                    if (r.participant_id) {
+                      lastParticipantId = r.participant_id
+                      successParticipantIds.push(r.participant_id)
+                    }
+                    if (entries[r.index]?.origin_store_name && r.origin_store_uuid == null) {
+                      addWarnings.push(`${entries[r.index].name}: 소속 매장 매핑 실패`)
+                    }
+                  } else if (!r.ok) {
+                    const name = entries[r.index]?.name ?? "?"
+                    failures.push(`${name}: ${r.error}`)
+                  }
+                }
               }
-              if (res.warning) addWarnings.push(`${entry.name}: ${res.warning}`)
-            } else {
-              failures.push(`${entry.name}: ${res.error ?? "실패"}`)
+            } catch {
+              failures.push("네트워크 오류 (batch)")
+            }
+          } else {
+            // 단일 entry 또는 활성 세션 없음 → 기존 path (checkin + 단일 POST).
+            const results = await Promise.all(
+              entries.map((entry) =>
+                onAddHostessWithName({
+                  external_name: entry.name,
+                  session_id: activeSessionId,
+                  origin_store_name: entry.origin_store_name,
+                  category: entry.category,
+                  ticket_type: entry.ticket_type,
+                }).then((res) => ({ entry, res }))
+              )
+            )
+            for (const { entry, res } of results) {
+              if (res.ok) {
+                successCount++
+                if (res.participant_id) {
+                  lastParticipantId = res.participant_id
+                  successParticipantIds.push(res.participant_id)
+                }
+                if (res.warning) addWarnings.push(`${entry.name}: ${res.warning}`)
+              } else {
+                failures.push(`${entry.name}: ${res.error ?? "실패"}`)
+              }
             }
           }
           setStaffChatSubmitting(false)
