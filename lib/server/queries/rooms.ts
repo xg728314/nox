@@ -1,5 +1,6 @@
 import type { AuthContext } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
 export type SessionInfo = {
   id: string
@@ -58,7 +59,10 @@ export async function getRooms(auth: AuthContext): Promise<RoomsResponse> {
   // 2026-05-01 R-Counter-Speed: rooms + sessions + bizDay 모두 store_uuid
   //   만 의존 → 3개 동시 fire. 직렬 ~3 round-trip → 1 round-trip.
   // session fallback 체인은 첫 시도가 실패한 경우만 가동.
-  const today = new Date().toISOString().split("T")[0]
+  // 2026-05-03 R-KST-fix: 기존 `new Date().toISOString().split("T")[0]` 은 UTC.
+  //   KST 00:00~08:59 시간대에 카운터 호출 → 전날 business_day 로 lookup →
+  //   "오늘 기록 없음" 으로 dailyTotals null. KST 영업일 보정 helper 사용.
+  const today = getBusinessDateForOps()
   const [roomsRes, sessionsRes, bizDayRes] = await Promise.all([
     supabase
       .from("rooms")
