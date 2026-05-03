@@ -66,10 +66,15 @@ steps:
       - --platform=managed
       - --allow-unauthenticated
       - --memory=2Gi
-      - --cpu=1
+      # 2026-05-03 R-Speed-x10: cpu 1 → 2.
+      #   1 CPU 단일 instance 가 11명 동시 participants POST 처리 시 CPU 큐잉
+      #   → 응답 변동 386-672ms. 2 CPU 면 동시 처리 능력 증가, 변동 감소.
+      #   비용: 시간당 ~2배. min-instances=1 환경에서 월 추가 ~$30 추정.
+      - --cpu=2
       - --min-instances=1
       - --max-instances=10
-      - --concurrency=50
+      # concurrency 50 → 80 (cpu=2 + 캐시 강화로 처리 능력 ↑).
+      - --concurrency=80
       - --timeout=300s
       # 2026-04-30: CPU always-allocated (background work / Sentry flush 안정성).
       #   기본은 request-based — 요청 사이 CPU throttle. cron / realtime / sentry

@@ -14,7 +14,10 @@ if (dsn) {
 
     enabled: process.env.NODE_ENV === "production",
 
-    tracesSampleRate: 1.0,
+    // 2026-05-03 R-Speed-x10: 1.0 → 0.02. 100% trace 가 클라 hot path 에 ~10-30ms 추가.
+    //   2% sampling 으로 충분 (production 트래픽 380명 × 5초 폴링 = 분당 4560 req,
+    //   2% = 91 trace/min — Sentry quota 안전).
+    tracesSampleRate: 0.02,
 
     environment:
       process.env.NEXT_PUBLIC_VERCEL_ENV ??
