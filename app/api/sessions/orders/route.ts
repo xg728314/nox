@@ -269,7 +269,8 @@ export async function POST(request: Request) {
     }
 
     // 2026-05-03 R-Speed-x10: orders 캐시 무효화 (POST 후 다음 GET 즉시 fresh).
-    invalidateCache("session_orders")
+    //   key 정확히 매치 — 다른 세션 캐시까지 날리지 않도록.
+    invalidateCache("session_orders", `${authContext.store_uuid}:${session_id}`)
 
     // 9. Record audit event — 2026-05-01 R-Counter-Speed: background fire.
     //   await 차단 제거 → 응답 latency 100-200ms 단축.

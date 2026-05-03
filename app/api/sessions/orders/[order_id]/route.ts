@@ -38,8 +38,8 @@ export async function PATCH(
       return NextResponse.json({ error: "UPDATE_FAILED", message: updateError?.message || "Failed to update order." }, { status: 500 })
     }
 
-    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 + audit background.
-    invalidateCache("session_orders")
+    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 (정확한 key) + audit background.
+    invalidateCache("session_orders", `${authContext.store_uuid}:${order.session_id}`)
 
     void writeSessionAudit(supabase, {
       auth: authContext,
@@ -111,8 +111,8 @@ export async function DELETE(
       })
     }
 
-    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 + audit background.
-    invalidateCache("session_orders")
+    // 2026-05-03 R-Speed-x10: orders 캐시 무효화 (정확한 key) + audit background.
+    invalidateCache("session_orders", `${authContext.store_uuid}:${order.session_id}`)
 
     void writeSessionAudit(supabase, {
       auth: authContext,
