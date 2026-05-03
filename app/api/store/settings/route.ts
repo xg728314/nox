@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: store_settings 는 영업일 중 잠겨있고 owner 만 변경 →
+//   변경 빈도 매우 낮음. 카운터 / 정산 / 청구서 화면이 자주 읽음 (TC율, 카드수수료,
+//   웨이터팁 default 등). 30초 TTL + SWR 충분. PATCH 시 invalidate.
+const SETTINGS_TTL_MS = 30_000
 
 export async function GET(request: Request) {
   try {
@@ -26,72 +32,85 @@ export async function GET(request: Request) {
     const FULL_COLS = "id, store_uuid, tc_rate, manager_payout_rate, hostess_payout_rate, payout_basis, rounding_unit, card_fee_rate, default_waiter_tip, attendance_period_days, attendance_min_days, performance_unit, performance_min_count, monthly_rent, monthly_utilities, monthly_misc, liquor_target_mode, liquor_target_amount, updated_at"
     const BASE_COLS = "id, store_uuid, tc_rate, manager_payout_rate, hostess_payout_rate, payout_basis, rounding_unit, card_fee_rate, default_waiter_tip, updated_at"
 
-    async function tryQuery(cols: string) {
-      return await supabase
-        .from("store_settings")
-        .select(cols)
-        .eq("store_uuid", authContext.store_uuid)
-        .is("deleted_at", null)
-        .maybeSingle()
+    type SettingsResp = {
+      store_uuid: string
+      settings: Record<string, unknown> | null
+      message?: string
     }
 
-    let { data: settings, error: fetchError } = await tryQuery(FULL_COLS)
-    if (fetchError && (fetchError as { code?: string }).code === "42703") {
-      console.warn("[store/settings GET] 42703 — migration 095 미적용. BASE_COLS 폴백.")
-      const r = await tryQuery(BASE_COLS)
-      settings = r.data
-      fetchError = r.error
-    }
+    const payload = await cached<SettingsResp>(
+      "store_settings",
+      authContext.store_uuid,
+      SETTINGS_TTL_MS,
+      async () => {
+        async function tryQuery(cols: string) {
+          return await supabase
+            .from("store_settings")
+            .select(cols)
+            .eq("store_uuid", authContext.store_uuid)
+            .is("deleted_at", null)
+            .maybeSingle()
+        }
 
-    if (fetchError) {
-      console.error("[store/settings GET] fetchError:", JSON.stringify(fetchError))
-      return NextResponse.json(
-        {
-          error: "QUERY_FAILED",
-          message: "Failed to query store settings.",
-          detail: {
-            code: (fetchError as { code?: string }).code,
-            hint: (fetchError as { hint?: string | null }).hint,
-            message: (fetchError as { message?: string }).message,
+        let { data: settings, error: fetchError } = await tryQuery(FULL_COLS)
+        if (fetchError && (fetchError as { code?: string }).code === "42703") {
+          console.warn(
+            "[store/settings GET] 42703 — migration 095 미적용. BASE_COLS 폴백.",
+          )
+          const r = await tryQuery(BASE_COLS)
+          settings = r.data
+          fetchError = r.error
+        }
+
+        if (fetchError) {
+          console.error(
+            "[store/settings GET] fetchError:",
+            JSON.stringify(fetchError),
+          )
+          throw new Error(
+            `QUERY_FAILED:${(fetchError as { message?: string }).message ?? "Failed to query store settings."}`,
+          )
+        }
+
+        if (!settings) {
+          return {
+            store_uuid: authContext.store_uuid,
+            settings: null,
+            message: "No settings found. Default values apply.",
+          }
+        }
+
+        const s = settings as unknown as Record<string, unknown>
+        return {
+          store_uuid: authContext.store_uuid,
+          settings: {
+            id: s.id,
+            tc_rate: s.tc_rate,
+            manager_payout_rate: s.manager_payout_rate,
+            hostess_payout_rate: s.hostess_payout_rate,
+            payout_basis: s.payout_basis,
+            rounding_unit: s.rounding_unit,
+            card_fee_rate: s.card_fee_rate,
+            default_waiter_tip: s.default_waiter_tip,
+            attendance_period_days: s.attendance_period_days ?? 7,
+            attendance_min_days: s.attendance_min_days ?? 3,
+            performance_unit: s.performance_unit ?? "weekly",
+            performance_min_count: s.performance_min_count ?? 5,
+            monthly_rent: s.monthly_rent ?? 0,
+            monthly_utilities: s.monthly_utilities ?? 0,
+            monthly_misc: s.monthly_misc ?? 0,
+            liquor_target_mode: s.liquor_target_mode ?? "auto",
+            liquor_target_amount: s.liquor_target_amount ?? 0,
+            updated_at: s.updated_at,
           },
-        },
-        { status: 500 }
-      )
-    }
-
-    if (!settings) {
-      return NextResponse.json({
-        store_uuid: authContext.store_uuid,
-        settings: null,
-        message: "No settings found. Default values apply.",
-      })
-    }
-
-    // R29-fix: BASE_COLS 폴백 후 settings 가 부분 row 일 수 있어 unknown 으로 캐스트.
-    const s = settings as unknown as Record<string, unknown>
-    return NextResponse.json({
-      store_uuid: authContext.store_uuid,
-      settings: {
-        id: s.id,
-        tc_rate: s.tc_rate,
-        manager_payout_rate: s.manager_payout_rate,
-        hostess_payout_rate: s.hostess_payout_rate,
-        payout_basis: s.payout_basis,
-        rounding_unit: s.rounding_unit,
-        card_fee_rate: s.card_fee_rate,
-        default_waiter_tip: s.default_waiter_tip,
-        attendance_period_days: s.attendance_period_days ?? 7,
-        attendance_min_days: s.attendance_min_days ?? 3,
-        performance_unit: s.performance_unit ?? "weekly",
-        performance_min_count: s.performance_min_count ?? 5,
-        monthly_rent: s.monthly_rent ?? 0,
-        monthly_utilities: s.monthly_utilities ?? 0,
-        monthly_misc: s.monthly_misc ?? 0,
-        liquor_target_mode: s.liquor_target_mode ?? "auto",
-        liquor_target_amount: s.liquor_target_amount ?? 0,
-        updated_at: s.updated_at,
+        }
       },
-    })
+    )
+
+    const res = NextResponse.json(payload)
+    // 30초 max-age + 5분 SWR — settings 가 자주 안 바뀌므로 안전한 큰 값.
+    res.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300")
+    return res
   } catch (error) {
     if (error instanceof AuthError) {
       const status =
@@ -102,6 +121,12 @@ export async function GET(request: Request) {
         error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
         error.type === "SERVER_CONFIG_ERROR" ? 500 : 500
       return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    if (error instanceof Error && error.message.startsWith("QUERY_FAILED:")) {
+      return NextResponse.json(
+        { error: "QUERY_FAILED", message: error.message.slice("QUERY_FAILED:".length) },
+        { status: 500 },
+      )
     }
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
   }
@@ -209,8 +234,12 @@ export async function PATCH(request: Request) {
       )
     }
 
-    // Audit
-    await supabase
+    // 캐시 invalidate — 다음 GET 은 fresh fetch.
+    invalidateCache("store_settings", authContext.store_uuid)
+
+    // Audit (background fire — PATCH 응답 지연 X).
+    // .then() 트리거 필수: Supabase builder 는 await/then 호출까진 fire 안 됨.
+    void supabase
       .from("audit_events")
       .insert({
         store_uuid: authContext.store_uuid,
@@ -222,6 +251,9 @@ export async function PATCH(request: Request) {
         entity_id: updated.id,
         action: "store_settings_updated",
         after: updateData,
+      })
+      .then(undefined, () => {
+        /* swallow audit failure — 정상 흐름에 영향 없음 */
       })
 
     return NextResponse.json({
