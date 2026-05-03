@@ -40,6 +40,8 @@ export type CurrentProfile = {
   store_uuid: string
   /** R-store-name (2026-04-30): 매장 이름. 상단 banner 표시용. null 가능. */
   store_name?: string | null
+  /** 2026-05-02 R-Cafe: 매장 층 (3=카페, 5~8=일반 매장). UI 분기용. */
+  store_floor?: number | null
   role: "owner" | "manager" | "waiter" | "staff" | "hostess"
   membership_status: "approved" | "pending" | "rejected" | "suspended"
   /** R-super-admin-view: 운영자 권한 여부. /api/auth/me 가 자체적으로 노출. */

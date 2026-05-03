@@ -52,6 +52,22 @@ export type RoomStaffEntry = {
   hostess_payout_won?: number
   /** Phase A2: 그 row 에서 실장이 가져갈 수익 (원). 카운터 정책상 0/5천/1만. */
   manager_payout_won?: number
+  /**
+   * R-AutoPrice (2026-05-01): 종이장부의 "1개반/2개반/3개반" 같은 복합 표기 정규화.
+   *   qty_full = 정식타임(완티) 횟수, has_half = 반티 1번 추가 여부.
+   *   server post-process 가 origin_store + service_type 으로 store_service_types
+   *   조회해 hostess_payout_won 자동 환산. 운영자가 금액 안 적었어도 정확.
+   *
+   *   예시:
+   *     "한나 1개반"  → qty_full=1, has_half=true   (퍼블릭=130k+70k=200k)
+   *     "가은 3개반"  → qty_full=3, has_half=true   (셔츠=140k×3+70k=490k)
+   *     "라원 2개반"  → qty_full=2, has_half=true   (셔츠=140k×2+70k=350k)
+   *     "아영 반티"   → qty_full=0, has_half=true   (하퍼 반티=60k)
+   *     "완티" / "2개" → qty_full=N, has_half=false
+   *     "차3"          → qty_full=0, has_half=false (time_tier="차3" 별도 처리)
+   */
+  qty_full?: number
+  has_half?: boolean
 }
 
 export type PaymentMethod = "cash" | "card" | "credit" | "mixed"
@@ -75,6 +91,63 @@ export type PaperRoomCell = {
   card_total_won?: number
   card_fee_won?: number
   payment_method?: PaymentMethod
+  /**
+   * R-AutoPrice (2026-05-01): "가게 입금 149만" 처럼 손님 결제액 (계좌/현금)
+   *   중에 가게로 실제 입금된 금액. cash_total_won (= 계좌 186만, 손님이
+   *   결제한 총액) 과 별개. 차이 = 외부매장 줄돈 직지급 + 양주 가게사입 등.
+   */
+  store_deposit_won?: number
+}
+
+// ─── 검증 결과 (R-AutoPrice 2026-05-01) ───────────────────────
+/**
+ * 운영자가 종이에 적은 합계와 시스템이 자동 환산한 합계를 비교한 결과.
+ * 차이 발생 시 UI 가 "16만원 차이" 식으로 표시 → 운영자가 어디 틀렸는지 즉시 인지.
+ */
+export type RoomValidation = {
+  room_no: string
+  /** 양주 합계 (liquor[*].amount_won 합). */
+  liquor_total_won: number
+  /** 스태프 줄돈 합계 (staff_entries[*].hostess_payout_won 합). */
+  staff_payout_total_won: number
+  /** 웨이터팁. */
+  waiter_tip_won: number
+  /** 자동 계산된 손님 청구 예상액 (양주 + 스태프 + 팁). */
+  expected_customer_total_won: number
+  /** 운영자가 적은 cash_total_won (계좌). */
+  paper_cash_total_won: number | null
+  /** paper - expected. + 면 운영자 적은 금액이 큼. */
+  cash_total_diff_won: number | null
+  /** 가게 실제 입금액. */
+  paper_store_deposit_won: number | null
+  /** cash - deposit (직지급/사입 추정 차액). */
+  cash_minus_deposit_won: number | null
+  /**
+   * R-AutoPrice 추가: 실장수익 = cash_total_won - store_deposit_won.
+   *   "다운 실장이 손님한테 받아서 가게에 입금한 후 본인이 가져간 금액".
+   *   양 쪽 다 있을 때만 의미 있음.
+   */
+  manager_profit_won: number | null
+  /** 사람이 봐야 할 경고. */
+  warnings: string[]
+}
+
+export type OweValidation = {
+  store_name: string
+  /** 종이 줄돈 박스 금액. */
+  paper_won: number
+  /** staff_entries[origin_store=X].hostess_payout_won 합계. */
+  computed_won: number
+  /** paper - computed. */
+  diff_won: number
+}
+
+export type ExtractionValidation = {
+  rooms: RoomValidation[]
+  /** owe[store] 박스 vs staff_entries 합계 비교. */
+  owe_per_store: OweValidation[]
+  /** 모든 차이 합 (참고용). */
+  total_warnings: number
 }
 
 // ─── 스태프 시트 (staff) ──────────────────────────────────────

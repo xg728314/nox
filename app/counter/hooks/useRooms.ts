@@ -146,7 +146,17 @@ export function useRooms(): UseRoomsReturn {
       setRooms(data.rooms || [])
       if (data.store_uuid) setCurrentStoreUuid(data.store_uuid)
 
-      if (data.business_day_id) {
+      // 2026-05-01 R-Counter-Speed: /api/rooms 응답에 daily_totals 가 있으면
+      //   별도 /api/reports/daily fetch 생략 (직렬 RTT 1회 절감, ~250ms).
+      //   business_day_id 있는데 daily_totals 빈 응답 (구버전 서버) 일 때만 fallback.
+      if (data.daily_totals) {
+        setDailySummary({
+          total_sessions: data.daily_totals.total_sessions ?? 0,
+          gross_total: data.daily_totals.gross_total ?? 0,
+          order_total: data.daily_totals.order_total ?? 0,
+          participant_total: data.daily_totals.participant_total ?? 0,
+        })
+      } else if (data.business_day_id) {
         const dr = await apiFetch(`/api/reports/daily?business_day_id=${data.business_day_id}`)
         if (dr.ok) {
           const dd = await dr.json()

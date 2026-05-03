@@ -3,6 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react"
 import { apiFetch } from "@/lib/apiFetch"
 import { getExtendMinutes, type ExtendType } from "../helpers"
+import { getServerNow } from "@/lib/time/serverClock"
 import type { FocusData } from "../types"
 
 /**
@@ -107,33 +108,6 @@ type UseParticipantMutationsReturn = {
 // (which is a ticket artifact, not a real category label from the parser).
 const VALID_CATS = ["퍼블릭", "셔츠", "하퍼"] as const
 
-// ── Store-name → store_uuid resolver cache ─────────────────────────
-//
-// Memoizes /api/store/staff?store_name=<name> lookups so a multi-name
-// submit against the same origin store only hits the network once.
-// Cache lives for the hook's module lifetime; operator rarely edits
-// store names mid-session, and a stale hit would only mis-label one
-// cross-store badge which is display-only (no settlement impact).
-const storeUuidCache: Map<string, string | null> = new Map()
-
-async function resolveStoreUuidByName(name: string): Promise<string | null> {
-  const key = name.trim()
-  if (!key) return null
-  if (storeUuidCache.has(key)) return storeUuidCache.get(key) ?? null
-  try {
-    const res = await apiFetch(
-      `/api/store/staff?role=hostess&store_name=${encodeURIComponent(key)}`
-    )
-    if (!res.ok) { storeUuidCache.set(key, null); return null }
-    const data = await res.json()
-    const uuid = typeof data?.store_uuid === "string" ? data.store_uuid : null
-    storeUuidCache.set(key, uuid)
-    return uuid
-  } catch {
-    return null
-  }
-}
-
 // ticketToPreset 은 helpers/categoryRegistry.ts 의 단일 원본에서 파생.
 // 기존 import 경로 (`import { ticketToPreset } from "../hooks/useParticipantMutations"`)
 // 유지하기 위해 여기서 re-export 한다. 새 위치에서 직접 import 해도 동일.
@@ -204,8 +178,10 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
     // 이미 처리된 participant는 건너뛰기
     const p = focusData.participants.find(x => x.id === participantId)
     if (!p || p.status !== "active") return
+    // 2026-05-03: getServerNow — PC 시계 어긋남 시 정산 영향 없는 분류였지만
+    //   실장 의사결정 (팅김 vs 퇴실) 에 직결돼 server 기준이 안전.
     const elapsedMin = p.entered_at
-      ? Math.floor((Date.now() - new Date(p.entered_at).getTime()) / 60000)
+      ? Math.floor((getServerNow() - new Date(p.entered_at).getTime()) / 60000)
       : 0
     const isKick = elapsedMin < 12
     const msg = isKick
@@ -334,6 +310,11 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       const cat = (args.category && (VALID_CATS as readonly string[]).includes(args.category))
         ? args.category : null
       const preset = cat ? ticketToPreset(args.ticket_type, cat) : null
+
+      // 2026-05-01 R-Counter-Speed: POST + 2 PATCH 직렬 호출을 단일 POST 로 통합.
+      //   external_name / origin_store_name 을 POST 본문에 직접 보냄. 서버가
+      //   store_name → uuid 를 INSERT 시 한 번에 resolve. 기존 4 RTT → 1 RTT.
+      const originName = args.origin_store_name?.trim() ?? ""
       const postBody: Record<string, unknown> = {
         session_id: sessionId,
         membership_id: "00000000-0000-0000-0000-000000000000",
@@ -342,12 +323,13 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         // Chat-based bulk input auto-confirms greeting so category/ticket
         // combinations that require 인사확인 (e.g. 셔츠 + 완티/반티)
         // don't 400 with "인사확인이 필요합니다 (greeting_confirmed=true)".
-        // Scope is limited to this handler — manual UI flows
-        // (handleAddHostess, ParticipantSetupSheetV2 edits) are unchanged.
         greeting_confirmed: true,
+        external_name: trimmed,
       }
       if (cat) postBody.category = cat
       if (preset) postBody.time_type = preset.time_type
+      if (originName) postBody.origin_store_name = originName
+
       const createRes = await apiFetch("/api/sessions/participants", {
         method: "POST",
         body: JSON.stringify(postBody),
@@ -361,60 +343,11 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         return { ok: false, error: "참여자 ID를 받지 못했습니다." }
       }
 
-      // Step 2: PATCH external_name using the existing supported action.
-      // Route path: app/api/sessions/participants/[participant_id]/route.ts
-      // verified to accept { action: "update_external_name", external_name }.
-      const patchRes = await apiFetch(`/api/sessions/participants/${participantId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ action: "update_external_name", external_name: trimmed }),
-      })
-      if (!patchRes.ok) {
-        const patchData = await patchRes.json().catch(() => ({}))
-        // Placeholder participant was still created successfully — surface
-        // the failure but don't attempt to roll it back. Operator can set
-        // the name via the existing inline edit on the unresolved card.
-        return {
-          ok: false,
-          participant_id: participantId,
-          error: patchData?.message || "이름 설정 실패 (참여자는 생성됨)",
-        }
-      }
-
-      // Step 2b: store affiliation — resolve parser's origin_store_name
-      // to a real store_uuid and PATCH it onto the participant row so the
-      // participant is a first-class citizen of that store (not just
-      // an "informational hint"). The PATCH goes through the
-      // fillUnspecified dispatch branch (triggered by membership_id in
-      // the body) which accepts origin_store_uuid; we pass membership_id
-      // as null so the server keeps the placeholder membership. Category
-      // and time_minutes are omitted so fillUnspecified re-uses the
-      // values already on the row (set in step 1 POST) — no client-side
-      // re-derivation. This block NEVER fails participant creation; if
-      // the resolver returns no match or the PATCH errors, we keep the
-      // row and surface a warning.
+      // 소속 매장 resolve 결과 확인 — 서버가 origin_store_name 을 받았지만
+      // 실제 store row 가 없어서 origin_store_uuid 가 null 이면 warning.
       let affiliationWarning: string | null = null
-      const originName = args.origin_store_name?.trim() ?? ""
-      if (originName) {
-        const resolvedUuid = await resolveStoreUuidByName(originName)
-        if (!resolvedUuid) {
-          affiliationWarning = `소속 매장 "${originName}" 를 찾지 못했습니다.`
-        } else {
-          const affRes = await apiFetch(
-            `/api/sessions/participants/${participantId}`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                membership_id: null,
-                origin_store_uuid: resolvedUuid,
-              }),
-            }
-          )
-          if (!affRes.ok) {
-            const d = await affRes.json().catch(() => ({}))
-            affiliationWarning =
-              `소속 매장 설정 실패 (${originName}): ${d?.message ?? ""}`.trim()
-          }
-        }
+      if (originName && createData.origin_store_uuid == null) {
+        affiliationWarning = `소속 매장 "${originName}" 를 찾지 못했습니다.`
       }
 
       // Step 3 (optional): "반차3" boundary — apply a cha3 add-on on top

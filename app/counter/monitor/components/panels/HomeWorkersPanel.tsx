@@ -4,6 +4,7 @@ import type { MonitorBlePresence, MonitorHomeWorker, MonitorRoom } from "../../t
 import { STATUS_STYLES, elapsedLabel, type WorkerState } from "../../statusStyles"
 import BleHint from "../ble/BleHint"
 import ConfidenceBadge from "../badges/ConfidenceBadge"
+import { useServerClock } from "@/lib/time/serverClock"
 
 /**
  * HomeWorkersPanel — 소속 스태프 위치 현황 (multi-floor, cross-store).
@@ -76,6 +77,8 @@ export default function HomeWorkersPanel({
   workers, rooms, selectedMembershipId, onSelect, storeLabel = "마블", bleByMembership,
   bleConfidenceByMembership, confidenceMode = "basic",
 }: Props) {
+  // 2026-05-03: server-adjusted clock — 매장 PC 시계 어긋남에도 일관된 경과 분.
+  const now = useServerClock(30_000)
   // Sort: working now (home) → working elsewhere → waiting.
   const sorted = [...workers].sort((a, b) => {
     const rank: Record<MonitorHomeWorker["current_zone"], number> = { room: 0, away: 1, waiting: 2 }
@@ -108,7 +111,7 @@ export default function HomeWorkersPanel({
             const locationParts = [floorPart, storeName, roomPart].filter(Boolean)
             const locationLine = isWorking ? locationParts.join(" · ") : "대기"
 
-            const elapsed = elapsedMinutes(w.entered_at)
+            const elapsed = elapsedMinutes(w.entered_at, now)
             const timeTotal = w.current_time_minutes > 0 ? w.current_time_minutes : null
             const timeLine = isWorking && (timeTotal !== null || elapsed > 0)
               ? timeTotal !== null

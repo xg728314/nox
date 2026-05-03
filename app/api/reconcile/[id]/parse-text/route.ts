@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { parseFromText } from "@/lib/reconcile/parseText"
+import { fillExtractionPayouts } from "@/lib/reconcile/computePayout"
+import { validateExtraction } from "@/lib/reconcile/validateExtraction"
 import {
   getLearnedCorrectionsByStore,
   formatLearnedCorrectionsForPrompt,
@@ -157,8 +159,23 @@ export async function POST(
       )
     }
 
+    // R-AutoPrice (2026-05-01): 운영자가 금액을 안 적었을 때 origin_store
+    //   단가표 lookup 으로 hostess_payout_won 자동 환산.
+    //   "1개반/2개반/3개반" → 정식 × N + 반티. 매장별 store_service_types 사용.
+    try {
+      await fillExtractionPayouts(supabase, result.extraction)
+    } catch (e) {
+      console.warn("[parse-text] fillExtractionPayouts failed:", e instanceof Error ? e.message : e)
+    }
+
+    // R-AutoPrice (2026-05-01): 종이 적은 합계 vs 자동 환산 비교 + 실장수익.
+    //   계좌 vs (양주+스태프+팁), 줄돈 박스 vs staff_entries 합계.
+    //   차이 > 1천원이면 warnings 에 한국어 메시지로 표시.
+    const validation = validateExtraction(result.extraction)
+
     return NextResponse.json({
       extraction: result.extraction,
+      validation,
       model: result.model,
       prompt_version: result.prompt_version,
       duration_ms: result.duration_ms,

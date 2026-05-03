@@ -276,13 +276,47 @@ export function hydrateBundle(kind: PrefKind, bundle: HydrateBundle | null | und
   if (!bundle) return
   for (const [scope, entry] of Object.entries(bundle)) {
     const slot = getSlot<unknown>(kind, scope)
-    // 이미 user 가 fetch 했거나 in-flight 라면 skip — race-free.
-    if (slot.snapshot.loaded || slot.inFlight) continue
+    // 2026-05-01 R-Counter-Speed v2: claimed-by-bootstrap 슬롯은 강제 hydrate.
+    //   기존 "이미 inFlight 면 skip" 정책은 consumer hook 가 ensureLoaded 를
+    //   먼저 호출하면 hydration 이 무시되는 race 를 만들었다 (4× preferences
+    //   직렬 fetch 6초+ 의 원인). claim 으로 slot 을 inFlight 로 잠그고
+    //   여기서 풀어서 hydrate.
     setSnapshot(slot, {
       resp: { global: entry.global ?? null, per_store: entry.per_store ?? {} },
       loading: false,
       loaded: true,
     })
+    slot.inFlight = false
+  }
+}
+
+/**
+ * 2026-05-01 R-Counter-Speed v2: bootstrap 진입 시점에 hydrate 예정 scope 들을
+ *   "in-flight" 로 미리 잠가서 consumer hook 의 ensureLoaded 가 같은 endpoint 로
+ *   중복 fetch 하지 않도록 한다. bootstrap 이 완료 (성공/실패 무관) 시 반드시
+ *   `releaseClaimedSlots` 호출 해야 deadlock 안 남.
+ */
+export function claimSlotsForBootstrap(
+  kind: PrefKind,
+  scopes: readonly string[],
+): void {
+  for (const scope of scopes) {
+    const slot = getSlot<unknown>(kind, scope)
+    if (slot.snapshot.loaded || slot.inFlight) continue
+    slot.inFlight = true
+    setSnapshot(slot, { ...slot.snapshot, loading: true })
+  }
+}
+
+export function releaseClaimedSlots(
+  kind: PrefKind,
+  scopes: readonly string[],
+): void {
+  for (const scope of scopes) {
+    const slot = getSlot<unknown>(kind, scope)
+    if (slot.snapshot.loaded) continue
+    slot.inFlight = false
+    setSnapshot(slot, { resp: null, loading: false, loaded: true })
   }
 }
 

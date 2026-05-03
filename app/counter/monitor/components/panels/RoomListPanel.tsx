@@ -4,6 +4,7 @@ import type { MonitorBlePresence, MonitorRoom, MonitorRoomParticipant } from "..
 import { STATUS_STYLES, elapsedLabel, participantState, type WorkerState } from "../../statusStyles"
 import BleHint from "../ble/BleHint"
 import ConfidenceBadge from "../badges/ConfidenceBadge"
+import { useServerClock } from "@/lib/time/serverClock"
 
 /**
  * RoomListPanel — left column.
@@ -110,6 +111,8 @@ export default function RoomListPanel({
   onSelectRoom, onSelectWorker, stateFilter, bleByMembership,
   bleConfidenceByMembership, confidenceMode = "basic",
 }: Props) {
+  // 2026-05-03: 매장 PC 시계 어긋남 보정. 30초 tick — 분 단위 표시라 충분.
+  const now = useServerClock(30_000)
   const totals = {
     all: rooms.length,
     using: rooms.filter(r => r.status === "active").length,
@@ -146,7 +149,7 @@ export default function RoomListPanel({
           const isExpanded = r.room_uuid === expandedId
           const isSelected = r.room_uuid === selectedRoomUuid
           const startedMinutes = r.session?.started_at
-            ? Math.max(0, Math.floor((Date.now() - new Date(r.session.started_at).getTime()) / 60_000))
+            ? Math.max(0, Math.floor((now - new Date(r.session.started_at).getTime()) / 60_000))
             : 0
           return (
             <div

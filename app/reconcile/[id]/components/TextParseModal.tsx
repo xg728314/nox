@@ -20,7 +20,7 @@
 
 import { useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
-import type { PaperExtraction } from "@/lib/reconcile/types"
+import type { ExtractionValidation, PaperExtraction } from "@/lib/reconcile/types"
 
 type Props = {
   snapshot_id: string
@@ -52,6 +52,7 @@ export default function TextParseModal({ snapshot_id, sheet_kind, onApply, onClo
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<PaperExtraction | null>(null)
+  const [validation, setValidation] = useState<ExtractionValidation | null>(null)
   const [meta, setMeta] = useState<{ duration_ms?: number; cost_usd?: number | null } | null>(null)
 
   async function runParse() {
@@ -73,6 +74,7 @@ export default function TextParseModal({ snapshot_id, sheet_kind, onApply, onClo
         return
       }
       setResult(d.extraction as PaperExtraction)
+      setValidation((d.validation ?? null) as ExtractionValidation | null)
       setMeta({ duration_ms: d.duration_ms, cost_usd: d.cost_usd })
     } catch {
       setError("네트워크 오류")
@@ -144,6 +146,7 @@ export default function TextParseModal({ snapshot_id, sheet_kind, onApply, onClo
                 )}
               </div>
               <ResultSummary extraction={result} sheet_kind={sheet_kind} />
+              {validation && <ValidationPanel validation={validation} />}
               <details className="rounded-lg border border-white/5 bg-black/30 p-2">
                 <summary className="text-[10px] text-slate-400 cursor-pointer">
                   raw JSON (디버그)
@@ -233,6 +236,133 @@ function ResultSummary({
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
       구조화 완료. JSON 확인.
+    </div>
+  )
+}
+
+// ─── Validation panel ───────────────────────────────────────
+// R-AutoPrice (2026-05-01): 자동 환산 결과 + 운영자 적은 합계 차이 표시.
+//   매장별 줄돈 일치 여부 + 손님 청구 vs 종이 계좌 차이 + 실장수익.
+
+function fmtWon(n: number | null | undefined): string {
+  if (n == null) return "-"
+  const sign = n < 0 ? "-" : ""
+  return `${sign}₩${Math.abs(n).toLocaleString()}`
+}
+
+function ValidationPanel({ validation }: { validation: ExtractionValidation }) {
+  const hasWarnings = validation.total_warnings > 0
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-slate-200">📋 자동 검증</span>
+        {hasWarnings ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300">
+            ⚠️ {validation.total_warnings} 차이
+          </span>
+        ) : (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+            ✓ 모두 일치
+          </span>
+        )}
+      </div>
+
+      {validation.rooms.length > 0 && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          {validation.rooms.map((r) => (
+            <div key={r.room_no} className="space-y-1.5 pb-2 border-b border-white/5 last:border-b-0 last:pb-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-cyan-300">{r.room_no}번방</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                <div className="text-slate-400">양주 합계</div>
+                <div className="text-right text-slate-200 tabular-nums">{fmtWon(r.liquor_total_won)}</div>
+                <div className="text-slate-400">스태프 줄돈 합계</div>
+                <div className="text-right text-slate-200 tabular-nums">{fmtWon(r.staff_payout_total_won)}</div>
+                {r.waiter_tip_won > 0 && (
+                  <>
+                    <div className="text-slate-400">웨이터팁</div>
+                    <div className="text-right text-slate-200 tabular-nums">{fmtWon(r.waiter_tip_won)}</div>
+                  </>
+                )}
+                <div className="text-slate-300 font-semibold">손님 청구 예상</div>
+                <div className="text-right text-cyan-300 font-semibold tabular-nums">
+                  {fmtWon(r.expected_customer_total_won)}
+                </div>
+                {r.paper_cash_total_won != null && (
+                  <>
+                    <div className="text-slate-400">종이 계좌</div>
+                    <div className="text-right text-slate-200 tabular-nums">{fmtWon(r.paper_cash_total_won)}</div>
+                    {r.cash_total_diff_won != null && Math.abs(r.cash_total_diff_won) > 1000 && (
+                      <>
+                        <div className="text-amber-300">차이 (종이 - 예상)</div>
+                        <div className="text-right text-amber-300 font-semibold tabular-nums">
+                          {fmtWon(r.cash_total_diff_won)}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+                {r.paper_store_deposit_won != null && (
+                  <>
+                    <div className="text-slate-400">가게 입금</div>
+                    <div className="text-right text-slate-200 tabular-nums">{fmtWon(r.paper_store_deposit_won)}</div>
+                  </>
+                )}
+                {r.manager_profit_won != null && (
+                  <>
+                    <div className="text-emerald-300 font-semibold">실장수익 (계좌-입금)</div>
+                    <div className="text-right text-emerald-300 font-semibold tabular-nums">
+                      {fmtWon(r.manager_profit_won)}
+                    </div>
+                  </>
+                )}
+              </div>
+              {r.warnings.length > 0 && (
+                <div className="space-y-0.5 mt-1">
+                  {r.warnings.map((w, i) => (
+                    <div key={i} className="text-[10px] text-amber-300">• {w}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {validation.owe_per_store.length > 0 && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+          <div className="text-[11px] font-semibold text-slate-300 mb-1">매장별 줄돈 검증</div>
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 gap-y-1 text-[11px] tabular-nums">
+            <div className="text-slate-500 text-[10px]">매장</div>
+            <div className="text-slate-500 text-[10px] text-right">종이</div>
+            <div className="text-slate-500 text-[10px] text-right">자동환산</div>
+            <div className="text-slate-500 text-[10px] text-right">차이</div>
+            {validation.owe_per_store.map((o) => {
+              const mismatch = Math.abs(o.diff_won) > 1000
+              return (
+                <>
+                  <div key={`n-${o.store_name}`} className={mismatch ? "text-amber-300" : "text-slate-200"}>
+                    {o.store_name}
+                  </div>
+                  <div key={`p-${o.store_name}`} className="text-right text-slate-300">
+                    {fmtWon(o.paper_won)}
+                  </div>
+                  <div key={`c-${o.store_name}`} className="text-right text-slate-300">
+                    {fmtWon(o.computed_won)}
+                  </div>
+                  <div
+                    key={`d-${o.store_name}`}
+                    className={`text-right font-semibold ${mismatch ? "text-amber-300" : "text-slate-500"}`}
+                  >
+                    {mismatch ? fmtWon(o.diff_won) : "-"}
+                  </div>
+                </>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

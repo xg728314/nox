@@ -173,22 +173,26 @@ export default function CheckinPage() {
       }
 
       if (selectedStaff.length > 0) {
-        for (const staff of selectedStaff) {
-          const body: Record<string, unknown> = {
-            session_id: sessionId,
-            membership_id: staff.membership_id,
-            role: staff.role,
-            category: selectedCategory.code,
-            time_minutes: timeMinutes,
-          }
-          if (timeType) body.time_type = timeType
-
-          const res = await apiFetch("/api/sessions/participants", {
-            method: "POST",
-            body: JSON.stringify(body),
-          })
+        // 2026-05-01 R-Counter-Speed: 직렬 for-of → Promise.all. N명 × ~300ms → ~300ms.
+        const results = await Promise.all(
+          selectedStaff.map((staff) => {
+            const body: Record<string, unknown> = {
+              session_id: sessionId,
+              membership_id: staff.membership_id,
+              role: staff.role,
+              category: selectedCategory.code,
+              time_minutes: timeMinutes,
+            }
+            if (timeType) body.time_type = timeType
+            return apiFetch("/api/sessions/participants", {
+              method: "POST",
+              body: JSON.stringify(body),
+            }).then((res) => ({ staff, res }))
+          }),
+        )
+        for (const { staff, res } of results) {
           if (!res.ok) {
-            const data = await res.json()
+            const data = await res.json().catch(() => ({}))
             setError(data.message || `참여자 등록 실패: ${staff.name}`)
           }
         }

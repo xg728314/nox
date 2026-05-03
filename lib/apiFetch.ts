@@ -48,6 +48,32 @@ function dispatchAuthExpired(url: string) {
   } catch { /* ignore */ }
 }
 
+// 2026-05-01 R-Session-Refresh: access_token 만료 (Supabase 기본 1h) 시 자동
+//   refresh_token 으로 갱신 후 1회 retry. 4시간 운영 정책 안에서 사용자가
+//   끊김 없이 작업 가능. refresh 도 실패하면 정상 401 흐름 (SessionExpiredGate).
+//   동시 다발 401 가 한꺼번에 refresh 호출 안 하도록 in-flight Promise 공유.
+let refreshInFlight: Promise<boolean> | null = null
+
+async function refreshAuthOnce(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = (async () => {
+    try {
+      const r = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      })
+      return r.ok
+    } catch {
+      return false
+    } finally {
+      // 결과 확정 후 캐시 정리. 다음 만료 때 새 refresh.
+      setTimeout(() => { refreshInFlight = null }, 0)
+    }
+  })()
+  return refreshInFlight
+}
+
 export async function apiFetch(url: string, opts?: RequestInit): Promise<Response> {
   // FormData 를 보낼 때는 Content-Type 을 명시하면 안 된다. 브라우저가
   // boundary 와 함께 multipart/form-data 를 자동 설정해야 한다. application/json
@@ -74,8 +100,27 @@ export async function apiFetch(url: string, opts?: RequestInit): Promise<Respons
       ok: res.ok,
       ms: Math.round(perfNow() - t_start),
     })
-    // 2026-05-01 R-Session-Expired-Gate: 401 전역 알림.
-    if (res.status === 401) {
+    // 401 + auth route 가 아니면 refresh 시도 후 1회 retry.
+    if (res.status === 401 && !url.startsWith("/api/auth/")) {
+      const refreshed = await refreshAuthOnce()
+      if (refreshed) {
+        const retryRes = await fetch(url, {
+          ...opts,
+          credentials: "include",
+          headers: mergedHeaders,
+        })
+        perfLog("api:retry", {
+          url,
+          method,
+          status: retryRes.status,
+          ok: retryRes.ok,
+          ms: Math.round(perfNow() - t_start),
+        })
+        if (retryRes.status === 401) {
+          dispatchAuthExpired(url)
+        }
+        return retryRes
+      }
       dispatchAuthExpired(url)
     }
     return res

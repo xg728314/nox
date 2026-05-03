@@ -23,7 +23,9 @@ import { NextResponse } from "next/server"
  *   { server_now: ISO, server_now_ms: epoch_ms, tz: "Asia/Seoul" }
  */
 
-export const runtime = "nodejs"
+// 2026-05-03 R-Speed-x10: edge runtime — DB 호출 X, 순수 Date.now().
+//   nodejs runtime cold start ~200ms, edge ~30ms. 클라이언트 offset 보정에 직결.
+export const runtime = "edge"
 export const dynamic = "force-dynamic"
 
 export async function GET() {

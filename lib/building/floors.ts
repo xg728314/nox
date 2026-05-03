@@ -15,9 +15,17 @@
  */
 
 /** 이 건물에서 유효한 층 목록. 오름차순. */
-export const BUILDING_FLOORS = [5, 6, 7, 8] as const
+// 2026-05-02 R-Cafe: 3층 카페 추가 (5~8층 매장 주문 받기). 4층은 미사용.
+export const BUILDING_FLOORS = [3, 5, 6, 7, 8] as const
 
 export type FloorId = typeof BUILDING_FLOORS[number]
+
+/** 카페가 위치한 층 (배달 흐름의 source). 현재 3층. */
+export const CAFE_FLOOR: FloorId = 3
+/** 카페 매장이라고 간주할 floor (스토어 분기용). */
+export function isCafeFloor(floor: number | null | undefined): boolean {
+  return floor === CAFE_FLOOR
+}
 
 export const MIN_FLOOR: FloorId = BUILDING_FLOORS[0]
 export const MAX_FLOOR: FloorId = BUILDING_FLOORS[BUILDING_FLOORS.length - 1] as FloorId

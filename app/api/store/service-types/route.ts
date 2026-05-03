@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { invalidateStoreServiceTypesCache } from "@/lib/session/services/pricingLookup"
 
 /**
  * GET /api/store/service-types
@@ -120,6 +121,9 @@ export async function PATCH(request: Request) {
       }
       updated++
     }
+
+    // 2026-05-01 R-Counter-Speed: pricing cache 무효화 (변경 즉시 반영).
+    invalidateStoreServiceTypesCache(authContext.store_uuid)
 
     // Audit
     await supabase.from("audit_events").insert({

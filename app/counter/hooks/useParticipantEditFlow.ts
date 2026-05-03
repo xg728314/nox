@@ -141,8 +141,8 @@ export function useParticipantEditFlow(deps: Deps): ParticipantEditFlow {
         roomId, sessionId: sid, started_at: sa,
         session_status: "active", participants: [], orders: [], loading: true,
       })
-      await fetchFocusData(roomId, sid, sa)
-      await fetchRooms()
+      // 2026-05-01 R-Counter-Speed: focus + rooms 병렬 fetch.
+      await Promise.all([fetchFocusData(roomId, sid, sa), fetchRooms()])
       return sid
     } catch (err) {
       console.error("[ensureSession] unexpected error:", err)

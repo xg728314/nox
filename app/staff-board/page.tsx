@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import { getServerNow } from "@/lib/time/serverClock"
 
 type BoardItem = {
   id: string
@@ -319,8 +320,10 @@ function BoardCard({ item, onEdit, onCancel, onRespond }: {
   onRespond?: () => void
 }) {
   const isNeed = item.request_kind === "need"
-  const ageMin = Math.max(0, Math.floor((Date.now() - new Date(item.posted_at).getTime()) / 60000))
-  const expMin = Math.max(0, Math.floor((new Date(item.expires_at).getTime() - Date.now()) / 60000))
+  // 2026-05-03: server-adjusted now — 매장간 보드 timing 일관.
+  const nowMs = getServerNow()
+  const ageMin = Math.max(0, Math.floor((nowMs - new Date(item.posted_at).getTime()) / 60000))
+  const expMin = Math.max(0, Math.floor((new Date(item.expires_at).getTime() - nowMs) / 60000))
 
   return (
     <div className={`rounded-2xl border p-3 ${isNeed ? "border-cyan-500/20 bg-cyan-500/[0.05]" : "border-emerald-500/20 bg-emerald-500/[0.05]"} ${item.is_mine ? "ring-1 ring-fuchsia-500/30" : ""}`}>

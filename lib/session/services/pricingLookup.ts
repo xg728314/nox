@@ -6,6 +6,44 @@ export type CategoryPricing = {
   bantiAmount: number
 }
 
+// 2026-05-01 R-Counter-Speed: store_service_types 는 영업일 잠금 정책상
+//   매 hot-path (참여자 추가/수정) 마다 3-4 회 조회됐다. 매장 × 종목 단위
+//   process-local TTL 캐시. invalidate 는 store/service-types/route.ts
+//   의 PUT/PATCH/DELETE 에서 호출되도록 export.
+type StoreServiceTypesCache = {
+  fetched_at: number
+  rows: Array<{
+    service_type: string
+    time_type: string
+    price: number
+    manager_deduction: number
+    has_greeting_check: boolean
+  }>
+}
+const sstCache = new Map<string, StoreServiceTypesCache>()
+const SST_TTL_MS = 60_000 // 1분 — 단가 변경 후 1분 내 반영. 잠금 정책상 영업일 중 거의 변경 없음.
+
+export function invalidateStoreServiceTypesCache(store_uuid: string) {
+  sstCache.delete(store_uuid)
+}
+
+async function loadStoreServiceTypes(
+  supabase: SupabaseClient,
+  store_uuid: string,
+): Promise<StoreServiceTypesCache["rows"]> {
+  const hit = sstCache.get(store_uuid)
+  if (hit && Date.now() - hit.fetched_at < SST_TTL_MS) return hit.rows
+  const { data, error } = await supabase
+    .from("store_service_types")
+    .select("service_type, time_type, price, manager_deduction, has_greeting_check")
+    .eq("store_uuid", store_uuid)
+    .eq("is_active", true)
+  if (error) throw error
+  const rows = (data ?? []) as StoreServiceTypesCache["rows"]
+  sstCache.set(store_uuid, { fetched_at: Date.now(), rows })
+  return rows
+}
+
 /**
  * 단가 DB 조회 실패 시 던지는 전용 에러. 2026-04-24 P0 fix.
  *   - 이전에는 cha3=30000 / banti=0 하드코딩 fallback 이 있어서
@@ -59,49 +97,22 @@ export async function lookupCategoryPricing(
   category: string,
   timeType: string
 ): Promise<CategoryPricing> {
-  // Main price for the resolved time_type
-  const { data: sst } = await supabase
-    .from("store_service_types")
-    .select("price")
-    .eq("store_uuid", store_uuid)
-    .eq("service_type", category)
-    .eq("time_type", timeType)
-    .eq("is_active", true)
-    .maybeSingle()
+  const rows = await loadStoreServiceTypes(supabase, store_uuid)
+  const find = (tt: string) =>
+    rows.find((r) => r.service_type === category && r.time_type === tt)
+  const sst = find(timeType)
   if (!sst || typeof sst.price !== "number") {
     throw new PricingLookupError("base", category, timeType)
   }
-  const price = sst.price
-
-  // cha3 price — 2026-04-24: fallback 30000 제거 (장부 정확성).
-  const { data: cha3Type } = await supabase
-    .from("store_service_types")
-    .select("price")
-    .eq("store_uuid", store_uuid)
-    .eq("service_type", category)
-    .eq("time_type", "차3")
-    .eq("is_active", true)
-    .maybeSingle()
+  const cha3Type = find("차3")
   if (!cha3Type || typeof cha3Type.price !== "number") {
     throw new PricingLookupError("cha3", category)
   }
-  const cha3Amount = cha3Type.price
-
-  // banti price — 2026-04-24: fallback 0 제거.
-  const { data: bantiType } = await supabase
-    .from("store_service_types")
-    .select("price")
-    .eq("store_uuid", store_uuid)
-    .eq("service_type", category)
-    .eq("time_type", "반티")
-    .eq("is_active", true)
-    .maybeSingle()
+  const bantiType = find("반티")
   if (!bantiType || typeof bantiType.price !== "number") {
     throw new PricingLookupError("banti", category)
   }
-  const bantiAmount = bantiType.price
-
-  return { price, cha3Amount, bantiAmount }
+  return { price: sst.price, cha3Amount: cha3Type.price, bantiAmount: bantiType.price }
 }
 
 /**
@@ -114,15 +125,8 @@ export async function lookupServiceType(
   category: string,
   timeType: string
 ): Promise<{ price: number; manager_deduction: number; has_greeting_check: boolean } | null> {
-  const { data, error } = await supabase
-    .from("store_service_types")
-    .select("price, manager_deduction, has_greeting_check")
-    .eq("store_uuid", store_uuid)
-    .eq("service_type", category)
-    .eq("time_type", timeType)
-    .eq("is_active", true)
-    .maybeSingle()
-
-  if (error || !data) return null
-  return data
+  const rows = await loadStoreServiceTypes(supabase, store_uuid)
+  const r = rows.find((row) => row.service_type === category && row.time_type === timeType)
+  if (!r) return null
+  return { price: r.price, manager_deduction: r.manager_deduction, has_greeting_check: r.has_greeting_check }
 }

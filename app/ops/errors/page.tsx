@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
+import { useServerClock } from "@/lib/time/serverClock"
 
 type Group = {
   fingerprint: string
@@ -78,12 +79,8 @@ export default function ErrorsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const iv = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(iv)
-  }, [])
+  // 2026-05-03: server-adjusted now — 운영자가 PC 시계 다른 매장 다닐 때 일관.
+  const now = useServerClock(30_000)
 
   async function load() {
     setLoading(true)

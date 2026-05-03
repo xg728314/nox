@@ -137,3 +137,34 @@ Supabase migrations CLI 가 아닌 경로 (SQL editor / MCP) 로 적용됨. 실 
   - `_baseline_2026-04-24/` 디렉터리: STATE.md + 02_constraints.sql + 03_indexes.sql + 04_functions.txt + 05_triggers.txt + 06_rls_policies.txt
   - `scripts/db-baseline-pull.sh`: 공식 재생성 스크립트 (supabase db pull 래퍼)
   - hand-craft SQL 은 의도적으로 skip — 공식 도구 (`supabase db pull`) 이 정석.
+
+---
+
+## 🚨 신규 합류 개발자 필독 (2026-05-03 정리)
+
+> 이 섹션이 가장 중요. mig alias 혼선이 신규 진입의 1번 비용이라 한 번에 정리.
+
+### 1) 파일명을 식별자로 신뢰하지 말 것
+- `lib_migrations` 는 36건 / 실 적용은 약 60건. 파일명 `XXX_name.sql` 는 **로컬 어노테이션** 일 뿐 PG 식별자가 아니다.
+- 실 DB 의 객체 (테이블/컬럼/제약/RPC) 가 진실. 항상 `information_schema` / `pg_constraint` / `pg_proc` 로 검증.
+
+### 2) 가장 자주 마주치는 alias 5건
+
+| 코드/문서가 부르는 이름 | 진짜 적용된 객체/파일 | 비고 |
+|---|---|---|
+| `staff_work_logs` 테이블 | **존재하지 않음.** `cross_store_work_records` 가 진짜 | mig 059 의 **파일명만** staff_work_logs |
+| mig 060 (work_log_link) | **미적용 (deferred)** | 전제 컬럼 부재 |
+| mig 043 (manager_prepayments) | Supabase history 엔 `080_manager_prepayments` | slot 충돌 |
+| mig 028/029 (chat 관련) | history 명: `chat_rooms_close_fields`, `chat_participants_pinned_at` | step 번호 미부여 |
+| mig 052 (auth rate limits) | history 명: `044_auth_rate_limits_and_security_logs` | 기능명 = 044, 파일명 = 052 |
+
+→ 코드 변경 전 의심 가는 컬럼/테이블 명은 반드시 `information_schema` 조회로 진위 확인.
+
+### 3) 신규 환경 셋업 (staging/dev) 절차 권장
+1. Supabase MCP 또는 dashboard 에서 **branch 생성** (현 main clone)
+2. `_baseline_2026-04-24/STATE.md` 와 `02_~06_*` 파일을 참조 자료로만 사용
+3. 단방향 migration 적용은 **하지 말 것**. branch clone 이 정석.
+4. 새 DDL 은 `mcp__supabase__apply_migration` 으로만 적용 → `list_migrations` 에 기록되도록.
+
+### 4) 1라인 결론
+**테이블·컬럼명을 의심할 때는 파일이 아니라 DB 를 본다.**

@@ -1,6 +1,7 @@
 "use client"
 
 import type { ChatRoom } from "../hooks/useChatRooms"
+import { getServerNow } from "@/lib/time/serverClock"
 
 /**
  * ChatRoomListItem — single room row. Pure UI.
@@ -16,7 +17,8 @@ type Props = {
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return ""
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
+  // 2026-05-03: server-adjusted now — 매장 PC 시계 어긋남 시 "방금"/"5시간 전" 일관.
+  const diff = Math.floor((getServerNow() - new Date(dateStr).getTime()) / 60000)
   if (diff < 1) return "방금"
   if (diff < 60) return `${diff}분 전`
   if (diff < 1440) return `${Math.floor(diff / 60)}시간 전`

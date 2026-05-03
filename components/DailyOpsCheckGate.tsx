@@ -21,10 +21,15 @@
  *     혼란 주지 않음).
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { apiFetch } from "@/lib/apiFetch"
 import { useCurrentProfile } from "@/lib/auth/useCurrentProfile"
+import {
+  ensurePrefLoaded,
+  getPrefSnapshot,
+  subscribePref,
+} from "@/app/counter/hooks/preferencesStore"
 import {
   hasBlocking,
   hasWarning,
@@ -33,12 +38,16 @@ import {
   type AnomalyCounts,
 } from "@/lib/ops/attendanceSeverity"
 
+const SCOPE = "daily_ops_check"
+type PrefPayload = { date?: unknown; checked?: unknown }
+const subscribeFn = (l: () => void) => subscribePref(SCOPE, l)
+const snapshotFn = () => getPrefSnapshot<PrefPayload>(SCOPE)
+
 // KST 기준 오늘 날짜 (YYYY-MM-DD). business_day 와 같은 날짜 체계 사용.
 function todayInKst(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })
 }
 
-type PrefPayload = { date?: unknown; checked?: unknown }
 type OpsSummary = {
   anomalies: AnomalyCounts
   attendance: { checked_in: number; total: number }
@@ -65,37 +74,32 @@ export default function DailyOpsCheckGate() {
   const [cNoAnomaly, setCNoAnomaly] = useState(false)
 
   const appliesToRole = role === "owner" || role === "manager"
-  const initialized = useRef(false)
 
-  // ── (1) preference 로드 ────────────────────────────────────
+  // 2026-05-01 R-Counter-Speed v2: 직접 apiFetch 하던 것을 preferencesStore
+  //   기반으로 재작성. bootstrap 가 hydrate 한 슬롯을 그대로 사용해 중복
+  //   /api/me/preferences?scope=daily_ops_check (3-6초 cold compile) 제거.
+  //   useSyncExternalStore 로 store snapshot 구독, 응답 변경 시 자동 rerender.
   useEffect(() => {
-    if (initialized.current) return
     if (!appliesToRole || !storeUuid) return
-    initialized.current = true
-
-    const t = todayInKst()
-    setToday(t)
-    ;(async () => {
-      try {
-        const res = await apiFetch("/api/me/preferences?scope=daily_ops_check")
-        if (!res.ok) {
-          setCheckedToday(false)
-          return
-        }
-        const data = await res.json().catch(() => ({}))
-        const perStore = (data?.per_store ?? {}) as Record<string, PrefPayload>
-        const cfg = perStore[storeUuid]
-        const done =
-          !!cfg &&
-          typeof cfg.date === "string" &&
-          cfg.date === t &&
-          cfg.checked === true
-        setCheckedToday(done)
-      } catch {
-        setCheckedToday(false)
-      }
-    })()
+    setToday(todayInKst())
+    ensurePrefLoaded<PrefPayload>(SCOPE)
   }, [appliesToRole, storeUuid])
+
+  const prefSnap = useSyncExternalStore(subscribeFn, snapshotFn, snapshotFn)
+  // snapshot.loaded → checkedToday 도출. 미로딩 동안 null 유지 (깜박임 방지).
+  useEffect(() => {
+    if (!appliesToRole || !storeUuid) return
+    if (!prefSnap.loaded) return
+    const t = todayInKst()
+    const perStore = prefSnap.resp?.per_store ?? {}
+    const cfg = perStore[storeUuid]
+    const done =
+      !!cfg &&
+      typeof cfg.date === "string" &&
+      cfg.date === t &&
+      cfg.checked === true
+    setCheckedToday(done)
+  }, [appliesToRole, storeUuid, prefSnap])
 
   // ── (2) 오늘 ops summary (옵션) 로드: 모달 떠야 할 때만 ──
   useEffect(() => {

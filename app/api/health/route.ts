@@ -17,7 +17,10 @@ import { NextResponse } from "next/server"
  *   Unhealthy threshold: 3
  */
 
-export const runtime = "nodejs"
+// 2026-05-03 R-Speed-x10: health check 는 edge runtime — 콜드 30ms.
+//   외부 LB 가 10초 간격으로 hit → nodejs cold start 200ms 매번 발생하던 것
+//   edge 로 옮겨 영구 warm.
+export const runtime = "edge"
 export const dynamic = "force-dynamic"
 
 export async function GET() {

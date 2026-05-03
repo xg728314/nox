@@ -172,9 +172,14 @@ export default function RoomCard({
       </div>
 
       {/* 스태프 */}
-      <div className="space-y-1.5">
-        <div className="text-[11px] font-semibold text-slate-300">
-          스태프 ({room.staff_entries?.length ?? 0}명)
+      {/* 2026-05-01 R-AutoPrice UI: entry 사이 간격 1.5 → 3 (구분 강화).
+          헤더에 N명 number-pill 로 더 잘 보이게. */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-slate-300">스태프</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[20px] px-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-[10px] font-semibold text-emerald-300 tabular-nums">
+            {room.staff_entries?.length ?? 0}
+          </span>
         </div>
         {(room.staff_entries ?? []).map((s, i) => (
           <StaffEntryRow
@@ -195,6 +200,16 @@ export default function RoomCard({
           >+ 스태프 추가</button>
         )}
       </div>
+
+      {/* 2026-05-01 R-AutoPrice UI: 이 방 줄돈 매장별 합계.
+          staff_entries 의 origin_store 별로 hostess_payout_won 묶음 + 총합. */}
+      <RoomOweSummary
+        entries={room.staff_entries ?? []}
+        liquor_total_won={(room.liquor ?? []).reduce((s, l) => s + (l.amount_won || 0), 0)}
+        cash_total_won={room.cash_total_won}
+        store_deposit_won={room.store_deposit_won}
+        waiter_tip_won={room.waiter_tip_won}
+      />
 
       {/* 양주 */}
       <div className="space-y-1.5">
@@ -291,6 +306,141 @@ export default function RoomCard({
           <div className="mt-1 italic">{room.raw_text}</div>
         </details>
       )}
+    </div>
+  )
+}
+
+// ─── 매장별 줄돈 합계 + 실장수익 ──────────────────────────────
+//
+// R-AutoPrice (2026-05-01):
+//   "1번방같은경우 다른가게 스태프다 그러면 신세계 발리 상한가 버닝에 줄돈만
+//    생긴거다" — staff_entries 의 origin_store 별로 묶어서 매장당 얼마인지 표시.
+//   + 양주/팁/총청구/계좌/입금/실장수익 한 눈에.
+
+function fmtWon(n: number | null | undefined): string {
+  if (n == null) return "-"
+  const sign = n < 0 ? "-" : ""
+  return `${sign}₩${Math.abs(n).toLocaleString()}`
+}
+
+function RoomOweSummary({
+  entries,
+  liquor_total_won,
+  cash_total_won,
+  store_deposit_won,
+  waiter_tip_won,
+}: {
+  entries: RoomStaffEntry[]
+  liquor_total_won: number
+  cash_total_won?: number
+  store_deposit_won?: number
+  waiter_tip_won?: number
+}) {
+  // origin_store 별 묶기.
+  const byStore = new Map<string, number>()
+  let staffTotal = 0
+  for (const e of entries) {
+    const name = (e.origin_store ?? "").trim()
+    const amt = e.hostess_payout_won ?? 0
+    if (!amt) continue
+    if (!name) continue
+    byStore.set(name, (byStore.get(name) ?? 0) + amt)
+    staffTotal += amt
+  }
+  const tip = waiter_tip_won ?? 0
+  const expectedCustomer = liquor_total_won + staffTotal + tip
+  const cashDiff =
+    typeof cash_total_won === "number" ? cash_total_won - expectedCustomer : null
+  const managerProfit =
+    typeof cash_total_won === "number" && typeof store_deposit_won === "number"
+      ? cash_total_won - store_deposit_won
+      : null
+
+  const hasOweData = byStore.size > 0
+  const hasMoney = liquor_total_won > 0 || staffTotal > 0 || tip > 0 || cash_total_won != null
+
+  if (!hasOweData && !hasMoney) return null
+
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-emerald-200">💰 이 방 정산 요약</span>
+      </div>
+
+      {hasOweData && (
+        <div className="rounded-lg bg-black/30 p-2.5 space-y-1">
+          <div className="text-[10px] text-slate-400 mb-1">매장별 줄돈 (외부 매장에 보낼 돈)</div>
+          {Array.from(byStore.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, amt]) => (
+              <div key={name} className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-200">{name}</span>
+                <span className="text-emerald-300 tabular-nums font-semibold">
+                  {fmtWon(amt)}
+                </span>
+              </div>
+            ))}
+          <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-white/10 text-[11px]">
+            <span className="text-slate-300 font-semibold">줄돈 합계</span>
+            <span className="text-emerald-200 tabular-nums font-bold">{fmtWon(staffTotal)}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg bg-black/30 p-2.5 space-y-1 text-[11px]">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {liquor_total_won > 0 && (
+            <>
+              <span className="text-slate-400">양주 합계</span>
+              <span className="text-right text-slate-200 tabular-nums">{fmtWon(liquor_total_won)}</span>
+            </>
+          )}
+          {staffTotal > 0 && (
+            <>
+              <span className="text-slate-400">스태프 합계</span>
+              <span className="text-right text-slate-200 tabular-nums">{fmtWon(staffTotal)}</span>
+            </>
+          )}
+          {tip > 0 && (
+            <>
+              <span className="text-slate-400">웨이터팁</span>
+              <span className="text-right text-slate-200 tabular-nums">{fmtWon(tip)}</span>
+            </>
+          )}
+          <span className="text-slate-300 font-semibold">손님 청구 예상</span>
+          <span className="text-right text-cyan-300 tabular-nums font-bold">
+            {fmtWon(expectedCustomer)}
+          </span>
+          {typeof cash_total_won === "number" && (
+            <>
+              <span className="text-slate-400">종이 계좌</span>
+              <span className="text-right text-slate-200 tabular-nums">{fmtWon(cash_total_won)}</span>
+              {cashDiff !== null && Math.abs(cashDiff) > 1000 && (
+                <>
+                  <span className="text-amber-300">차이 (계좌-예상)</span>
+                  <span className="text-right text-amber-300 tabular-nums font-semibold">
+                    {fmtWon(cashDiff)}
+                  </span>
+                </>
+              )}
+            </>
+          )}
+          {typeof store_deposit_won === "number" && (
+            <>
+              <span className="text-slate-400">가게 입금</span>
+              <span className="text-right text-slate-200 tabular-nums">{fmtWon(store_deposit_won)}</span>
+            </>
+          )}
+          {managerProfit !== null && (
+            <>
+              <span className="text-emerald-200 font-semibold">실장수익 (계좌-입금)</span>
+              <span className="text-right text-emerald-200 tabular-nums font-bold">
+                {fmtWon(managerProfit)}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

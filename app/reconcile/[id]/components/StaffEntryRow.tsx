@@ -37,8 +37,15 @@ export default function StaffEntryRow({
   const storeListId = `${datalistIdPrefix}-store`
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0A1222]/60 p-2 space-y-1.5">
-      <div className="flex items-center gap-1.5">
+    // 2026-05-01 R-AutoPrice UI: 카드 시각 구분 강화. 좌측 emerald 인디케이터 +
+    //   진한 배경/테두리/큰 padding/넉넉한 여백으로 N개 entry 한 카드인지 명확.
+    //   기존: bg/60 border/10 p-2 → 새: bg/80 border/15 + 좌측 4px 막대 + p-3 + space-y-2.
+    <div className="relative rounded-xl border border-emerald-500/20 bg-[#0F1A2D] p-3 space-y-2 shadow-[0_2px_8px_rgba(0,0,0,0.25)] hover:border-emerald-500/40 transition-colors">
+      <span
+        aria-hidden="true"
+        className="absolute left-0 top-2 bottom-2 w-1 rounded-r-md bg-emerald-500/60"
+      />
+      <div className="flex items-center gap-1.5 pl-2">
         <ConfidenceBadge value={entry.confidence} />
         <input
           type="text"
@@ -65,7 +72,7 @@ export default function StaffEntryRow({
           >❌</button>
         )}
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 pl-2">
         <input
           type="text"
           value={entry.origin_store ?? ""}
@@ -95,7 +102,7 @@ export default function StaffEntryRow({
         </select>
       </div>
       {/* Phase A2: 개인 정산금 (받을 금액 / 실장 수익) — 카운터 schema 와 동일 */}
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5 pl-2">
         <div>
           <label className="block text-[9px] text-slate-500 mb-0.5 px-0.5">받을 금액 (개인)</label>
           <div className="flex items-center gap-1 rounded bg-[#030814] border border-white/10 px-2 py-1">
@@ -133,7 +140,7 @@ export default function StaffEntryRow({
         </div>
       </div>
       {entry.raw_text && (
-        <div className="text-[10px] text-slate-500 italic truncate">원본: {entry.raw_text}</div>
+        <div className="text-[10px] text-slate-500 italic truncate pl-2">원본: {entry.raw_text}</div>
       )}
       {/* R-A v5: 자동완성 datalist (브라우저 native, mobile 친화). */}
       {knownHostesses && knownHostesses.length > 0 && (

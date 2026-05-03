@@ -126,6 +126,10 @@ export default function RoomsEditor({
     ? [...indexedRooms].sort((a, b) => (a.r.confidence ?? 999) - (b.r.confidence ?? 999))
     : indexedRooms
 
+  // 2026-05-01 R-AutoPrice UI: 시트 전체 줄돈/받돈 합계.
+  //   rooms 의 staff_entries 매장별 묶음 + daily_summary.recv 박스.
+  const sheetTotals = useMemo(() => computeSheetTotals(draft), [draft])
+
   return (
     <div className="space-y-3">
       {/* 헤더 */}
@@ -157,6 +161,14 @@ export default function RoomsEditor({
           )}
         </div>
       </div>
+
+      {/* 2026-05-01 R-AutoPrice UI: 시트 전체 매장별 줄돈/받을돈 + 합계 */}
+      <SheetOweSummary
+        owePerStore={sheetTotals.owePerStore}
+        recvPerStore={sheetTotals.recvPerStore}
+        oweTotal={sheetTotals.oweTotal}
+        recvTotal={sheetTotals.recvTotal}
+      />
 
       {/* 방 카드들 */}
       {sortedIndexed.length === 0 ? (
@@ -212,4 +224,118 @@ export default function RoomsEditor({
 
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
+}
+
+// ─── 시트 전체 매장별 줄돈/받돈 합계 ─────────────────────────
+//
+// R-AutoPrice (2026-05-01):
+//   "받을돈 총 얼마. 줄돈 총얼마" — 시트 전체 합계 + 매장별 분할.
+//   줄돈: rooms[*].staff_entries[*].hostess_payout_won, origin_store 별 묶음.
+//   받돈: daily_summary.recv (그 시점에 종이에 적힌 외부 매장에서 받을 돈).
+
+type StoreAmount = { store_name: string; amount_won: number }
+type SheetTotals = {
+  owePerStore: StoreAmount[]
+  recvPerStore: StoreAmount[]
+  oweTotal: number
+  recvTotal: number
+}
+
+function computeSheetTotals(extraction: PaperExtraction): SheetTotals {
+  const oweByStore = new Map<string, number>()
+  for (const room of extraction.rooms ?? []) {
+    for (const e of room.staff_entries ?? []) {
+      const name = (e.origin_store ?? "").trim()
+      const amt = e.hostess_payout_won ?? 0
+      if (!name || !amt) continue
+      oweByStore.set(name, (oweByStore.get(name) ?? 0) + amt)
+    }
+  }
+  const owePerStore: StoreAmount[] = Array.from(oweByStore.entries())
+    .map(([name, amt]) => ({ store_name: name, amount_won: amt }))
+    .sort((a, b) => b.amount_won - a.amount_won)
+
+  const recvByStore = new Map<string, number>()
+  for (const r of extraction.daily_summary?.recv ?? []) {
+    const name = (r.store_name ?? "").trim()
+    const amt = r.amount_won ?? 0
+    if (!name) continue
+    recvByStore.set(name, (recvByStore.get(name) ?? 0) + amt)
+  }
+  const recvPerStore: StoreAmount[] = Array.from(recvByStore.entries())
+    .map(([name, amt]) => ({ store_name: name, amount_won: amt }))
+    .sort((a, b) => b.amount_won - a.amount_won)
+
+  return {
+    owePerStore,
+    recvPerStore,
+    oweTotal: owePerStore.reduce((s, x) => s + x.amount_won, 0),
+    recvTotal: recvPerStore.reduce((s, x) => s + x.amount_won, 0),
+  }
+}
+
+function fmtWon(n: number): string {
+  return `₩${n.toLocaleString()}`
+}
+
+function SheetOweSummary({
+  owePerStore,
+  recvPerStore,
+  oweTotal,
+  recvTotal,
+}: SheetTotals) {
+  if (owePerStore.length === 0 && recvPerStore.length === 0) return null
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 space-y-3">
+      <div className="text-sm font-semibold text-emerald-200">📊 전체 매장별 정산 합계</div>
+      <div className="grid md:grid-cols-2 gap-3">
+        {/* 줄돈 (외부 매장에 보낼 돈) */}
+        <div className="rounded-lg bg-black/30 p-3 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-amber-200">줄돈 (보낼 돈)</span>
+            <span className="text-[11px] text-amber-200 tabular-nums font-bold">
+              {fmtWon(oweTotal)}
+            </span>
+          </div>
+          {owePerStore.length === 0 ? (
+            <div className="text-[10px] text-slate-500">없음</div>
+          ) : (
+            owePerStore.map((s) => (
+              <div key={s.store_name} className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-300">{s.store_name}</span>
+                <span className="text-amber-200 tabular-nums font-semibold">
+                  {fmtWon(s.amount_won)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 받을돈 (외부 매장에서 받을 돈) */}
+        <div className="rounded-lg bg-black/30 p-3 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-cyan-200">받을돈 (받을 돈)</span>
+            <span className="text-[11px] text-cyan-200 tabular-nums font-bold">
+              {fmtWon(recvTotal)}
+            </span>
+          </div>
+          {recvPerStore.length === 0 ? (
+            <div className="text-[10px] text-slate-500">없음</div>
+          ) : (
+            recvPerStore.map((s) => (
+              <div key={s.store_name} className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-300">{s.store_name}</span>
+                <span className="text-cyan-200 tabular-nums font-semibold">
+                  {fmtWon(s.amount_won)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      <div className="text-[10px] text-slate-500 leading-relaxed">
+        같은 매장이 줄돈과 받돈에 동시에 있으면 별도 행으로 분리 표시됩니다 (서로 상쇄 X).
+      </div>
+    </div>
+  )
 }

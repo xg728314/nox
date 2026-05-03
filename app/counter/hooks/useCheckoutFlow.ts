@@ -99,6 +99,43 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
       if (!proceed) return
     }
 
+    // 2026-05-02 R-LoadTest-Fix7: 짧은 출입 (kick 의심) 감지.
+    //   부하 테스트로 발견된 운영 hazard — 호스티스가 12분 미만에 leave 했는데
+    //   time_minutes 가 60/90 그대로 박혀있으면 손님이 과다 청구 받음.
+    //   카운터 운영자가 미처 kick 처리(time_minutes=0) 못한 케이스 prompt.
+    const earlyLeave: { name: string; elapsedMin: number; configuredMin: number; participantId: string }[] = []
+    for (const p of focusData.participants) {
+      if (p.role !== "hostess") continue
+      if (!p.entered_at || !p.time_minutes || p.time_minutes <= 0) continue
+      // price_amount > 0 이라야 의미 있음 (이미 0 이면 무료 처리됨)
+      if ((p.price_amount ?? 0) <= 0) continue
+      const startMs = new Date(p.entered_at).getTime()
+      if (!Number.isFinite(startMs)) continue
+      const elapsedMin = Math.floor((now - startMs) / 60000)
+      // 12분 미만 + 설정 시간 30분+ 이면 의심
+      if (elapsedMin < 12 && p.time_minutes >= 30) {
+        earlyLeave.push({
+          name: (p.external_name || p.name || "스태프").slice(0, 10),
+          elapsedMin,
+          configuredMin: p.time_minutes,
+          participantId: p.id,
+        })
+      }
+    }
+    if (earlyLeave.length > 0) {
+      const lines = earlyLeave
+        .map(o => `  · ${o.name}: ${o.elapsedMin}분 머묾 (${o.configuredMin}분 정산)`)
+        .join("\n")
+      const proceed = window.confirm(
+        "⚠️ 짧은 출입 감지 (Kick 누락 의심)\n\n" +
+        `다음 스태프는 12분 미만 머물렀는데 정상 시간 정산입니다:\n${lines}\n\n` +
+        "Kick(팅김) 처리 누락이면 손님이 과다 청구됩니다.\n\n" +
+        "  [확인] 정상 시간으로 정산 (예: 손님이 동의한 경우)\n" +
+        "  [취소] Kick 처리 → 다시 확인",
+      )
+      if (!proceed) return
+    }
+
     if (!confirm("체크아웃 하시겠습니까?")) return
     setBusy(true); setError("")
     try {
@@ -107,19 +144,18 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || "체크아웃 실패"); return }
-      try {
-        await apiFetch("/api/sessions/settlement", {
-          method: "POST", body: JSON.stringify({ session_id: focusData.sessionId }),
-        })
-      } catch { /* settlement fail is non-blocking */ }
-      // Generate final receipt snapshot (non-blocking)
-      try {
-        await apiFetch("/api/sessions/receipt", {
-          method: "POST",
-          body: JSON.stringify({ session_id: focusData.sessionId, receipt_type: "final" }),
-        })
-      } catch { /* final receipt fail is non-blocking */ }
-      await fetchRooms()
+      // 2026-05-01 R-Counter-Speed: settlement + receipt + fetchRooms 모두
+      //   체크아웃 직후 독립 작업. 직렬 (settlement → receipt → rooms) 1초+ →
+      //   Promise.all 병렬 max(~400ms). settlement/receipt 는 non-blocking.
+      const settlementP = apiFetch("/api/sessions/settlement", {
+        method: "POST", body: JSON.stringify({ session_id: focusData.sessionId }),
+      }).catch(() => null)
+      const receiptP = apiFetch("/api/sessions/receipt", {
+        method: "POST",
+        body: JSON.stringify({ session_id: focusData.sessionId, receipt_type: "final" }),
+      }).catch(() => null)
+      const fetchRoomsP = fetchRooms().catch(() => null)
+      await Promise.all([settlementP, receiptP, fetchRoomsP])
       exitFocus()
     } catch { setError("요청 오류") }
     finally { setBusy(false) }

@@ -198,7 +198,7 @@ These areas must not be modified without explicit task authorization:
 
 - `docs/**` are **LOCKED** — do not modify without explicit orchestration approval
 - `orchestration/config/**` — do not modify
-- `C:\work\wind` — forbidden workspace, never access or import from it
+- `C:\work\wind` — read-only 참조 허용 (게이트웨이/태그 이식 검토 목적). import / 코드 복사·실행 금지.
 
 ## Orchestration
 

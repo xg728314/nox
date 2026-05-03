@@ -151,14 +151,24 @@ export default function BillPage({
           <div className="mb-5">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">TIME</h2>
             <div className="space-y-1">
-              {bill.time.entries.map((e, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">
-                    {e.category} <span className="text-gray-400">{e.time_minutes}분</span>
-                  </span>
-                  <span className="font-medium">{fmt(e.amount)}</span>
-                </div>
-              ))}
+              {bill.time.entries.map((e, i) => {
+                // 2026-05-02 R-LoadTest-Fix3: time_minutes=0 = 팅김 (매우 짧은 출입).
+                //   "0분 ₩0" 표시는 운영자 / 손님 모두에게 혼란. "팅김 / 무료" 라벨로 분리.
+                const isFlick = (e.time_minutes ?? 0) === 0 && (e.amount ?? 0) === 0
+                return (
+                  <div key={i} className="flex justify-between text-sm">
+                    <span className="text-gray-700">
+                      {e.category}{" "}
+                      {isFlick ? (
+                        <span className="text-gray-400">(팅김 · 무료)</span>
+                      ) : (
+                        <span className="text-gray-400">{e.time_minutes}분</span>
+                      )}
+                    </span>
+                    <span className="font-medium">{isFlick ? "₩0" : fmt(e.amount)}</span>
+                  </div>
+                )
+              })}
             </div>
             <div className="flex justify-between text-sm font-semibold mt-2 pt-2 border-t border-gray-200">
               <span>타임 소계 ({bill.time.count}건)</span>

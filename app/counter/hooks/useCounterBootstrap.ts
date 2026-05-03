@@ -18,9 +18,27 @@
 import { useCallback, useEffect, useState } from "react"
 import { apiFetch } from "@/lib/apiFetch"
 import * as counterApi from "../services/counterApi"
-import { hydrateBundle } from "./preferencesStore"
+import {
+  hydrateBundle,
+  claimSlotsForBootstrap,
+  releaseClaimedSlots,
+} from "./preferencesStore"
 import type { InventoryItem } from "../types"
 import type { HostessMatchCandidate } from "../helpers/hostessMatcher"
+
+// 2026-05-01 R-Counter-Speed v2: bootstrap 가 prefetch 하는 prefs scope 화이트리스트.
+//   client 가 ensurePrefLoaded 보다 먼저 이 slot 들을 inFlight 로 claim 해서
+//   중복 fetch 차단. server 측 화이트리스트와 정확히 동기화되어야 함
+//   (app/api/counter/bootstrap/route.ts COUNTER_PREF_SCOPES_USER / _FORCED).
+const CLAIM_USER_SCOPES = [
+  "daily_ops_check",
+  "counter.sidebar_menu",
+  "counter.room_layout",
+] as const
+const CLAIM_FORCED_SCOPES = [
+  "counter.sidebar_menu",
+  "counter.room_layout",
+] as const
 
 /**
  * 2026-05-01 R-Counter-Speed: bootstrap 응답 module-level cache (10초 TTL).
@@ -68,6 +86,19 @@ export type UseCounterBootstrapResult = {
 }
 
 export function useCounterBootstrap(): UseCounterBootstrapResult {
+  // 2026-05-01 R-Counter-Speed v2: 첫 render 시점에 prefs slot 들을 inFlight 로
+  //   claim. CounterPageV2 가 useCounterBootstrap 을 useRoomLayout / Sidebar /
+  //   useMonitorViewOptions 보다 먼저 호출하므로, 같은 render pass 의 후속
+  //   useEffect (ensurePrefLoaded) 들이 inFlight=true 를 보고 fetch 생략.
+  //   직렬 6초+ 의 4개 preferences 직접 fetch 제거.
+  useState(() => {
+    if (typeof window !== "undefined" && !getCachedBootstrap()) {
+      claimSlotsForBootstrap("user", CLAIM_USER_SCOPES)
+      claimSlotsForBootstrap("forced", CLAIM_FORCED_SCOPES)
+    }
+    return true
+  })
+
   const [chatUnread, setChatUnread] = useState(0)
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [hostessStats, setHostessStats] = useState<HostessStats | null>(null)
@@ -184,6 +215,10 @@ export function useCounterBootstrap(): UseCounterBootstrapResult {
         const res = await apiFetch("/api/counter/bootstrap")
         if (cancelled) return
         if (!res.ok) {
+          // 2026-05-01 R-Counter-Speed v2: bootstrap 실패 시 claim 풀어서
+          //   consumer hook 의 ensureLoaded 가 fetch 시도할 수 있게 한다.
+          releaseClaimedSlots("user", CLAIM_USER_SCOPES)
+          releaseClaimedSlots("forced", CLAIM_FORCED_SCOPES)
           fetchUnreadChat(); fetchInventory(); fetchHostessStats(); fetchHostessPool()
           return
         }
@@ -221,6 +256,8 @@ export function useCounterBootstrap(): UseCounterBootstrapResult {
         if (missing.includes("hostess_pool")) fetchHostessPool()
       } catch {
         if (cancelled) return
+        releaseClaimedSlots("user", CLAIM_USER_SCOPES)
+        releaseClaimedSlots("forced", CLAIM_FORCED_SCOPES)
         fetchUnreadChat(); fetchInventory(); fetchHostessStats(); fetchHostessPool()
       }
     })()

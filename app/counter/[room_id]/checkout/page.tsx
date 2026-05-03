@@ -105,23 +105,27 @@ export default function CheckoutPage() {
     setError("")
 
     try {
-      // 1. 시간이 변경된 스태프만 필터링 후 PATCH
+      // 1. 시간이 변경된 스태프만 필터링 후 PATCH (병렬).
+      // 2026-05-01 R-Counter-Speed: 직렬 for-of → Promise.all. N명 × ~300ms → ~300ms.
       const changed = participants.filter(
         p => p.edited_time !== (p.time_minutes ?? 0) || p.edited_price !== (p.price_amount ?? 0)
       )
-      for (const p of changed) {
-        const patchRes = await apiFetch(`/api/sessions/participants/${p.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            time_minutes: p.edited_time,
-            price_amount: p.edited_price,
-          }),
-        })
-        if (!patchRes.ok) {
-          const d = await patchRes.json()
-          setError(d.message || `${p.name || ""} 수정 실패`)
-          return
-        }
+      const patchResults = await Promise.all(
+        changed.map(p =>
+          apiFetch(`/api/sessions/participants/${p.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              time_minutes: p.edited_time,
+              price_amount: p.edited_price,
+            }),
+          }).then(r => ({ p, ok: r.ok, res: r }))
+        )
+      )
+      const patchFail = patchResults.find(r => !r.ok)
+      if (patchFail) {
+        const d = await patchFail.res.json().catch(() => ({}))
+        setError(d.message || `${patchFail.p.name || ""} 수정 실패`)
+        return
       }
 
       const checkoutRes = await apiFetch("/api/sessions/checkout", {
