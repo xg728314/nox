@@ -1,7 +1,21 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { resolveMatchStatus } from "@/lib/session/matching"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: rooms/monitor 와 동일하게 TTL 캐시 + SWR.
+//   카운터 화면이 focus 변경 시 매번 fetch. 같은 (room, session) 의 polling
+//   사이클은 5s 안 거의 변화 없음. 캐시 hit 시 ~5ms.
+const PARTICIPANTS_TTL_MS = 3000
+
+// cached() callback 안에서 throw 해서 outer catch 가 status 응답 생성.
+class ParticipantsRouteError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message)
+    this.name = "ParticipantsRouteError"
+  }
+}
 
 export async function GET(
   request: Request,
@@ -38,6 +52,48 @@ export async function GET(
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+    // 캐시 key: store + room (+ role for visibility 분기). session_id 가 바뀌면
+    //   자연스럽게 다른 응답 — TTL 안에선 같은 응답 재사용 OK.
+    const cacheKey = `${authContext.store_uuid}:${roomUuid}:${authContext.role}`
+    const cachedData = await cached(
+      "room_participants",
+      cacheKey,
+      PARTICIPANTS_TTL_MS,
+      () => buildParticipantsResponse(supabase, roomUuid, authContext),
+    )
+    const res = NextResponse.json(cachedData)
+    // 브라우저도 2초 cache + 5초 SWR — focus 빠른 재진입 시 즉시 표시.
+    res.headers.set("Cache-Control", "private, max-age=2, stale-while-revalidate=5")
+    return res
+  } catch (error) {
+    if (error instanceof ParticipantsRouteError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
+        { status: error.status },
+      )
+    }
+    if (error instanceof AuthError) {
+      const status =
+        error.type === "AUTH_MISSING" ? 401 :
+        error.type === "AUTH_INVALID" ? 401 :
+        error.type === "MEMBERSHIP_NOT_FOUND" ? 403 :
+        error.type === "MEMBERSHIP_INVALID" ? 403 :
+        error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
+        500
+      return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 })
+  }
+}
+
+// 2026-05-03 R-Speed-x10: GET 본문을 함수로 추출 — cached() callback 호환.
+async function buildParticipantsResponse(
+  supabase: SupabaseClient,
+  roomUuid: string,
+  authContext: Awaited<ReturnType<typeof resolveAuthContext>>,
+): Promise<Record<string, unknown>> {
+  {
+
     // 1. Verify room exists in this store
     // 2026-05-01 R-Counter-Speed: room 검증 + active session 병렬 fetch.
     //   둘 다 store_uuid + roomUuid 만 의존 (상호 무관). 직렬 → Promise.all.
@@ -60,15 +116,12 @@ export async function GET(
     const session = sessionRes.data
 
     if (!room) {
-      return NextResponse.json(
-        { error: "ROOM_NOT_FOUND", message: "Room not found in this store." },
-        { status: 404 }
-      )
+      throw new ParticipantsRouteError(404, "ROOM_NOT_FOUND", "Room not found in this store.")
     }
 
     // No active session = no participants (not an error)
     if (!session) {
-      return NextResponse.json({
+      return {
         room_uuid: roomUuid,
         store_uuid: authContext.store_uuid,
         session_id: null,
@@ -76,7 +129,7 @@ export async function GET(
         session_started_at: null,
         session_ended_at: null,
         participants: [],
-      })
+      }
     }
 
     // 3. Get participants for the active session (scoped by store_uuid)
@@ -91,10 +144,7 @@ export async function GET(
       .order("entered_at", { ascending: true })
 
     if (participantsError) {
-      return NextResponse.json(
-        { error: "QUERY_FAILED", message: "Failed to query participants." },
-        { status: 500 }
-      )
+      throw new ParticipantsRouteError(500, "QUERY_FAILED", "Failed to query participants.")
     }
 
     // 4. Lookup names + 담당실장 from managers/hostesses tables by membership_id
@@ -261,7 +311,7 @@ export async function GET(
       }
     })
 
-    return NextResponse.json({
+    return {
       room_uuid: roomUuid,
       store_uuid: authContext.store_uuid,
       session_id: session.id,
@@ -269,27 +319,6 @@ export async function GET(
       session_started_at: session.started_at,
       session_ended_at: session.ended_at,
       participants: participantsWithNames,
-    })
-  } catch (error) {
-    if (error instanceof AuthError) {
-      const status =
-        error.type === "AUTH_MISSING" ? 401 :
-        error.type === "AUTH_INVALID" ? 401 :
-        error.type === "MEMBERSHIP_NOT_FOUND" ? 403 :
-        error.type === "MEMBERSHIP_INVALID" ? 403 :
-        error.type === "MEMBERSHIP_NOT_APPROVED" ? 403 :
-        error.type === "SERVER_CONFIG_ERROR" ? 500 :
-        500
-
-      return NextResponse.json(
-        { error: error.type, message: error.message },
-        { status }
-      )
     }
-
-    return NextResponse.json(
-      { error: "INTERNAL_ERROR", message: "Unexpected error." },
-      { status: 500 }
-    )
   }
 }
