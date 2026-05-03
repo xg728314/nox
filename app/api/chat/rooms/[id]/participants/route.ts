@@ -51,23 +51,42 @@ export async function GET(request: Request, { params }: Params) {
     const authContext = await resolveAuthContext(request)
     const { id } = await params
 
+    if (!isValidUUID(id)) {
+      return NextResponse.json({ error: "BAD_REQUEST", message: "invalid chat room id." }, { status: 400 })
+    }
+
     const svc = createServiceClient()
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    const guard = await resolveRoomAndPermission(id, authContext, supabase, false)
-    if ("error" in guard) return guard.error
+    // 2026-05-03 R-Speed-x10: room load + participant verify + parts list 3개 병렬.
+    //   기존: room → participant → parts → names (4 wave 직렬).
+    //   현재: 첫 3개 동시 fire — chatRoomId + membership_id 만 의존 (서로 무관).
+    //   → 1 wave + names 1 wave = 총 2 wave.
+    const [roomResult, participantError, partsRes] = await Promise.all([
+      loadRoomScoped(supabase, id, authContext.store_uuid),
+      verifyActiveParticipant(supabase, id, authContext.membership_id),
+      supabase
+        .from("chat_participants")
+        .select("id, membership_id, joined_at, unread_count")
+        .eq("chat_room_id", id)
+        .is("left_at", null),
+    ])
+    if (roomResult.error) return roomResult.error
+    if (participantError) return participantError
+    const room = roomResult.room
+    if (room.type !== "group") {
+      return NextResponse.json(
+        { error: "NOT_GROUP_ROOM", message: "group 채팅만 관리할 수 있습니다." },
+        { status: 400 },
+      )
+    }
 
-    const { data: parts } = await supabase
-      .from("chat_participants")
-      .select("id, membership_id, joined_at, unread_count")
-      .eq("chat_room_id", id)
-      .is("left_at", null)
-
-    const memberIds = (parts ?? []).map((p: { membership_id: string }) => p.membership_id)
+    const parts = partsRes.data ?? []
+    const memberIds = parts.map((p: { membership_id: string }) => p.membership_id)
     const nameMap = await resolveMemberNamesWithRole(supabase, authContext.store_uuid, memberIds)
 
-    const enriched = (parts ?? []).map((p: { id: string; membership_id: string; joined_at: string }) => ({
+    const enriched = parts.map((p: { id: string; membership_id: string; joined_at: string }) => ({
       id: p.id,
       membership_id: p.membership_id,
       name: nameMap.get(p.membership_id)?.name ?? null,
