@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getMeAccounts } from "@/lib/server/queries/me/accounts"
 import { getMePayees } from "@/lib/server/queries/me/payees"
+import { cached } from "@/lib/cache/inMemoryTtl"
+
+// 2026-05-03 R-Speed-x10: hostess /me 페이지 mount 시 호출. accounts/payees
+//   거의 안 바뀜 (월 1~2회 owner 가 등록). 30s TTL 안전.
+const ME_BOOTSTRAP_TTL_MS = 30_000
 
 async function slot<T>(
   routeTag: string,
@@ -46,21 +51,54 @@ export async function GET(request: Request) {
     is_super_admin: auth.is_super_admin,
   }
 
-  const [accountsR, payeesR] = await Promise.all([
-    slot("me", "accounts", () => getMeAccounts(auth)),
-    slot("me", "payees", () => getMePayees(auth)),
-  ])
-  console.log(JSON.stringify({ tag: "perf.bootstrap.total", route: "me", ms: Date.now() - tStart }))
+  type MeBootstrapPayload = {
+    accounts: unknown
+    payees: unknown
+    errors: { accounts: string | null; payees: string | null }
+  }
 
-  return NextResponse.json({
+  const cacheKey = `${auth.user_id}:${auth.store_uuid}:${auth.membership_id}`
+  const data = await cached<MeBootstrapPayload>(
+    "me_bootstrap",
+    cacheKey,
+    ME_BOOTSTRAP_TTL_MS,
+    async () => {
+      const [accountsR, payeesR] = await Promise.all([
+        slot("me", "accounts", () => getMeAccounts(auth)),
+        slot("me", "payees", () => getMePayees(auth)),
+      ])
+      console.log(
+        JSON.stringify({
+          tag: "perf.bootstrap.total",
+          route: "me",
+          ms: Date.now() - tStart,
+        }),
+      )
+      return {
+        accounts: accountsR.ok ? (accountsR.data.accounts ?? []) : null,
+        payees: payeesR.ok ? (payeesR.data.payees ?? []) : null,
+        errors: {
+          accounts: accountsR.ok ? null : accountsR.error,
+          payees: payeesR.ok ? null : payeesR.error,
+        },
+      }
+    },
+  )
+
+  const res = NextResponse.json({
     profile: profileData,
-    accounts: accountsR.ok ? (accountsR.data.accounts ?? []) : null,
-    payees: payeesR.ok ? (payeesR.data.payees ?? []) : null,
+    accounts: data.accounts,
+    payees: data.payees,
     errors: {
       profile: null,
-      accounts: accountsR.ok ? null : accountsR.error,
-      payees: payeesR.ok ? null : payeesR.error,
+      accounts: data.errors.accounts,
+      payees: data.errors.payees,
     },
     generated_at: new Date().toISOString(),
   })
+  res.headers.set(
+    "Cache-Control",
+    "private, max-age=10, stale-while-revalidate=60",
+  )
+  return res
 }
