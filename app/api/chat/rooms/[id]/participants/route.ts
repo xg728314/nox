@@ -129,19 +129,27 @@ export async function POST(request: Request, { params }: Params) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    const guard = await resolveRoomAndPermission(id, authContext, supabase, true)
+    // 2026-05-03 R-Speed-x10: room/permission guard + verified members + existing
+    //   3개 동시 fire (서로 무관). 직렬 3 RTT → 1 RTT.
+    const unique = Array.from(new Set(memberIds))
+    const [guard, verifiedRes, existingRes] = await Promise.all([
+      resolveRoomAndPermission(id, authContext, supabase, true),
+      supabase
+        .from("store_memberships")
+        .select("id")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("status", "approved")
+        .is("deleted_at", null)
+        .in("id", unique),
+      supabase
+        .from("chat_participants")
+        .select("id, membership_id, left_at")
+        .eq("chat_room_id", id)
+        .in("membership_id", unique),
+    ])
     if ("error" in guard) return guard.error
 
-    // Validate members: same store + approved + not deleted
-    const unique = Array.from(new Set(memberIds))
-    const { data: verified } = await supabase
-      .from("store_memberships")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("status", "approved")
-      .is("deleted_at", null)
-      .in("id", unique)
-    const verifiedIds = new Set((verified ?? []).map((m: { id: string }) => m.id))
+    const verifiedIds = new Set(((verifiedRes.data ?? []) as { id: string }[]).map((m) => m.id))
     if (verifiedIds.size !== unique.length) {
       return NextResponse.json(
         { error: "INVALID_MEMBERS", message: "유효하지 않은 멤버가 포함되어 있습니다." },
@@ -149,15 +157,8 @@ export async function POST(request: Request, { params }: Params) {
       )
     }
 
-    // Existing rows (including soft-left)
-    const { data: existing } = await supabase
-      .from("chat_participants")
-      .select("id, membership_id, left_at")
-      .eq("chat_room_id", id)
-      .in("membership_id", unique)
-
     const existingMap = new Map<string, { id: string; left_at: string | null }>()
-    for (const e of (existing ?? []) as { id: string; membership_id: string; left_at: string | null }[]) {
+    for (const e of (existingRes.data ?? []) as { id: string; membership_id: string; left_at: string | null }[]) {
       existingMap.set(e.membership_id, { id: e.id, left_at: e.left_at })
     }
 
@@ -172,22 +173,26 @@ export async function POST(request: Request, { params }: Params) {
       }
     }
 
-    if (toReactivate.length > 0) {
-      await supabase
-        .from("chat_participants")
-        .update({ left_at: null, unread_count: 0 })
-        .in("id", toReactivate)
-    }
-
-    if (toInsert.length > 0) {
-      await supabase
-        .from("chat_participants")
-        .insert(toInsert.map(mid => ({
-          chat_room_id: id,
-          membership_id: mid,
-          store_uuid: authContext.store_uuid,
-        })))
-    }
+    // 2026-05-03 R-Speed-x10: reactivate + insert 동시 fire (서로 무관).
+    await Promise.all([
+      toReactivate.length > 0
+        ? supabase
+            .from("chat_participants")
+            .update({ left_at: null, unread_count: 0 })
+            .in("id", toReactivate)
+        : Promise.resolve({ data: null }),
+      toInsert.length > 0
+        ? supabase
+            .from("chat_participants")
+            .insert(
+              toInsert.map((mid) => ({
+                chat_room_id: id,
+                membership_id: mid,
+                store_uuid: authContext.store_uuid,
+              })),
+            )
+        : Promise.resolve({ data: null }),
+    ])
 
     return NextResponse.json({
       chat_room_id: id,
