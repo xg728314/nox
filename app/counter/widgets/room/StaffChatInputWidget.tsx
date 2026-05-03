@@ -10,6 +10,7 @@ import { useRoomContext } from "../RoomContext"
 import StaffChatInput from "../../components/StaffChatInput"
 import { parseStaffChat } from "../../helpers/staffChatParser"
 import { ticketToPreset } from "../../hooks/useParticipantMutations"
+import CafeOrderButton from "@/components/cafe/CafeOrderButton"
 
 export default function StaffChatInputWidget() {
   const {
@@ -49,14 +50,21 @@ export default function StaffChatInputWidget() {
           let successCount = 0
           let lastParticipantId: string | null = null
           const successParticipantIds: string[] = []
-          for (const entry of entries) {
-            const res = await onAddHostessWithName({
-              external_name: entry.name,
-              session_id: activeSessionId,
-              origin_store_name: entry.origin_store_name,
-              category: entry.category,
-              ticket_type: entry.ticket_type,
-            })
+          // 2026-05-01 R-Counter-Speed: 직렬 for-of → Promise.all 병렬.
+          //   서버는 각 POST 가 독립 INSERT 라 순서 의존 없음. 4명 entry 면
+          //   직렬 4× RTT → 1× RTT (max-of-4).
+          const results = await Promise.all(
+            entries.map((entry) =>
+              onAddHostessWithName({
+                external_name: entry.name,
+                session_id: activeSessionId,
+                origin_store_name: entry.origin_store_name,
+                category: entry.category,
+                ticket_type: entry.ticket_type,
+              }).then((res) => ({ entry, res }))
+            )
+          )
+          for (const { entry, res } of results) {
             if (res.ok) {
               successCount++
               if (res.participant_id) {
@@ -98,6 +106,8 @@ export default function StaffChatInputWidget() {
             sharedStoreName &&
             onOpenBulkManagerPicker
           ) {
+            // 2026-05-03 R-Privacy: 매장명만 알고 uuid 모르는 경로.
+            //   server 가 POST body 로 받아 internal 해석 — URL log 에 매장명 안 남음.
             onOpenBulkManagerPicker({
               roomId: room.id,
               sessionId: activeSessionId,
@@ -123,6 +133,17 @@ export default function StaffChatInputWidget() {
       {staffChatError && (
         <div className="px-3 pb-2 -mt-1 text-[11px] text-red-400 leading-tight">
           {staffChatError}
+        </div>
+      )}
+      {/* 2026-05-02 R-Cafe: 룸채팅 옆에 카페 주문 버튼.
+          현재 active session 이 있어야 의미 있음 (room/session id 필요). */}
+      {room.session?.id && (
+        <div className="px-3 pb-2 flex justify-end">
+          <CafeOrderButton
+            room_uuid={room.id}
+            session_id={room.session.id}
+            room_label={`${room.room_no}번방`}
+          />
         </div>
       )}
     </>

@@ -140,14 +140,51 @@ export async function updateParticipantExternalName(
 
 // ── managers / staff directory ────────────────────────────────────
 
+/**
+ * 2026-05-03 R-Privacy: store_name → store_uuid.
+ *   기존 fetchManagersForStore(storeName) 은 매장 한글명을 URL 에 노출 →
+ *   access log / Sentry / 브라우저 히스토리 누출. UUID 만 사용.
+ *
+ *   storeName 호환 wrapper 는 useBulkManagerPicker 등 마이그 안 끝난
+ *   호출자용. 신규 코드는 fetchManagersForStoreUuid 직접 사용.
+ */
+export async function fetchManagersForStoreUuid(storeUuid: string | null | undefined): Promise<{
+  staff: StaffItem[]
+  store_uuid: string | null
+}> {
+  const url = storeUuid && storeUuid.length > 0
+    ? `/api/store/staff?role=manager&store_uuid=${encodeURIComponent(storeUuid)}`
+    : "/api/store/staff?role=manager"
+  const res = await apiFetch(url)
+  if (!res.ok) return { staff: [], store_uuid: null }
+  const d = await res.json().catch(() => ({}))
+  return {
+    staff: (d?.staff ?? []) as StaffItem[],
+    store_uuid: (d?.store_uuid ?? null) as string | null,
+  }
+}
+
+/**
+ * 매장 한글명만 알고 uuid 모를 때 manager 목록 fetch.
+ *
+ * 2026-05-03 R-Privacy: 기존 GET 경로는 매장명을 URL query 에 노출 →
+ *   브라우저 history / access log / Sentry 에 평문 누설. POST body 로 전송하면
+ *   URL 에는 path 만 남고 매장명은 안 남는다.
+ *
+ *   가능하면 fetchManagersForStoreUuid (uuid 사용) 가 우선. 이 함수는 staff
+ *   chat 파서처럼 사용자 입력에서 매장명만 알고 uuid 매핑이 없는 경로 전용.
+ */
 export async function fetchManagersForStore(storeName: string | null | undefined): Promise<{
   staff: StaffItem[]
   store_uuid: string | null
 }> {
-  const url = storeName && storeName.length > 0
-    ? `/api/store/staff?role=manager&store_name=${encodeURIComponent(storeName)}`
-    : "/api/store/staff?role=manager"
-  const res = await apiFetch(url)
+  const res = await apiFetch("/api/store/staff", {
+    method: "POST",
+    body: JSON.stringify({
+      role: "manager",
+      store_name: storeName ?? null,
+    }),
+  })
   if (!res.ok) return { staff: [], store_uuid: null }
   const d = await res.json().catch(() => ({}))
   return {

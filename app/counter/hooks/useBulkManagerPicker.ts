@@ -23,13 +23,15 @@ export function useBulkManagerPicker(deps: UseBulkManagerPickerDeps) {
     roomId: string
     sessionId: string | null
     storeName: string
+    /** 2026-05-03 R-Privacy: 매장 한글명 URL 노출 제거 — uuid 가 있으면 그걸로 fetch. */
+    storeUuid?: string | null
     participantIds: string[]
   }) {
     if (!args.storeName || args.participantIds.length === 0) return
     deps.setBulkMgr({
       open: true,
       storeName: args.storeName,
-      storeUuid: null,
+      storeUuid: args.storeUuid ?? null,
       managerList: [],
       participantIds: args.participantIds,
       roomId: args.roomId,
@@ -37,7 +39,10 @@ export function useBulkManagerPicker(deps: UseBulkManagerPickerDeps) {
       busy: false,
     })
     try {
-      const { staff, store_uuid } = await counterApi.fetchManagersForStore(args.storeName)
+      // uuid 있으면 그 경로 (URL log 에 매장명 안 남음). 없으면 fallback.
+      const { staff, store_uuid } = args.storeUuid
+        ? await counterApi.fetchManagersForStoreUuid(args.storeUuid)
+        : await counterApi.fetchManagersForStore(args.storeName)
       deps.setBulkMgr(s => ({ ...s, managerList: staff, storeUuid: store_uuid }))
     } catch {
       // managerList 빈 상태로 둠 — UI 가 처리.

@@ -41,22 +41,26 @@ export async function GET(request: Request) {
     }
 
     const supabase = supa()
+    // 2026-05-03 fix: stores 테이블 컬럼은 `floor` 임 (`floor_no` 아님).
+    //   기존 select/order 가 floor_no 로 작성되어 PG 가 컬럼 부재로 500 반환 →
+    //   /owner 페이지 super_admin 매장 목록 fetch 가 실패하던 문제.
     const { data, error } = await supabase
       .from("stores")
-      .select("id, store_name, floor_no")
+      .select("id, store_name, floor")
       .is("deleted_at", null)
-      .order("floor_no", { ascending: true, nullsFirst: false })
+      .order("floor", { ascending: true, nullsFirst: false })
       .order("store_name", { ascending: true })
 
     if (error) {
       return NextResponse.json({ error: "DB_ERROR", message: error.message }, { status: 500 })
     }
 
+    // 응답 형태는 floor_no 로 유지 (클라이언트 호환). 서버 측에서 floor → floor_no 매핑.
     return NextResponse.json({
       stores: (data ?? []).map((s) => ({
         store_uuid: s.id,
         store_name: s.store_name,
-        floor_no: s.floor_no,
+        floor_no: s.floor,
       })),
     })
   } catch (e) {

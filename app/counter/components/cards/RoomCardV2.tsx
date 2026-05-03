@@ -70,6 +70,8 @@ type Props = {
     roomId: string
     sessionId: string | null
     storeName: string
+    /** 2026-05-03 R-Privacy: store name URL 노출 제거 — uuid 우선. */
+    storeUuid?: string | null
     participantIds: string[]
   }) => void
   onInlineEditParticipant?: (mode: InlineEditMode, participantId: string) => void

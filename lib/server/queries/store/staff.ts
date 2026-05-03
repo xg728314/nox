@@ -217,11 +217,27 @@ export async function getStoreStaff(
 
   const membershipIds = (members ?? []).map((m: { id: string }) => m.id)
 
-  const stageNameMap = new Map<string, string>()
+  type MemberRow = { id: string; role: string; status: string; store_uuid: string; profiles: { full_name: string } | null }
+  const memberRows = (members ?? []) as unknown as MemberRow[]
 
-  // 2026-05-01 R-Staff-Speed: managers + hostesses 병렬 fetch (직렬 → Promise.all).
+  const stageNameMap = new Map<string, string>()
+  const hostessManagerMap = new Map<string, string | null>()
+  const isHostessEnrichPath = roleParam === "hostess" && memberRows.length > 0
+  const now = Date.now()
+  const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+  const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  // 2026-05-01 R-Counter-Speed v2: managers + hostesses(name+manager_mid) +
+  //   (hostess role 일 때) stores + session_participants 모두 동시 fire.
+  //   직렬 4 round-trip → 1 round-trip. 이전 버전엔 hostesses 가 두 번 (name 따로,
+  //   manager_membership_id 따로) 호출 → 통합.
+  let storeName: string | null = null
+  const activeTodaySet = new Set<string>()
+  const recentCount = new Map<string, number>()
+  const managerNameMap = new Map<string, string>()
+
   if (membershipIds.length > 0) {
-    const [mgrsRes, hstsRes] = await Promise.all([
+    const corePromises = [
       supabase
         .from("managers")
         .select("membership_id, name")
@@ -230,68 +246,48 @@ export async function getStoreStaff(
         .is("deleted_at", null),
       supabase
         .from("hostesses")
-        .select("membership_id, name")
+        .select("membership_id, name, manager_membership_id")
         .in("membership_id", membershipIds)
         .eq("store_uuid", targetStoreUuid)
         .is("deleted_at", null),
-    ])
+    ]
+    const enrichPromises = isHostessEnrichPath
+      ? [
+          supabase
+            .from("stores")
+            .select("store_name")
+            .eq("id", targetStoreUuid)
+            .maybeSingle(),
+          supabase
+            .from("session_participants")
+            .select("membership_id, created_at")
+            .in("membership_id", membershipIds)
+            .eq("store_uuid", targetStoreUuid)
+            .is("deleted_at", null)
+            .gte("created_at", since7d),
+        ]
+      : []
+
+    const allResults = await Promise.all([...corePromises, ...enrichPromises])
+    const mgrsRes = allResults[0] as { data: { membership_id: string; name: string }[] | null }
+    const hstsRes = allResults[1] as { data: { membership_id: string; name: string | null; manager_membership_id: string | null }[] | null }
     for (const m of mgrsRes.data ?? []) stageNameMap.set(m.membership_id, m.name)
-    for (const h of hstsRes.data ?? []) stageNameMap.set(h.membership_id, h.name)
-  }
+    for (const h of hstsRes.data ?? []) {
+      if (h.name) stageNameMap.set(h.membership_id, h.name)
+      hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
+    }
 
-  type MemberRow = { id: string; role: string; status: string; store_uuid: string; profiles: { full_name: string } | null }
-  const memberRows = (members ?? []) as unknown as MemberRow[]
+    if (isHostessEnrichPath) {
+      const storeRes = allResults[2] as { data: { store_name?: string | null } | null }
+      const sp7Res = allResults[3] as { data: { membership_id: string | null; created_at: string }[] | null }
+      storeName = storeRes.data?.store_name ?? null
 
-  const staff: StaffMember[] = memberRows.map(m => ({
-    id: m.id,
-    membership_id: m.id,
-    name: stageNameMap.get(m.id) || m.profiles?.full_name || "이름 없음",
-    role: m.role,
-    status: m.status,
-    store_uuid: m.store_uuid,
-  }))
-
-  let storeName: string | null = null
-
-  if (roleParam === "hostess" && memberRows.length > 0) {
-    try {
-      const hostessMembershipIds = memberRows.map(m => m.id)
-      const now = Date.now()
-      const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString()
-      const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
-
-      // 2026-05-01 R-Staff-Speed: 직렬 3-4 query → Promise.all 병렬.
-      //   기존: stores → hostesses → managers → session_participants (직렬, 1-4초)
-      //   현재: 3 query 병렬 + manager fetch 만 의존 (managerIds 필요).
-      const [storeRes, hstsRes, sp7Res] = await Promise.all([
-        supabase
-          .from("stores")
-          .select("store_name")
-          .eq("id", targetStoreUuid)
-          .maybeSingle(),
-        supabase
-          .from("hostesses")
-          .select("membership_id, manager_membership_id")
-          .in("membership_id", hostessMembershipIds)
-          .eq("store_uuid", targetStoreUuid)
-          .is("deleted_at", null),
-        supabase
-          .from("session_participants")
-          .select("membership_id, created_at")
-          .in("membership_id", hostessMembershipIds)
-          .eq("store_uuid", targetStoreUuid)
-          .is("deleted_at", null)
-          .gte("created_at", since7d),
-      ])
-
-      storeName = (storeRes.data as { store_name?: string | null } | null)?.store_name ?? null
-
-      const hostessManagerMap = new Map<string, string | null>()
-      for (const h of (hstsRes.data ?? []) as { membership_id: string; manager_membership_id: string | null }[]) {
-        hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
+      for (const row of (sp7Res.data ?? [])) {
+        if (!row.membership_id) continue
+        recentCount.set(row.membership_id, (recentCount.get(row.membership_id) ?? 0) + 1)
+        if (row.created_at >= since24h) activeTodaySet.add(row.membership_id)
       }
 
-      const managerNameMap = new Map<string, string>()
       const managerIds = [...new Set([...hostessManagerMap.values()].filter((v): v is string => !!v))]
       if (managerIds.length > 0) {
         try {
@@ -306,29 +302,29 @@ export async function getStoreStaff(
           }
         } catch { /* ignore */ }
       }
+    }
+  }
 
-      const activeTodaySet = new Set<string>()
-      const recentCount = new Map<string, number>()
-      for (const row of (sp7Res.data ?? []) as { membership_id: string | null; created_at: string }[]) {
-        if (!row.membership_id) continue
-        recentCount.set(row.membership_id, (recentCount.get(row.membership_id) ?? 0) + 1)
-        if (row.created_at >= since24h) activeTodaySet.add(row.membership_id)
-      }
+  const staff: StaffMember[] = memberRows.map(m => ({
+    id: m.id,
+    membership_id: m.id,
+    name: stageNameMap.get(m.id) || m.profiles?.full_name || "이름 없음",
+    role: m.role,
+    status: m.status,
+    store_uuid: m.store_uuid,
+  }))
 
-      const normalize = (s: string) => (s ?? "").replace(/\s+/g, "").trim()
-
-      for (const row of staff) {
-        const mgrMid = hostessManagerMap.get(row.id) ?? null
-        row.normalized_name = normalize(row.name)
-        row.store_name = storeName
-        row.manager_membership_id = mgrMid
-        row.manager_name = mgrMid ? (managerNameMap.get(mgrMid) ?? null) : null
-        row.is_active_today = activeTodaySet.has(row.id)
-        const cnt = recentCount.get(row.id) ?? 0
-        row.recent_assignment_score = Math.max(0, Math.min(10, cnt))
-      }
-    } catch (e) {
-      console.warn("hostess enrichment failed:", e instanceof Error ? e.message : String(e))
+  if (isHostessEnrichPath) {
+    const normalize = (s: string) => (s ?? "").replace(/\s+/g, "").trim()
+    for (const row of staff) {
+      const mgrMid = hostessManagerMap.get(row.id) ?? null
+      row.normalized_name = normalize(row.name)
+      row.store_name = storeName
+      row.manager_membership_id = mgrMid
+      row.manager_name = mgrMid ? (managerNameMap.get(mgrMid) ?? null) : null
+      row.is_active_today = activeTodaySet.has(row.id)
+      const cnt = recentCount.get(row.id) ?? 0
+      row.recent_assignment_score = Math.max(0, Math.min(10, cnt))
     }
   }
 

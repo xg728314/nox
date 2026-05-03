@@ -110,16 +110,31 @@ export default function ParticipantInlineEditor({
           ? { membership_id: participant.manager_membership_id, name: participant.manager_name ?? "" }
           : null
       )
-      // 매니저 목록 로드 — origin 이 있으면 origin 매장, 없으면 현재 매장.
+      // 매니저 목록 로드 — origin uuid 가 있으면 그 매장, 없으면 현재 매장.
+      // 2026-05-03 R-Privacy:
+      //   1) uuid 가 있으면 GET ?store_uuid= 사용 (URL 에 한글명 안 남음).
+      //   2) uuid 모르고 매장명만 있으면 POST body 로 — query string 에 노출 회피.
       setManagerList([])
       setLoadingMgrs(true)
       ;(async () => {
         try {
-          const storeName = participant.origin_store_name?.trim() || currentStoreName || ""
-          const url = storeName
-            ? `/api/store/staff?role=manager&store_name=${encodeURIComponent(storeName)}`
-            : "/api/store/staff?role=manager"
-          const res = await apiFetch(url)
+          const originUuid = participant.origin_store_uuid?.trim() || ""
+          const fallbackUuid = originUuid || (currentStoreUuid ?? "")
+          let res: Response
+          if (fallbackUuid) {
+            res = await apiFetch(
+              `/api/store/staff?role=manager&store_uuid=${encodeURIComponent(fallbackUuid)}`,
+            )
+          } else {
+            const storeName = participant.origin_store_name?.trim() || currentStoreName || ""
+            res = await apiFetch("/api/store/staff", {
+              method: "POST",
+              body: JSON.stringify({
+                role: "manager",
+                store_name: storeName || null,
+              }),
+            })
+          }
           if (res.ok) {
             const d = await res.json()
             setManagerList((d.staff ?? []) as StaffItem[])
