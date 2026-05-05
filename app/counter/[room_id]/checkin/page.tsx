@@ -173,24 +173,59 @@ export default function CheckinPage() {
       }
 
       if (selectedStaff.length > 0) {
-        // 2026-05-01 R-Counter-Speed: 직렬 for-of → Promise.all. N명 × ~300ms → ~300ms.
-        const results = await Promise.all(
-          selectedStaff.map((staff) => {
-            const body: Record<string, unknown> = {
-              session_id: sessionId,
+        // 2026-05-03 R-Speed-x10: N명 entry → batch endpoint 1 RTT.
+        //   기존: Promise.all 으로 N개 POST 동시 fire — Cloud Run 단일 instance
+        //   에서 부분 직렬화 발생, N=7 시 ~316ms (네트워크 로그 확인).
+        //   현재: /api/sessions/participants/batch 단일 POST — 검증/INSERT 1회.
+        //   기대: 7명 ~316ms → ~150-200ms.
+        if (selectedStaff.length >= 2) {
+          const batchEntries = selectedStaff.map((staff) => {
+            const entry: Record<string, unknown> = {
               membership_id: staff.membership_id,
               role: staff.role,
               category: selectedCategory.code,
               time_minutes: timeMinutes,
             }
-            if (timeType) body.time_type = timeType
-            return apiFetch("/api/sessions/participants", {
-              method: "POST",
-              body: JSON.stringify(body),
-            }).then((res) => ({ staff, res }))
-          }),
-        )
-        for (const { staff, res } of results) {
+            if (timeType) entry.time_type = timeType
+            return entry
+          })
+          const res = await apiFetch("/api/sessions/participants/batch", {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: sessionId,
+              entries: batchEntries,
+            }),
+          })
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}))
+            setError(data.message || "참여자 등록 실패")
+          } else {
+            const data = await res.json().catch(() => ({}))
+            const results: Array<{ ok?: boolean; index?: number; error?: string }> =
+              data?.results ?? []
+            const failed = results.filter((r) => r && r.ok === false)
+            if (failed.length > 0) {
+              const names = failed
+                .map((r) => selectedStaff[r.index ?? 0]?.name ?? "?")
+                .join(", ")
+              setError(`참여자 등록 일부 실패: ${names}`)
+            }
+          }
+        } else {
+          // 1명만 추가하는 경우엔 단일 POST 가 더 단순 (batch overhead 회피).
+          const staff = selectedStaff[0]
+          const body: Record<string, unknown> = {
+            session_id: sessionId,
+            membership_id: staff.membership_id,
+            role: staff.role,
+            category: selectedCategory.code,
+            time_minutes: timeMinutes,
+          }
+          if (timeType) body.time_type = timeType
+          const res = await apiFetch("/api/sessions/participants", {
+            method: "POST",
+            body: JSON.stringify(body),
+          })
           if (!res.ok) {
             const data = await res.json().catch(() => ({}))
             setError(data.message || `참여자 등록 실패: ${staff.name}`)

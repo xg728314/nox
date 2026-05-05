@@ -5,7 +5,8 @@ import { getChatUnread } from "@/lib/server/queries/chatUnread"
 import { cached } from "@/lib/cache/inMemoryTtl"
 
 // 2026-05-03 R-Speed-x10: 네비 뱃지 — 매 polling cycle hit. 5s TTL + max-age=3.
-const UNREAD_TTL_MS = 5000
+// 2026-05-03 part2: 5s → 10s, max-age 3→6 (폴링 5s 보다 길게).
+const UNREAD_TTL_MS = 10000
 
 /**
  * GET /api/chat/unread
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
       () => getChatUnread(authContext),
     )
     const res = NextResponse.json(data)
-    res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+    res.headers.set("Cache-Control", "private, max-age=6, stale-while-revalidate=30")
     return res
   } catch (error) {
     return handleRouteError(error, "chat/unread")

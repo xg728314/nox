@@ -74,18 +74,39 @@ export async function buildReceiptDocument(
 ): Promise<{ document: ReceiptDocument; participantSnapshots: ReceiptParticipantSnapshot[]; orderSnapshots: ReceiptOrderSnapshot[] }> {
   const { supabase, session, roomLabel, storeName, receipt, receiptType, calcMode, user_id } = input
 
-  // 1. Fetch participants (hostess role only, snapshot at this moment)
-  const { data: rawParticipants } = await supabase
-    .from("session_participants")
-    .select("id, role, category, time_minutes, price_amount, status, external_name, membership_id")
-    .eq("session_id", session.session_id)
-    .eq("store_uuid", session.store_uuid)
-    .eq("role", "hostess")
-    .is("deleted_at", null)
+  // 2026-05-03 R-Speed-x10 part2: 4 RTT 직렬 → 2 wave.
+  //   Wave 1: participants + orders + svcTypes (서로 무관, 모두 session_id/store_uuid 만 사용).
+  //   Wave 2: memberships (Wave 1 의 participants 결과 의존).
+  //   기존 4 wave 직렬 ~600ms → 2 wave ~300ms.
+  const wantHalfPrices = receiptType === "interim" && calcMode === "half_ticket"
+  const [rawParticipantsRes, rawOrdersRes, svcTypesRes] = await Promise.all([
+    supabase
+      .from("session_participants")
+      .select("id, role, category, time_minutes, price_amount, status, external_name, membership_id")
+      .eq("session_id", session.session_id)
+      .eq("store_uuid", session.store_uuid)
+      .eq("role", "hostess")
+      .is("deleted_at", null),
+    supabase
+      .from("orders")
+      .select("id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount")
+      .eq("session_id", session.session_id)
+      .eq("store_uuid", session.store_uuid)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true }),
+    wantHalfPrices
+      ? supabase
+          .from("store_service_types")
+          .select("service_type, time_type, time_minutes, price, is_active")
+          .eq("store_uuid", session.store_uuid)
+          .eq("time_type", "반티")
+          .eq("is_active", true)
+      : Promise.resolve({ data: [] as Array<{ service_type: string; time_minutes: number; price: number }> }),
+  ])
 
-  const participantsWithNames = (rawParticipants ?? []) as RawParticipant[]
+  const participantsWithNames = (rawParticipantsRes.data ?? []) as RawParticipant[]
 
-  // 2. Resolve names for participants with membership_id
+  // 2. Resolve names for participants with membership_id (Wave 2 — Wave 1 결과 의존).
   const memberIds = participantsWithNames
     .filter((p) => p.membership_id)
     .map((p) => p.membership_id!)
@@ -104,16 +125,10 @@ export async function buildReceiptDocument(
     }
   }
 
-  // 3. If interim + half_ticket mode: resolve 반티 price per category
+  // 3. half-ticket prices (Wave 1 결과 사용).
   const halfPriceByCategory = new Map<string, { price: number; minutes: number }>()
-  if (receiptType === "interim" && calcMode === "half_ticket") {
-    const { data: svcTypes } = await supabase
-      .from("store_service_types")
-      .select("service_type, time_type, time_minutes, price, is_active")
-      .eq("store_uuid", session.store_uuid)
-      .eq("time_type", "반티")
-      .eq("is_active", true)
-    for (const st of (svcTypes ?? []) as { service_type: string; time_minutes: number; price: number }[]) {
+  if (wantHalfPrices) {
+    for (const st of (svcTypesRes.data ?? []) as { service_type: string; time_minutes: number; price: number }[]) {
       halfPriceByCategory.set(st.service_type, { price: st.price, minutes: st.time_minutes })
     }
   }
@@ -145,15 +160,8 @@ export async function buildReceiptDocument(
     ? (Array.from(halfPriceByCategory.values())[0]?.minutes ?? elapsedMaxMinutes)
     : elapsedMaxMinutes
 
-  // 5. Fetch orders (snapshot at this moment)
-  const { data: rawOrders } = await supabase
-    .from("orders")
-    .select("id, item_name, order_type, qty, unit_price, store_price, sale_price, manager_amount, customer_amount")
-    .eq("session_id", session.session_id)
-    .eq("store_uuid", session.store_uuid)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-
+  // 5. Orders 는 Wave 1 에서 이미 fetch 됨 — 재사용.
+  const rawOrders = rawOrdersRes.data
   const orderSnapshots: ReceiptOrderSnapshot[] = ((rawOrders ?? []) as RawOrder[]).map((o) => ({
     id: o.id,
     item_name: o.item_name,

@@ -1,9 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { cached } from "@/lib/cache/inMemoryTtl"
 
 type OwnerVisibilityFlags = {
   showManager: boolean
   showHostess: boolean
 }
+
+// 2026-05-03 R-Speed-x10 part2: 매니저 visibility 토글은 거의 안 바뀜.
+//   receipt/settlement/finalize 마다 호출되던 RTT 1회 절감 → cache hit ~1ms.
+const VISIBILITY_TTL_MS = 30_000
 
 /**
  * Queries manager visibility toggles for a store.
@@ -18,19 +23,26 @@ export async function resolveOwnerVisibility(
   supabase: SupabaseClient,
   store_uuid: string
 ): Promise<OwnerVisibilityFlags> {
-  const { data: mgrRows } = await supabase
-    .from("managers")
-    .select("show_profit_to_owner, show_hostess_profit_to_owner")
-    .eq("store_uuid", store_uuid)
+  return cached<OwnerVisibilityFlags>(
+    "owner_visibility",
+    store_uuid,
+    VISIBILITY_TTL_MS,
+    async () => {
+      const { data: mgrRows } = await supabase
+        .from("managers")
+        .select("show_profit_to_owner, show_hostess_profit_to_owner")
+        .eq("store_uuid", store_uuid)
 
-  let showManager = false
-  let showHostess = false
-  for (const m of (mgrRows ?? []) as { show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }[]) {
-    if (m.show_profit_to_owner) showManager = true
-    if (m.show_hostess_profit_to_owner) showHostess = true
-  }
+      let showManager = false
+      let showHostess = false
+      for (const m of (mgrRows ?? []) as { show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }[]) {
+        if (m.show_profit_to_owner) showManager = true
+        if (m.show_hostess_profit_to_owner) showHostess = true
+      }
 
-  return { showManager, showHostess }
+      return { showManager, showHostess }
+    },
+  )
 }
 
 /**

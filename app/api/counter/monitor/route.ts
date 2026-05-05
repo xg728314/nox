@@ -12,7 +12,9 @@ import { buildBleOverlay } from "@/lib/monitor/bleOverlay"
 //   3초 TTL → DB 직격 50% 감소 (서버 인스턴스마다).
 //   stale-while-revalidate 로 클라 측에도 공유.
 // 2026-05-03 R-Speed-x10: 3s → 5s. SWR 가 stale 즉시 반환 + 백그라운드 갱신.
-const MONITOR_TTL_MS = 5000
+// 2026-05-03 part2: 5s → 10s. 폴링 5s 라 5s TTL 면 50% miss. 10s 로 늘리면
+//   거의 모든 폴링이 process cache hit + browser max-age 도 6s 로.
+const MONITOR_TTL_MS = 10000
 
 class MonitorQueryError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = "MonitorQueryError" }
@@ -103,8 +105,9 @@ export async function GET(request: Request) {
       },
     )
     const res = NextResponse.json(cachedData)
-    // 2026-05-03 R-Speed-x10: max-age=3 + SWR=10 → 폴링 5s 간격에서 60% 브라우저 cache hit.
-    res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+    // 2026-05-03 part2: max-age=3 → 6 (폴링 주기 5s 보다 길게).
+    //   SWR=10 → 30 (process cache hardTtl 40s 와 매칭).
+    res.headers.set("Cache-Control", "private, max-age=6, stale-while-revalidate=30")
     return res
   } catch (error) {
     if (error instanceof AuthError) {

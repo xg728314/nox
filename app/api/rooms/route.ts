@@ -11,7 +11,10 @@ import { cached } from "@/lib/cache/inMemoryTtl"
 // 2026-05-03 R-Speed-x10: 3s → 5s (폴링 주기 = TTL → SWR 백그라운드 fetch 패턴 활용).
 //   inMemoryTtl.cached 가 stale-while-revalidate 모드라 stale 반환 즉시 +
 //   백그라운드 refresh. 사용자 응답은 cache hit (1ms 수준).
-const ROOMS_TTL_MS = 5000
+// 2026-05-03 R-Speed-x10 part2: 5s → 10s. 사용자 network 로그 분석 결과 폴링 5s
+//   라 max-age=3 만료 후 매번 revalidate (~315ms). 폴링 주기보다 길게 잡아
+//   브라우저가 매번 fresh hit. checkin/checkout 시점에는 invalidate 호출됨.
+const ROOMS_TTL_MS = 10000
 
 export async function GET(request: Request) {
   try {
@@ -32,11 +35,11 @@ export async function GET(request: Request) {
         () => getRooms(authContext),
       )
       const res = NextResponse.json(data)
-      // 2026-05-03 R-Speed-x10:
-      //   max-age=3 → 폴링 5초마다인데 3초간 브라우저 cache hit.
-      //   60% 폴링이 네트워크 hit 없이 즉시 반환 (0ms).
-      //   stale-while-revalidate=10 → 추가 7초까지 stale 반환 + 백그라운드 fetch.
-      res.headers.set("Cache-Control", "private, max-age=3, stale-while-revalidate=10")
+      // 2026-05-03 R-Speed-x10 part2: max-age=3 → 6.
+      //   폴링 5s 라 3s max-age 면 매번 revalidate (network hit 발생).
+      //   6s max-age + 30s SWR → 폴링마다 browser cache hit (network 0ms).
+      //   변경 시점에는 client 가 invalidate (checkin/out POST 후 router refresh).
+      res.headers.set("Cache-Control", "private, max-age=6, stale-while-revalidate=30")
       return res
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to query rooms."

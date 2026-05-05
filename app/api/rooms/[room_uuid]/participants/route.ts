@@ -7,7 +7,8 @@ import { cached } from "@/lib/cache/inMemoryTtl"
 // 2026-05-03 R-Speed-x10: rooms/monitor 와 동일하게 TTL 캐시 + SWR.
 //   카운터 화면이 focus 변경 시 매번 fetch. 같은 (room, session) 의 polling
 //   사이클은 5s 안 거의 변화 없음. 캐시 hit 시 ~5ms.
-const PARTICIPANTS_TTL_MS = 3000
+// 2026-05-03 part2: 3s → 8s. 폴링 5s 보다 길게.
+const PARTICIPANTS_TTL_MS = 8000
 
 // cached() callback 안에서 throw 해서 outer catch 가 status 응답 생성.
 class ParticipantsRouteError extends Error {
@@ -62,8 +63,8 @@ export async function GET(
       () => buildParticipantsResponse(supabase, roomUuid, authContext),
     )
     const res = NextResponse.json(cachedData)
-    // 브라우저도 2초 cache + 5초 SWR — focus 빠른 재진입 시 즉시 표시.
-    res.headers.set("Cache-Control", "private, max-age=2, stale-while-revalidate=5")
+    // 2026-05-03 part2: max-age 2→6, SWR 5→30. 폴링 cycle 안 매번 cache hit.
+    res.headers.set("Cache-Control", "private, max-age=6, stale-while-revalidate=30")
     return res
   } catch (error) {
     if (error instanceof ParticipantsRouteError) {

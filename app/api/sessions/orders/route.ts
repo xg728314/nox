@@ -11,7 +11,9 @@ import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import type { OrderListRow } from "@/lib/orders/types"
 
 // 2026-05-03 R-Speed-x10: 카운터 폴링이 매 5초마다 호출. TTL 캐시 + SWR.
-const ORDERS_TTL_MS = 3000
+// 2026-05-03 part2: 3s → 8s. 폴링 5s 면 3s 만료 후 매번 revalidate.
+//   POST/DELETE 시 invalidate 호출되므로 stale 우려 없음.
+const ORDERS_TTL_MS = 8000
 
 export async function GET(request: Request) {
   try {
@@ -108,7 +110,8 @@ export async function GET(request: Request) {
     }
 
     const res = NextResponse.json(data)
-    res.headers.set("Cache-Control", "private, max-age=2, stale-while-revalidate=5")
+    // 2026-05-03 part2: max-age=2 → 6, SWR=5 → 30. 폴링 5s 마다 browser cache hit.
+    res.headers.set("Cache-Control", "private, max-age=6, stale-while-revalidate=30")
     return res
   } catch (error) {
     return handleRouteError(error, "orders")
