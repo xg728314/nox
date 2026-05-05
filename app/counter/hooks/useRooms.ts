@@ -87,7 +87,7 @@ type UseRoomsReturn = {
   currentStoreUuid: string | null
   loading: boolean
   now: number
-  refreshRooms: () => Promise<void>
+  refreshRooms: (opts?: { force?: boolean }) => Promise<void>
   /**
    * Per-room selective refresh scaffold (P1 — structure only).
    * 현재 동작: 전체 refreshRooms() 로 fall-back.
@@ -138,9 +138,12 @@ export function useRooms(): UseRoomsReturn {
   const pendingEventsRef = useRef<Set<RealtimeTable>>(new Set())
   const scheduleRefreshRef = useRef<(() => void) | null>(null)
 
-  const refreshRooms = useCallback(async () => {
+  const refreshRooms = useCallback(async (opts?: { force?: boolean }) => {
     try {
-      const res = await apiFetch("/api/rooms")
+      // 2026-05-03 R-Speed-x10 part2: realtime 이벤트로 호출되거나 mutation 직후
+      //   호출일 땐 브라우저 cache (max-age=6) 우회 — `cache: "no-store"`.
+      //   초기 mount 일 땐 cache 활용 (force=false).
+      const res = await apiFetch("/api/rooms", opts?.force ? { cache: "no-store" } : undefined)
       if (res.status === 401 || res.status === 403) { router.push("/login"); return }
       const data = await res.json()
       setRooms(data.rooms || [])
@@ -191,7 +194,9 @@ export function useRooms(): UseRoomsReturn {
     coalesceTimerRef.current = setTimeout(() => {
       coalesceTimerRef.current = null
       pendingEventsRef.current.clear()
-      void refreshRooms()
+      // 2026-05-03 part2: realtime 이벤트로 인한 refresh 는 force:true.
+      //   browser cache (max-age=6) 우회해서 즉시 fresh 데이터 표시.
+      void refreshRooms({ force: true })
     }, 150)
   }, [refreshRooms])
   scheduleRefreshRef.current = scheduleRefresh
