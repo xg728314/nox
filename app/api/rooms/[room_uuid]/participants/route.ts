@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import { type SupabaseClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { resolveMatchStatus } from "@/lib/session/matching"
 import { cached } from "@/lib/cache/inMemoryTtl"
 
@@ -41,17 +42,8 @@ export async function GET(
       )
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
-        { error: "SERVER_CONFIG_ERROR", message: "Supabase environment variables are not configured." },
-        { status: 500 }
-      )
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용 — 요청마다 client 생성 비용 X.
+    const supabase = getServiceClient()
 
     // 캐시 key: store + room (+ role for visibility 분기). session_id 가 바뀌면
     //   자연스럽게 다른 응답 — TTL 안에선 같은 응답 재사용 OK.

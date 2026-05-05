@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { defaultRoomName } from "@/lib/rooms/formatRoomLabel"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import { cached } from "@/lib/cache/inMemoryTtl"
@@ -69,12 +69,8 @@ type Row = Record<string, unknown>
 // 2026-05-03: deriveRecommendations + 관련 types/constants 는
 //   lib/monitor/recommendations.ts 로 분리.
 
-function supa() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error("SERVER_CONFIG_ERROR")
-  return createClient(url, key)
-}
+// 2026-05-05: client 생성 비용 제거 — module-level singleton 재사용.
+const supa = getServiceClient
 
 export async function GET(request: Request) {
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { escapeLikeValue } from "@/lib/security/postgrestEscape"
 import { logAuditEvent } from "@/lib/audit/logEvent"
 import { cached } from "@/lib/cache/inMemoryTtl"
@@ -27,12 +27,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용.
+    const supabase = getServiceClient()
 
     const { searchParams } = new URL(request.url)
     const q = searchParams.get("q")?.trim() ?? ""
@@ -222,12 +218,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "name is required." }, { status: 400 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용.
+    const supabase = getServiceClient()
 
     const normalizedPhone = phone ? phone.replace(/\D/g, "") : null
 

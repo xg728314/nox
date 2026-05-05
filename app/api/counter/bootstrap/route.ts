@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getChatUnread } from "@/lib/server/queries/chatUnread"
 import { getInventoryItems } from "@/lib/server/queries/inventoryItems"
@@ -29,12 +29,8 @@ const COUNTER_PREF_SCOPES_FORCED = [
   "counter.room_layout",
 ] as const
 
-function supa() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error("SERVER_CONFIG_ERROR")
-  return createClient(url, key)
-}
+// 2026-05-05: module-level singleton 재사용.
+const supa = getServiceClient
 
 /**
  * /api/counter/bootstrap — 카운터 페이지 mount 시 한 번에 묶음 fetch.

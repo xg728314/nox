@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { defaultRoomName } from "@/lib/rooms/formatRoomLabel"
 import { getRooms } from "@/lib/server/queries/rooms"
 import { cached } from "@/lib/cache/inMemoryTtl"
@@ -86,13 +86,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용.
+    const supabase = getServiceClient()
 
     // Find the highest room_no to determine next number
     const { data: existing } = await supabase

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { cached } from "@/lib/cache/inMemoryTtl"
 
@@ -38,12 +38,8 @@ const HOME_TTL_MS = 5000
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function supa() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error("SERVER_CONFIG_ERROR")
-  return createClient(url, key)
-}
+// 2026-05-05: module-level singleton 재사용.
+const supa = getServiceClient
 
 type ActiveSessionOut = {
   session_id: string

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 // 2026-05-03 R-Speed-x10: store_settings 는 영업일 중 잠겨있고 owner 만 변경 →
@@ -19,13 +19,8 @@ export async function GET(request: Request) {
       )
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용.
+    const supabase = getServiceClient()
 
     // R29-fix: migration 018/087 미적용 환경 → 42703 (column does not exist).
     //   credits 와 같은 FULL → BASE 폴백 패턴. migration 095 적용하면 자동 복구.
@@ -195,13 +190,8 @@ export async function PATCH(request: Request) {
 
     updateData.updated_at = new Date().toISOString()
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // 2026-05-05: module-level singleton 재사용.
+    const supabase = getServiceClient()
 
     // 영업일 중 설정 변경 잠금: open 영업일이 있으면 차단
     const { data: openDay } = await supabase
