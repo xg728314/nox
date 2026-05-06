@@ -271,3 +271,174 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "INTERNAL_ERROR", message: "예상치 못한 오류." }, { status: 500 })
   }
 }
+
+/**
+ * DELETE /api/reports/period?business_date=YYYY-MM-DD
+ *
+ * 2026-05-06: 일자별 매출 기록 삭제 (archive). owner only.
+ *
+ * 동작:
+ *   - 해당 영업일 (business_date) 의 모든 receipts/sessions/participants/orders/
+ *     pre_settlements 에 archived_at 타임스탬프 set.
+ *   - hard delete 아님 — DB 보관 (세법 5년 + 분쟁 증빙).
+ *   - 모든 active 쿼리 (period report, daily report, owner overview) 가
+ *     archived_at IS NULL 필터 적용 → UI 에서 사라짐.
+ *
+ * 가드:
+ *   - role === "owner" 만 허용. manager 차단.
+ *   - business_date 가 store_operating_days 에 존재해야 함 (다른 매장 데이터 차단).
+ *
+ * 응답:
+ *   { archived_at, archived_counts: { receipts, sessions, participants, orders, pre_settlements } }
+ *
+ * 복구:
+ *   archived_at 필드를 NULL 로 UPDATE 하면 복구 가능 (DB 직접 작업 필요).
+ *   향후 운영자 친화 복구 UI 는 별도.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const authContext = await resolveAuthContext(request)
+    if (authContext.role !== "owner") {
+      return NextResponse.json(
+        { error: "ROLE_FORBIDDEN", message: "사장만 삭제할 수 있습니다." },
+        { status: 403 },
+      )
+    }
+
+    const url = new URL(request.url)
+    const businessDate = url.searchParams.get("business_date")
+    if (!businessDate || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+      return NextResponse.json(
+        { error: "BAD_REQUEST", message: "business_date (YYYY-MM-DD) 필수." },
+        { status: 400 },
+      )
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json({ error: "SERVER_CONFIG_ERROR" }, { status: 500 })
+    }
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+    // 1. 해당 영업일 row 검증 (store scope).
+    const { data: day } = await supabase
+      .from("store_operating_days")
+      .select("id")
+      .eq("store_uuid", authContext.store_uuid)
+      .eq("business_date", businessDate)
+      .is("deleted_at", null)
+      .maybeSingle()
+
+    if (!day) {
+      return NextResponse.json(
+        { error: "DAY_NOT_FOUND", message: "해당 영업일이 존재하지 않습니다." },
+        { status: 404 },
+      )
+    }
+
+    const businessDayId = day.id
+    const archivedAt = new Date().toISOString()
+
+    // 2. 해당 영업일 모든 sessions 의 id 수집 (cascade 용).
+    const { data: sessions } = await supabase
+      .from("room_sessions")
+      .select("id")
+      .eq("store_uuid", authContext.store_uuid)
+      .eq("business_day_id", businessDayId)
+    const sessionIds = (sessions ?? []).map((s: { id: string }) => s.id)
+
+    // 3. archive 4 테이블 동시 fire (Promise.all).
+    //    각각 archived_at 만 set — hard delete 안 함.
+    const [receiptsRes, sessionsRes, partsRes, ordersRes, preRes] = await Promise.all([
+      supabase
+        .from("receipts")
+        .update({ archived_at: archivedAt })
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId)
+        .is("archived_at", null)
+        .select("id"),
+      supabase
+        .from("room_sessions")
+        .update({ archived_at: archivedAt })
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId)
+        .is("archived_at", null)
+        .select("id"),
+      sessionIds.length > 0
+        ? supabase
+            .from("session_participants")
+            .update({ archived_at: archivedAt })
+            .eq("store_uuid", authContext.store_uuid)
+            .in("session_id", sessionIds)
+            .is("archived_at", null)
+            .select("id")
+        : Promise.resolve({ data: [] as Array<{ id: string }> }),
+      sessionIds.length > 0
+        ? supabase
+            .from("orders")
+            .update({ archived_at: archivedAt })
+            .eq("store_uuid", authContext.store_uuid)
+            .in("session_id", sessionIds)
+            .is("archived_at", null)
+            .select("id")
+        : Promise.resolve({ data: [] as Array<{ id: string }> }),
+      sessionIds.length > 0
+        ? supabase
+            .from("pre_settlements")
+            .update({ archived_at: archivedAt })
+            .eq("store_uuid", authContext.store_uuid)
+            .in("session_id", sessionIds)
+            .is("archived_at", null)
+            .select("id")
+        : Promise.resolve({ data: [] as Array<{ id: string }> }),
+    ])
+
+    // 4. 감사 로그 (background fire).
+    void supabase
+      .from("audit_events")
+      .insert({
+        store_uuid: authContext.store_uuid,
+        actor_profile_id: authContext.user_id,
+        actor_membership_id: authContext.membership_id,
+        actor_role: authContext.role,
+        actor_type: authContext.role,
+        entity_table: "store_operating_days",
+        entity_id: businessDayId,
+        action: "period_day_archived",
+        after: {
+          business_date: businessDate,
+          archived_at: archivedAt,
+          counts: {
+            receipts: (receiptsRes.data ?? []).length,
+            sessions: (sessionsRes.data ?? []).length,
+            participants: (partsRes.data ?? []).length,
+            orders: (ordersRes.data ?? []).length,
+            pre_settlements: (preRes.data ?? []).length,
+          },
+        },
+      })
+      .then(undefined, () => {
+        /* swallow audit failure */
+      })
+
+    return NextResponse.json({
+      archived_at: archivedAt,
+      business_date: businessDate,
+      archived_counts: {
+        receipts: (receiptsRes.data ?? []).length,
+        sessions: (sessionsRes.data ?? []).length,
+        participants: (partsRes.data ?? []).length,
+        orders: (ordersRes.data ?? []).length,
+        pre_settlements: (preRes.data ?? []).length,
+      },
+    })
+  } catch (error) {
+    if (error instanceof AuthError) {
+      const status =
+        error.type === "AUTH_MISSING" || error.type === "AUTH_INVALID" ? 401 : 403
+      return NextResponse.json({ error: error.type, message: error.message }, { status })
+    }
+    return NextResponse.json({ error: "INTERNAL_ERROR", message: "예상치 못한 오류." }, { status: 500 })
+  }
+}

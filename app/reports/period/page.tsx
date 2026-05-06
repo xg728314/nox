@@ -118,6 +118,37 @@ export default function PeriodReportPage() {
     fetchReport(f, t)
   }
 
+  // 2026-05-06: 일자별 삭제 (archive). owner only — 서버에서도 가드.
+  const [deletingDate, setDeletingDate] = useState<string | null>(null)
+  async function handleDeleteDay(businessDate: string) {
+    const display = businessDate.slice(5).replace("-", "-")
+    if (!confirm(
+      `${display} 매출 기록을 삭제하시겠습니까?\n\n` +
+      `해당 영업일의 영수증 / 세션 / 주문 / 선정산 모두 숨김 처리됩니다.\n` +
+      `(DB 보관 — 분쟁 대비. 복구는 관리자 직접 처리.)`,
+    )) return
+    setDeletingDate(businessDate)
+    setError("")
+    try {
+      const res = await apiFetch(
+        `/api/reports/period?business_date=${encodeURIComponent(businessDate)}`,
+        { method: "DELETE" },
+      )
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.message || "삭제 실패")
+        return
+      }
+      // 성공 — 리포트 다시 조회.
+      await fetchReport(from, to)
+    } catch (e) {
+      console.error("[reports/period] delete error", e)
+      setError("네트워크 오류. 다시 시도해주세요.")
+    } finally {
+      setDeletingDate(null)
+    }
+  }
+
   const maxGross = Math.max(1, ...(report?.daily ?? []).map(d => d.gross_total))
 
   return (
@@ -225,6 +256,18 @@ export default function PeriodReportPage() {
                         </span>
                       </div>
                       <span className="w-24 text-right text-slate-200 tabular-nums">{fmtMan(d.gross_total)}</span>
+                      {/* 2026-05-06: 일자별 삭제 (archive) 버튼 — owner only.
+                          server 도 role 가드 함. session_count > 0 인 일자만 노출 (빈 영업일은 삭제 의미 없음). */}
+                      {d.session_count > 0 && (
+                        <button
+                          onClick={() => handleDeleteDay(d.business_date)}
+                          disabled={deletingDate !== null}
+                          className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] hover:bg-red-500/25 disabled:opacity-40"
+                          title={`${d.business_date} 기록 삭제 (숨김)`}
+                        >
+                          {deletingDate === d.business_date ? "..." : "삭제"}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
