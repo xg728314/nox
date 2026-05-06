@@ -187,9 +187,8 @@ export default function OrderSectionV2({
                   <span className="font-semibold w-[4.5rem] text-right flex-shrink-0">{fmtWon(e.amount)}</span>
                   <button
                     onClick={() => onQuickRepeat(latest)}
-                    disabled={busy}
                     title="1병 더 추가"
-                    className="h-5 px-1.5 rounded bg-cyan-500/20 border border-cyan-500/30 text-cyan-200 text-[11px] font-bold flex-shrink-0 hover:bg-cyan-500/35 active:scale-95 transition-all disabled:opacity-40"
+                    className="h-5 px-1.5 rounded bg-cyan-500/20 border border-cyan-500/30 text-cyan-200 text-[11px] font-bold flex-shrink-0 hover:bg-cyan-500/35 active:scale-95 transition-all"
                   >+</button>
                   <button
                     onClick={() => onDelete(latest.id)}
