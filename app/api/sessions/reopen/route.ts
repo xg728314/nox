@@ -142,9 +142,35 @@ export async function POST(request: Request) {
       )
     }
 
+    // 4.5. 2026-05-06: checkout 이 닫은 participants 도 함께 복구.
+    //   기존: session.status 만 'active' 로 되돌리고 participants 는 'left' 그대로.
+    //   결과: rooms 응답 gross_total 은 left participants price 합산해 ₩700,000 표시
+    //   되지만, focus view 는 status='active' 필터 → 0명. 사용자: "체크아웃했는데
+    //   금액 떠있고 들어가면 비어있다" 버그.
+    //   close_session_atomic 은 모든 active → left 를 같은 v_now 로 left_at 박음.
+    //   따라서 left_at = session.ended_at 인 participants 가 "이 checkout 이 닫은
+    //   대상". 그 row 들만 status='active', left_at=NULL 로 복구.
+    let reactivatedCount = 0
+    if (session.ended_at) {
+      const { data: reactivated } = await supabase
+        .from("session_participants")
+        .update({
+          status: "active",
+          left_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("session_id", sessionId)
+        .eq("store_uuid", auth.store_uuid)
+        .eq("status", "left")
+        .eq("left_at", session.ended_at)
+        .is("archived_at", null)
+        .select("id")
+      reactivatedCount = (reactivated ?? []).length
+    }
+
     // 5. audit
     const reason = (parsed.body.reason ?? "").trim()
-    await writeSessionAudit(supabase, {
+    void writeSessionAudit(supabase, {
       auth,
       session_id: sessionId,
       room_uuid: session.room_uuid,
@@ -156,7 +182,10 @@ export async function POST(request: Request) {
         status: "active",
         ended_at: null,
         reason: reason || null,
+        participants_reactivated: reactivatedCount,
       },
+    }).catch((e) => {
+      console.warn("[reopen] audit failed:", e instanceof Error ? e.message : e)
     })
 
     return NextResponse.json({
@@ -166,6 +195,7 @@ export async function POST(request: Request) {
       ended_at: updated.ended_at,
       manager_name: updated.manager_name,
       manager_membership_id: updated.manager_membership_id,
+      participants_reactivated: reactivatedCount,
     })
   } catch (error) {
     if (error instanceof AuthError) {

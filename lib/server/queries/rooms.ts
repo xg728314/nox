@@ -138,16 +138,21 @@ export async function getRooms(auth: AuthContext): Promise<RoomsResponse> {
   if (allSessionsList.length > 0 || businessDayId) {
     const sessionIds = allSessionsList.map(s => s.id)
 
+    // 2026-05-06: status, archived_at 추가 select. 활성 세션 합계는 status='active'
+    //   participants 만 합산해야 focus view 와 일치 (UI 가 active 만 표시).
+    //   기존 버그: reopen 후 left 상태 남은 participants 가 합계에 포함 →
+    //   "체크아웃 했는데 금액 떠있고 들어가면 비어있음" 증상.
     const partsP =
       sessionIds.length > 0
         ? supabase
             .from("session_participants")
-            .select("session_id, price_amount")
+            .select("session_id, price_amount, status")
             .in("session_id", sessionIds)
             .eq("store_uuid", auth.store_uuid)
             .is("deleted_at", null)
-            .then((r) => r as { data: Array<{ session_id: string; price_amount: number }> | null })
-        : Promise.resolve({ data: [] as Array<{ session_id: string; price_amount: number }> })
+            .is("archived_at", null)
+            .then((r) => r as { data: Array<{ session_id: string; price_amount: number; status: string }> | null })
+        : Promise.resolve({ data: [] as Array<{ session_id: string; price_amount: number; status: string }> })
 
     const ordersP =
       sessionIds.length > 0
@@ -191,8 +196,13 @@ export async function getRooms(auth: AuthContext): Promise<RoomsResponse> {
 
     const countMap = new Map<string, number>()
     const participantTotalMap = new Map<string, number>()
+    // active session 의 합계는 status='active' participants 만 합산.
+    // closed session 은 left 상태도 합산 (이미 정산 끝난 기록 그대로 표시).
+    const activeSessionIds = new Set(activeSessions.map((s) => s.id))
     if (participants) {
       for (const p of participants) {
+        const isActiveSession = activeSessionIds.has(p.session_id)
+        if (isActiveSession && p.status !== "active") continue
         countMap.set(p.session_id, (countMap.get(p.session_id) || 0) + 1)
         participantTotalMap.set(p.session_id, (participantTotalMap.get(p.session_id) || 0) + (p.price_amount || 0))
       }
