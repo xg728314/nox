@@ -44,7 +44,16 @@ export async function sendMessage(
   }
 
   // 2. Update room last_message
-  await supabase
+  // 2026-05-06 fix: chat_rooms 테이블에는 deleted_at 컬럼이 없음 (migration 005
+  //   에 ADD 한 적 없고, 후속 028 도 closed_at/closed_reason 만 추가). 기존
+  //   `.is("deleted_at", null)` 필터가 PG 42703 (column does not exist) → throw
+  //   → 500. is_active 로 대체 (chat_rooms 의 soft-close 플래그).
+  //
+  //   증상: "매장 전체 메세지 보내기 에러 500" 사용자 보고.
+  //
+  //   2단계와 3단계는 메시지 INSERT 가 이미 성공한 후의 부수 작업이므로
+  //   await 제거 — 백그라운드 fire 로 응답 latency 도 단축 (~150-300ms).
+  void supabase
     .from("chat_rooms")
     .update({
       last_message_text: input.content.trim().slice(0, 100),
@@ -53,13 +62,20 @@ export async function sendMessage(
     })
     .eq("id", input.chat_room_id)
     .eq("store_uuid", input.store_uuid)
-    .is("deleted_at", null)
+    .eq("is_active", true)
+    .then(undefined, () => {
+      /* 메시지 자체는 이미 INSERT 됐으므로 last_message 갱신 실패는 silent. */
+    })
 
-  // 3. Increment unread for other participants via atomic RPC
-  await supabase.rpc("increment_chat_unread", {
-    p_chat_room_id: input.chat_room_id,
-    p_sender_membership_id: input.sender_membership_id,
-  })
+  // 3. Increment unread for other participants via atomic RPC (background).
+  void supabase
+    .rpc("increment_chat_unread", {
+      p_chat_room_id: input.chat_room_id,
+      p_sender_membership_id: input.sender_membership_id,
+    })
+    .then(undefined, () => {
+      /* swallow — unread 갱신 실패는 메시지 전송 자체와 무관. */
+    })
 
   return { message }
 }
