@@ -256,18 +256,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "CREATE_FAILED", message: "손님 등록에 실패했습니다." }, { status: 500 })
     }
 
-    // Audit
-    await supabase.from("audit_events").insert({
-      store_uuid: authContext.store_uuid,
-      actor_profile_id: authContext.user_id,
-      actor_membership_id: authContext.membership_id,
-      actor_role: authContext.role,
-      actor_type: authContext.role,
-      entity_table: "customers",
-      entity_id: customer.id,
-      action: "customer_created",
-      after: { name: name.trim(), phone: normalizedPhone, tags: tags ?? [] },
-    })
+    // 2026-05-06: audit background fire — POST 응답 latency ~150ms 단축.
+    void supabase
+      .from("audit_events")
+      .insert({
+        store_uuid: authContext.store_uuid,
+        actor_profile_id: authContext.user_id,
+        actor_membership_id: authContext.membership_id,
+        actor_role: authContext.role,
+        actor_type: authContext.role,
+        entity_table: "customers",
+        entity_id: customer.id,
+        action: "customer_created",
+        after: { name: name.trim(), phone: normalizedPhone, tags: tags ?? [] },
+      })
+      .then(undefined, () => {
+        /* swallow — audit 실패는 사용자 흐름과 무관 */
+      })
 
     return NextResponse.json({ ...customer, duplicates }, { status: 201 })
   } catch (error) {

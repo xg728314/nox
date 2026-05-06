@@ -128,18 +128,21 @@ export async function POST(request: Request) {
       .eq("id", item_id)
       .eq("store_uuid", authContext.store_uuid)
 
-    // 6. Audit
-    await supabase.from("audit_events").insert({
-      store_uuid: authContext.store_uuid,
-      actor_profile_id: authContext.user_id,
-      actor_membership_id: authContext.membership_id,
-      actor_role: authContext.role,
-      actor_type: authContext.role,
-      entity_table: "inventory_transactions",
-      entity_id: tx.id,
-      action: `inventory_${type}`,
-      after: { item_id, type, quantity, before_stock: beforeStock, after_stock: afterStock },
-    })
+    // 6. Audit (background fire — 응답 latency ~150ms 단축)
+    void supabase
+      .from("audit_events")
+      .insert({
+        store_uuid: authContext.store_uuid,
+        actor_profile_id: authContext.user_id,
+        actor_membership_id: authContext.membership_id,
+        actor_role: authContext.role,
+        actor_type: authContext.role,
+        entity_table: "inventory_transactions",
+        entity_id: tx.id,
+        action: `inventory_${type}`,
+        after: { item_id, type, quantity, before_stock: beforeStock, after_stock: afterStock },
+      })
+      .then(undefined, () => { /* swallow */ })
 
     return NextResponse.json({
       transaction_id: tx.id,
