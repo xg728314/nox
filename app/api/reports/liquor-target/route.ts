@@ -58,12 +58,12 @@ export async function GET(request: Request) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // 해당 월의 시작/종료
+    // 2026-05-06 fix: monthEnd.toISOString() 은 UTC 변환 → KST 새벽 시간대에
+    //   호출 시 전달이 잘림. 직접 yyyy-mm-dd 포맷 생성으로 시간대 버그 회피.
     const monthStart = `${year}-${String(month).padStart(2, "0")}-01`
     const nextMonth = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 }
-    const monthEnd = new Date(nextMonth.y, nextMonth.m - 1, 1)
-    monthEnd.setDate(monthEnd.getDate() - 1)
-    const monthEndStr = monthEnd.toISOString().split("T")[0]
     const daysInMonth = new Date(nextMonth.y, nextMonth.m - 1, 0).getDate()
+    const monthEndStr = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`
 
     // 오늘이 해당 월이면 elapsed = 오늘 day. 과거 달이면 daysInMonth. 미래 달이면 0.
     const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1

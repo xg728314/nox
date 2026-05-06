@@ -107,15 +107,27 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // ── Safe stale reads: receipt id + gross total + card fee rate ───────
-    const { data: receipt, error: receiptError } = await supabase
-      .from("receipts")
-      .select("id, gross_total")
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    // 2026-05-06: receipt + settings 병렬 fetch (서로 무관 — store_uuid + session_id 만 의존).
+    //   기존: 직렬 2 RTT → 1 RTT (~80-100ms 단축).
+    const [receiptRes, settingsRes] = await Promise.all([
+      supabase
+        .from("receipts")
+        .select("id, gross_total")
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("store_settings")
+        .select("card_fee_rate")
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle(),
+    ])
+
+    const { data: receipt, error: receiptError } = receiptRes
 
     if (receiptError || !receipt) {
       return NextResponse.json(
@@ -149,15 +161,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: settings } = await supabase
-      .from("store_settings")
-      .select("card_fee_rate")
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .limit(1)
-      .maybeSingle()
-
-    const cardFeeRate = Number(settings?.card_fee_rate ?? 0.05)
+    const cardFeeRate = Number(settingsRes.data?.card_fee_rate ?? 0.05)
 
     // ── STEP-4C: atomic payment via DB RPC ──────────────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc("register_payment_atomic", {

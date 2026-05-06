@@ -206,8 +206,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // 7. Audit
-    await writeSessionAudit(supabase, {
+    // 7. Audit — 2026-05-06: background fire (응답 latency ~150ms 단축).
+    void writeSessionAudit(supabase, {
       auth: authContext,
       session_id,
       entity_table: "receipts",
@@ -234,6 +234,8 @@ export async function POST(request: Request) {
         margin_amount: marginAmount,
         status: "finalized",
       },
+    }).catch((e) => {
+      console.warn("[finalize] audit failed:", e instanceof Error ? e.message : e)
     })
 
     // Owner visibility: toggle-based read-through

@@ -212,8 +212,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // 6. Audit event
-    await supabase
+    // 6. Audit event — 2026-05-06: background fire (응답 latency ~150ms 단축).
+    void supabase
       .from("audit_events")
       .insert({
         store_uuid: authContext.store_uuid,
@@ -231,6 +231,7 @@ export async function POST(request: Request) {
           summary,
         },
       })
+      .then(undefined, () => { /* swallow */ })
 
     return NextResponse.json({
       business_day_id,

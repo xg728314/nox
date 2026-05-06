@@ -17,8 +17,8 @@ import type { FocusData, Order, OrderFormState } from "../types"
 type Deps = {
   focusData: FocusData | null
   setFocusData: Dispatch<SetStateAction<FocusData | null>>
-  fetchOrders: (sessionId: string) => Promise<Order[]>
-  fetchRooms: () => Promise<void>
+  fetchOrders: (sessionId: string, opts?: { force?: boolean }) => Promise<Order[]>
+  fetchRooms: (opts?: { force?: boolean }) => Promise<void>
   fetchInventory: () => Promise<void>
   ensureSession: (roomId: string) => Promise<string | null>
   setBusy: Dispatch<SetStateAction<boolean>>
@@ -61,7 +61,9 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
         setFocusData(prev => prev ? { ...prev, orders: [...prev.orders, data.order as Order] } : null)
       }
       // 백그라운드 refresh — 응답 latency 에 합산되지 않음.
-      void Promise.all([fetchOrders(sessionId), fetchRooms(), fetchInventory()])
+      // 2026-05-06: force:true — browser cache (max-age=6) 우회 → optimistic update
+      //   덮어씀 방지 (방금 추가한 주문이 stale 응답에 의해 사라지는 race).
+      void Promise.all([fetchOrders(sessionId, { force: true }), fetchRooms({ force: true }), fetchInventory()])
         .then(([orders]) => {
           setFocusData(prev => prev ? { ...prev, orders } : null)
         })
@@ -134,7 +136,7 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
             : null)
         }
         // 백그라운드 동기화 (rooms/inventory 만 — orders 는 이미 patch 됨).
-        void Promise.all([fetchRooms(), fetchInventory()]).catch(() => { /* polling */ })
+        void Promise.all([fetchRooms({ force: true }), fetchInventory()]).catch(() => { /* polling */ })
       } catch {
         setFocusData(prev => prev ? { ...prev, orders: prev.orders.filter(x => x.id !== tempId) } : null)
         setError("요청 오류")
@@ -152,7 +154,8 @@ export function useOrderMutations(deps: Deps): UseOrderMutationsReturn {
       if (!res.ok) { const d = await res.json(); setError(d.message || "삭제 실패"); return }
       // Optimistic: 즉시 list 에서 제거.
       setFocusData(prev => prev ? { ...prev, orders: prev.orders.filter(x => x.id !== orderId) } : null)
-      void Promise.all([fetchOrders(focusData.sessionId), fetchRooms()])
+      // 2026-05-06: force:true — 삭제한 주문이 stale 응답에 의해 다시 나타남 race 방지.
+      void Promise.all([fetchOrders(focusData.sessionId, { force: true }), fetchRooms({ force: true })])
         .then(([orders]) => {
           setFocusData(prev => prev ? { ...prev, orders } : null)
         })

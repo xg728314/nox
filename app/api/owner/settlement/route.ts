@@ -69,20 +69,46 @@ export async function GET(request: Request) {
       })
     }
 
-    // 영업일 정보
-    const { data: bizDayInfo } = await supabase
-      .from("store_operating_days")
-      .select("id, business_date, status")
-      .eq("id", businessDayId)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
+    // 2026-05-06 fix: 7-8 RTT 직렬 → 2 wave 병렬.
+    //   Phase 1: bizDayInfo + room_sessions (id+room_uuid+status) + orders +
+    //            participants + receipts 5개 동시 fire (모두 businessDayId 만 의존).
+    //   Phase 2: rooms (room_sessions 결과의 room_uuid 의존).
+    //
+    //   기존 sessions(id only) + roomSessions(id+room_uuid+status) 쿼리 중복
+    //   제거 — 한 번에 충분한 column 가져옴.
+    //
+    //   기대 단축: 7 RTT (~700ms) → 2 RTT (~200-300ms).
+    const [bizDayRes, roomSessionsRes, ordersRes, receiptsRes] = await Promise.all([
+      supabase
+        .from("store_operating_days")
+        .select("id, business_date, status")
+        .eq("id", businessDayId)
+        .eq("store_uuid", authContext.store_uuid)
+        .maybeSingle(),
+      supabase
+        .from("room_sessions")
+        .select("id, room_uuid, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId),
+      supabase
+        .from("orders")
+        .select("session_id, order_type, qty, unit_price, store_price, customer_amount")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId)
+        .is("deleted_at", null),
+      supabase
+        .from("receipts")
+        .select("session_id, status, gross_total, margin_amount, tc_amount")
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("business_day_id", businessDayId)
+        .order("version", { ascending: false }),
+    ])
 
-    // 1. 전체 세션 목록
-    const { data: sessions } = await supabase
-      .from("room_sessions")
-      .select("id")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
+    const bizDayInfo = bizDayRes.data
+    const roomSessions = roomSessionsRes.data
+    const sessions = roomSessions  // 호환성 alias (예전 변수명 유지)
+    const orders = ordersRes.data
+    const receipts = receiptsRes.data
 
     const sessionIds = (sessions ?? []).map((s: { id: string }) => s.id)
 
@@ -108,18 +134,12 @@ export async function GET(request: Request) {
       })
     }
 
-    // 2. 주문 집계 (order_type별)
+    // 2. 주문 집계 (order_type별) — orders 는 위 Phase 1 에서 이미 fetch.
     // 사장 매출 원칙:
     //   - liquor_sales = Σ(store_price × qty)  ← 사장 입금가 기준 (사장 매출)
     //   - waiter_tips  = Σ(customer_amount)     ← 손님 지불 기준, 사장 매출 제외
     //   - purchases    = Σ(customer_amount)     ← 손님 지불 기준, 사장 매출 제외
     //   실장 마진(sale_price − store_price)과 스태프 금액은 사장 매출에서 제외된다.
-    const { data: orders } = await supabase
-      .from("orders")
-      .select("session_id, order_type, qty, unit_price, store_price, customer_amount")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
-      .is("deleted_at", null)
 
     let liquorSales = 0
     let waiterTips = 0
@@ -150,12 +170,16 @@ export async function GET(request: Request) {
     }
 
     // 3. 참여자 TC 건수 (스태프 역할 참여자 수 = 타임 건수)
-    const { data: participants } = await supabase
-      .from("session_participants")
-      .select("id, session_id, role")
-      .eq("store_uuid", authContext.store_uuid)
-      .in("session_id", sessionIds)
-      .is("deleted_at", null)
+    // sessionIds 가 Phase 1 결과에서 도출되므로 여기서 추가 fetch.
+    // (session_id IN ... 필터가 businessDayId 단독으로는 안 되기 때문에 의존성 있음)
+    const { data: participants } = sessionIds.length > 0
+      ? await supabase
+          .from("session_participants")
+          .select("id, session_id, role")
+          .eq("store_uuid", authContext.store_uuid)
+          .in("session_id", sessionIds)
+          .is("deleted_at", null)
+      : { data: [] as Array<{ id: string; session_id: string; role: string }> }
 
     const tcCountTotal = (participants ?? []).filter((p: { role: string }) => p.role === "hostess").length
 
@@ -167,13 +191,8 @@ export async function GET(request: Request) {
       }
     }
 
-    // 4. 영수증 집계 — gross_total, margin_amount만 (개별 수익 제외)
-    const { data: receipts } = await supabase
-      .from("receipts")
-      .select("session_id, status, gross_total, margin_amount, tc_amount")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
-      .order("version", { ascending: false })
+    // 4. 영수증 집계 — gross_total, margin_amount만 (개별 수익 제외).
+    //    receipts 는 Phase 1 에서 이미 fetch — 재사용.
 
     // 세션별 최신 영수증만
     const receiptMap = new Map<string, { status: string; gross_total: number; margin_amount: number; tc_amount: number }>()
@@ -197,19 +216,16 @@ export async function GET(request: Request) {
 
     const unsettledCount = sessionIds.length - receiptMap.size
 
-    // 5. 방 이름 조회
-    const { data: roomSessions } = await supabase
-      .from("room_sessions")
-      .select("id, room_uuid, status")
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("business_day_id", businessDayId)
-
+    // 5. 방 이름 조회 (Phase 2 — Phase 1 의 room_uuid 의존)
+    //    roomSessions 는 Phase 1 의 room_sessions 를 그대로 사용.
     const roomUuids = [...new Set((roomSessions ?? []).map((s: { room_uuid: string }) => s.room_uuid))]
-    const { data: rooms } = await supabase
-      .from("rooms")
-      .select("id, name")
-      .eq("store_uuid", authContext.store_uuid)
-      .in("id", roomUuids)
+    const { data: rooms } = roomUuids.length > 0
+      ? await supabase
+          .from("rooms")
+          .select("id, name")
+          .eq("store_uuid", authContext.store_uuid)
+          .in("id", roomUuids)
+      : { data: [] as Array<{ id: string; name: string }> }
 
     const roomNameMap = new Map<string, string>()
     for (const r of rooms ?? []) roomNameMap.set(r.id, r.name)

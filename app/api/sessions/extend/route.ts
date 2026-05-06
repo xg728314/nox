@@ -56,8 +56,19 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
-    // 1-2. Load session + store scope + active status
-    const loaded = await loadSessionScoped(supabase, session_id, authContext.store_uuid, { requireStatus: "active" })
+    // 2026-05-06: session + participant 병렬 fetch (둘 다 session_id/participant_id
+    //   만 의존). 직렬 2 RTT → 1 RTT.
+    const [loaded, participantRes] = await Promise.all([
+      loadSessionScoped(supabase, session_id, authContext.store_uuid, { requireStatus: "active" }),
+      supabase
+        .from("session_participants")
+        .select("id, session_id, time_minutes, price_amount, category, status")
+        .eq("id", participant_id)
+        .eq("session_id", session_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .is("deleted_at", null)
+        .maybeSingle(),
+    ])
     if (loaded.error) return loaded.error
     const session = loaded.session
 
@@ -67,15 +78,7 @@ export async function POST(request: Request) {
       if (guard) return guard
     }
 
-    // 3. Look up participant and verify active status
-    const { data: participant, error: participantError } = await supabase
-      .from("session_participants")
-      .select("id, session_id, time_minutes, price_amount, category, status")
-      .eq("id", participant_id)
-      .eq("session_id", session_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .is("deleted_at", null)
-      .maybeSingle()
+    const { data: participant, error: participantError } = participantRes
 
     if (participantError || !participant) {
       return NextResponse.json(
@@ -128,6 +131,12 @@ export async function POST(request: Request) {
     }
 
     // 5. UPDATE session_participant
+    // 2026-05-06 fix: Extend + Mid-out race condition.
+    //   기존 WHERE: id + store_uuid 만 사용. 동시 mid-out 이 status='left' 로
+    //   바꾼 직후 extend UPDATE 가 통과 → status='left' 인데 time_minutes=90
+    //   부정합 (mid-out 이 price=0 했으면 extend price 가 덮어씀).
+    //   현재: WHERE 에 status='active' 추가. mid-out 이 먼저 통과했으면 0 rows
+    //   return → "PARTICIPANT_NOT_ACTIVE" 응답 → 클라가 정확한 상태 인식.
     const { data: updated, error: updateError } = await supabase
       .from("session_participants")
       .update({
@@ -136,13 +145,25 @@ export async function POST(request: Request) {
       })
       .eq("id", participant_id)
       .eq("store_uuid", authContext.store_uuid)
+      .eq("status", "active")
+      .is("deleted_at", null)
       .select("id, session_id, time_minutes, price_amount, status")
-      .single()
+      .maybeSingle()
 
-    if (updateError || !updated) {
+    if (updateError) {
       return NextResponse.json(
         { error: "EXTEND_FAILED", message: "Failed to extend session participant." },
         { status: 500 }
+      )
+    }
+    if (!updated) {
+      // Race: mid-out 이 먼저 통과해서 status 가 'active' 가 아닌 상태.
+      return NextResponse.json(
+        {
+          error: "PARTICIPANT_NOT_ACTIVE",
+          message: "이 스태프는 이미 퇴실 처리되어 연장할 수 없습니다.",
+        },
+        { status: 409 }
       )
     }
 

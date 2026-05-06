@@ -16,6 +16,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/apiFetch"
 import { fmtMan, fmtNumber } from "@/lib/format"
+import { getBusinessDateKST } from "@/lib/time/businessDate"
 
 type DailyRow = {
   business_date: string
@@ -54,26 +55,37 @@ type PeriodReport = {
   top_hostesses: StaffRow[]
 }
 
+// 2026-05-06 fix: UTC 기반 toISOString().split("T")[0] → KST 기반 helper.
+//   기존: 사용자가 KST 00:00~08:59 시간대에 페이지 열면 todayStr() 가
+//   어제(UTC) 반환 → 서버에 from=어제&to=어제 요청 → DB business_date 매칭
+//   실패 → "오늘 매출 0원" 잘못 표시.
 function todayStr() {
-  const d = new Date()
-  return d.toISOString().split("T")[0]
+  return getBusinessDateKST()
 }
 function daysAgoStr(n: number) {
-  const d = new Date()
+  // KST 기준 오늘 - n 일.
+  const today = getBusinessDateKST()
+  const d = new Date(today + "T00:00:00+09:00")
   d.setDate(d.getDate() - n)
-  return d.toISOString().split("T")[0]
+  // KST 9시간 더해서 UTC 변환 후 yyyy-mm-dd 추출.
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().split("T")[0]
 }
 function monthStartStr(offset = 0) {
-  const d = new Date()
+  const today = getBusinessDateKST()
+  const d = new Date(today + "T00:00:00+09:00")
   d.setMonth(d.getMonth() + offset)
   d.setDate(1)
-  return d.toISOString().split("T")[0]
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().split("T")[0]
 }
 function monthEndStr(offset = 0) {
-  const d = new Date()
+  const today = getBusinessDateKST()
+  const d = new Date(today + "T00:00:00+09:00")
   d.setMonth(d.getMonth() + offset + 1)
   d.setDate(0)
-  return d.toISOString().split("T")[0]
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().split("T")[0]
 }
 
 export default function PeriodReportPage() {

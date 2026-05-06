@@ -129,13 +129,17 @@ export async function POST(request: Request) {
 
     type UpdatedRow = { id: string; session_id: string; status: string; left_at: string; price_amount: number }
     let updated: UpdatedRow | null = null
+    // 2026-05-06: WHERE status='active' 추가 — extend 와 race 시 한쪽만 성공.
+    //   mid-out 이 먼저면 다음 extend 가 0 rows → 409. extend 가 먼저면 mid-out
+    //   은 status='active' 이지만 새 time_minutes 반영된 상태에서 left 처리.
     const { data: u1, error: u1Err } = await supabase
       .from("session_participants")
       .update(updateFields)
       .eq("id", participant_id)
       .eq("store_uuid", authContext.store_uuid)
+      .eq("status", "active")
       .select("id, session_id, status, left_at, price_amount")
-      .single()
+      .maybeSingle()
 
     if (!u1Err && u1) {
       updated = u1 as UpdatedRow
@@ -148,8 +152,9 @@ export async function POST(request: Request) {
         .update(fallbackFields)
         .eq("id", participant_id)
         .eq("store_uuid", authContext.store_uuid)
+        .eq("status", "active")
         .select("id, session_id, status, left_at, price_amount")
-        .single()
+        .maybeSingle()
       if (u2Err || !u2) {
         return NextResponse.json(
           {
