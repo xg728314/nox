@@ -402,6 +402,15 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
   async function handleDeleteUnsetParticipant(participantId: string) {
     const { focusData, fetchFocusData, setBusy, setError } = deps
     if (!focusData) return
+    // 2026-05-06: 이미 'left' 상태면 confirm 도 skip + 서버 호출 안 함.
+    //   focusData 가 stale 한 경우엔 서버가 idempotent 하게 처리해줌.
+    const p = focusData.participants.find(p => p.id === participantId)
+    if (p && p.status !== "active") {
+      // UI 갱신만 트리거.
+      setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      return
+    }
     if (!confirm("스태프를 삭제하시겠습니까?")) return
     setBusy(true); setError("")
     try {
@@ -410,7 +419,17 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         body: JSON.stringify({ session_id: focusData.sessionId, participant_id: participantId }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || "삭제 실패"); return }
+      if (!res.ok) {
+        // 2026-05-06: PARTICIPANT_NOT_ACTIVE / NOT_FOUND 는 이미 삭제된 결과 → 무시.
+        //   (서버 idempotent 응답 이전 배포 호환).
+        if (data.error === "PARTICIPANT_NOT_ACTIVE" || data.error === "PARTICIPANT_NOT_FOUND") {
+          setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
+          void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+          return
+        }
+        setError(data.message || "삭제 실패")
+        return
+      }
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
       void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
     } catch { setError("요청 오류") }

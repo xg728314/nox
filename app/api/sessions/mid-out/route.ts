@@ -71,9 +71,28 @@ export async function POST(request: Request) {
       )
     }
 
+    // 2026-05-06 R-Idempotency: 일괄 삭제 시 같은 participant 에 다중 클릭 또는
+    //   forEach 병렬 fire 로 두 번째 호출이 status='left' 인 row 를 보고 400
+    //   에러 → UI 에는 빨간 스낵바 뜨지만 실제로는 이미 삭제된 상태.
+    //   사용자 의도 = "삭제" 이고 이미 삭제됨 → 200 으로 응답해서 UX 파손 방지.
+    if (participant.status === "left") {
+      return NextResponse.json(
+        {
+          participant_id: participant.id,
+          session_id,
+          status: "left",
+          left_at: null,
+          exit_type: null,
+          elapsed_minutes: 0,
+          already_left: true,
+        },
+        { status: 200 }
+      )
+    }
+
     if (participant.status !== "active") {
       return NextResponse.json(
-        { error: "PARTICIPANT_NOT_ACTIVE", message: "Participant is not active." },
+        { error: "PARTICIPANT_NOT_ACTIVE", message: `Participant status is '${participant.status}', cannot mid-out.` },
         { status: 400 }
       )
     }

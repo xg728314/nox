@@ -24,7 +24,17 @@ export default function SelectionBar() {
         개별 연장
       </button>
       <button
-        onClick={() => [...selectedIds].forEach(pid => onMidOut(pid))}
+        onClick={async () => {
+          // 2026-05-06: forEach 병렬 fire → for-of 순차 처리.
+          //   기존: 4명 선택 시 confirm 4개 동시 표시 + 4 RTT 동시 → 부분 실패.
+          //   현재: 한 명씩 처리. 중간 실패 시 stop. handleMidOut 안에 confirm
+          //   각 1회 — 단일 confirm 으로 확정 후 모두 처리하는 UX 가 더 자연스러우나
+          //   기존 동작 (각 confirm) 보존.
+          const ids = [...selectedIds]
+          for (const pid of ids) {
+            await onMidOut(pid)
+          }
+        }}
         disabled={busy}
         className="text-xs py-1.5 px-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 disabled:opacity-50"
       >
