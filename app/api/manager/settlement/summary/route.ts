@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getManagerSettlementSummary } from "@/lib/server/queries/manager/settlementSummary"
+import { getServiceClient } from "@/lib/supabase/serviceClient"
+import { resolveOwnerVisibility } from "@/lib/settlement/services/ownerVisibility"
 
 export async function GET(request: Request) {
   try {
@@ -18,6 +20,40 @@ export async function GET(request: Request) {
 
     try {
       const data = await getManagerSettlementSummary(authContext, { business_day_id: paramBusinessDayId })
+
+      // 2026-05-06 fix: owner 가시성 토글 적용. CLAUDE.md 잠긴 규칙:
+      //   "사장이 볼 수 없음: 실장 개별 수익, 아가씨 개별 수익".
+      //   기존: owner 가 이 endpoint 호출하면 manager 가 toggle 끄든 켜든 항상
+      //   manager_amount/hostess_amount 노출 → 비즈니스 규칙 위반.
+      //   수정: owner 일 때 모든 manager 가 toggle 켰을 때만 노출. 한 명이라도
+      //   비공개면 마스킹 (보수적).
+      if (authContext.role === "owner" && data && typeof data === "object") {
+        const supabase = getServiceClient()
+        const { showManager, showHostess } = await resolveOwnerVisibility(
+          supabase,
+          authContext.store_uuid,
+        )
+        const dataAny = data as Record<string, unknown>
+        if (!showManager) {
+          dataAny.manager_amount = null
+          if (Array.isArray(dataAny.hostesses)) {
+            dataAny.hostesses = (dataAny.hostesses as Array<Record<string, unknown>>).map((h) => ({
+              ...h,
+              manager_amount: null,
+            }))
+          }
+        }
+        if (!showHostess) {
+          dataAny.hostess_amount = null
+          if (Array.isArray(dataAny.hostesses)) {
+            dataAny.hostesses = (dataAny.hostesses as Array<Record<string, unknown>>).map((h) => ({
+              ...h,
+              hostess_amount: null,
+            }))
+          }
+        }
+      }
+
       return NextResponse.json(data)
     } catch (e) {
       const msg = e instanceof Error ? e.message : "err"

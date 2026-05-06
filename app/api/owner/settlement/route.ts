@@ -170,18 +170,29 @@ export async function GET(request: Request) {
     }
 
     // 3. 참여자 TC 건수 (스태프 역할 참여자 수 = 타임 건수)
-    // sessionIds 가 Phase 1 결과에서 도출되므로 여기서 추가 fetch.
-    // (session_id IN ... 필터가 businessDayId 단독으로는 안 되기 때문에 의존성 있음)
+    // 2026-05-06 fix: status 필터 추가. 기존: mid-out (status='left' but
+    //   role='hostess') 까지 카운트 → 사장 정산 화면 TC 건수가 실제 완료 타임
+    //   보다 부풀려짐. price_amount > 0 인 active/완료 참여자만 TC 로 인정.
     const { data: participants } = sessionIds.length > 0
       ? await supabase
           .from("session_participants")
-          .select("id, session_id, role")
+          .select("id, session_id, role, status, price_amount")
           .eq("store_uuid", authContext.store_uuid)
           .in("session_id", sessionIds)
           .is("deleted_at", null)
-      : { data: [] as Array<{ id: string; session_id: string; role: string }> }
+      : { data: [] as Array<{ id: string; session_id: string; role: string; status: string; price_amount: number }> }
 
-    const tcCountTotal = (participants ?? []).filter((p: { role: string }) => p.role === "hostess").length
+    const tcCountTotal = (participants ?? []).filter(
+      (p: { role: string; status: string; price_amount: unknown }) => {
+        if (p.role !== "hostess") return false
+        // mid-out 으로 status='left' + price_amount=0 인 kicked 케이스 제외.
+        // 정상 left (퇴실 후 정상 정산) 은 price_amount > 0 → 포함.
+        const price = typeof p.price_amount === "number"
+          ? p.price_amount
+          : Number(p.price_amount ?? 0)
+        return price > 0
+      },
+    ).length
 
     // 세션별 TC 건수
     const sessionTcMap = new Map<string, number>()

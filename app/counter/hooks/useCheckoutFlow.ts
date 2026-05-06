@@ -164,20 +164,40 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
       // 2026-05-01 R-Counter-Speed: settlement + receipt + fetchRooms 모두
       //   체크아웃 직후 독립 작업. 직렬 (settlement → receipt → rooms) 1초+ →
       //   Promise.all 병렬 max(~400ms). settlement/receipt 는 non-blocking.
-      const settlementP = apiFetch("/api/sessions/settlement", {
-        method: "POST", body: JSON.stringify({ session_id: focusData.sessionId }),
-      }).catch(() => null)
-      const receiptP = apiFetch("/api/sessions/receipt", {
-        method: "POST",
-        body: JSON.stringify({ session_id: focusData.sessionId, receipt_type: "final" }),
-      }).catch(() => null)
-      // 2026-05-06: force:true 로 browser cache (max-age=6) 우회.
-      //   기존: 체크아웃 성공 후 fetchRooms 가 stale 데이터 반환 → UI 갱신 안 됨 →
-      //   사용자가 "실패한 줄 알고" 다시 swipe → 같은 session_id 로 두 번째 호출 →
-      //   서버: SESSION_NOT_ACTIVE (이미 closed). "여러 번 눌러야 한다" 증상.
-      //   현재: 즉시 fresh fetch → UI 즉시 비어있음으로 갱신.
-      const fetchRoomsP = fetchRooms({ force: true }).catch(() => null)
-      await Promise.all([settlementP, receiptP, fetchRoomsP])
+      // 2026-05-06: 실패 silent swallow → 사용자에게 명시 경고.
+      //   기존: settlement/receipt 실패해도 .catch(() => null) 무시 → 정산/영수증
+      //   기록 누락. 사용자는 "체크아웃 됐다" 인지만, 실제 매출 누락 가능.
+      //   현재: Promise.allSettled 로 각 실패 추적 → 사용자에게 명확한 메시지.
+      const [settlementR, receiptR, roomsR] = await Promise.allSettled([
+        apiFetch("/api/sessions/settlement", {
+          method: "POST", body: JSON.stringify({ session_id: focusData.sessionId }),
+        }),
+        apiFetch("/api/sessions/receipt", {
+          method: "POST",
+          body: JSON.stringify({ session_id: focusData.sessionId, receipt_type: "final" }),
+        }),
+        // force:true 로 browser cache (max-age=6) 우회.
+        fetchRooms({ force: true }),
+      ])
+      const failures: string[] = []
+      if (settlementR.status === "fulfilled" && !settlementR.value.ok) {
+        failures.push("정산 기록 저장")
+      } else if (settlementR.status === "rejected") {
+        failures.push("정산 기록 저장 (네트워크)")
+      }
+      if (receiptR.status === "fulfilled" && !receiptR.value.ok) {
+        failures.push("영수증 생성")
+      } else if (receiptR.status === "rejected") {
+        failures.push("영수증 생성 (네트워크)")
+      }
+      void roomsR  // rooms 실패는 폴링이 catch up — silent OK.
+      if (failures.length > 0) {
+        // 체크아웃 자체는 성공이지만 부수 작업 실패 — 관리자에게 경고.
+        setError(
+          `체크아웃은 완료됐지만 다음 작업이 실패했습니다: ${failures.join(", ")}.\n` +
+          `설정 → 정산 기록을 직접 확인하거나 관리자에게 보고하세요.`,
+        )
+      }
       exitFocus()
     } catch { setError("요청 오류") }
     finally { setBusy(false) }

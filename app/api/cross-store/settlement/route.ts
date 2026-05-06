@@ -87,11 +87,16 @@ export async function GET(request: Request) {
     const sessionIds = [...new Set(workRecords.map((r: { session_id: string }) => r.session_id))]
     const hostessIds = [...new Set(workRecords.map((r: { hostess_membership_id: string }) => r.hostess_membership_id))]
 
+    // 2026-05-06: origin_store_uuid 명시 필터 추가.
+    //   기존: workRecords 가 origin_store=auth.store_uuid 로 필터되므로 sessionIds
+    //   가 indirect 한정. 그러나 session_participants 쿼리 자체에는 store 필터
+    //   없음 → defense-in-depth 부족. 명시 origin_store_uuid 필터로 보강.
     const { data: participants } = await supabase
       .from("session_participants")
       .select("id, session_id, membership_id, category, time_minutes, price_amount, hostess_payout_amount, origin_store_uuid, status")
       .in("session_id", sessionIds)
       .in("membership_id", hostessIds)
+      .eq("origin_store_uuid", authContext.store_uuid)
       .is("deleted_at", null)
 
     const filtered = (participants ?? []).filter((p: { membership_id: string; origin_store_uuid: string | null }) =>
@@ -126,7 +131,13 @@ export async function GET(request: Request) {
       working_store_name: storeNameMap.get(sessionWorkingMap.get(p.session_id) || "") || null,
     }))
 
-    const totalPayout = records.reduce((sum: number, r: { hostess_payout: number }) => sum + r.hostess_payout, 0)
+    // 2026-05-06: NUMERIC string concat 위험. typeof 명시 변환.
+    const totalPayout = records.reduce((sum: number, r: { hostess_payout: unknown }) => {
+      const amt = typeof r.hostess_payout === "number"
+        ? r.hostess_payout
+        : Number(r.hostess_payout ?? 0)
+      return Number.isFinite(amt) ? sum + amt : sum
+    }, 0)
 
     return NextResponse.json({
       origin_store_uuid: authContext.store_uuid,
