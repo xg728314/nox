@@ -17,7 +17,7 @@ import type { FocusData } from "../types"
 
 type Deps = {
   focusData: FocusData | null
-  fetchRooms: () => Promise<void>
+  fetchRooms: (opts?: { force?: boolean }) => Promise<void>
   exitFocus: () => void
   setBusy: Dispatch<SetStateAction<boolean>>
   setError: Dispatch<SetStateAction<string>>
@@ -143,7 +143,24 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
         method: "POST", body: JSON.stringify({ session_id: focusData.sessionId }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || "체크아웃 실패"); return }
+      if (!res.ok) {
+        // 2026-05-06: SESSION_NOT_ACTIVE / NOT_FOUND / STATE_CHANGED 는 서버 상태와
+        //   클라 상태가 어긋난 상황 — 다른 탭/관리자/cron 이 이미 처리했거나 caches
+        //   가 stale. 강제 refresh 후 focus 빠져나가서 화면 정상화.
+        const stateMismatch =
+          data.error === "SESSION_NOT_ACTIVE" ||
+          data.error === "SESSION_NOT_FOUND" ||
+          data.error === "SESSION_STATE_CHANGED"
+        if (stateMismatch) {
+          // 첫 swipe 가 실제로는 성공했지만 UI 갱신이 늦어서 사용자가 다시
+          //   눌렀을 가능성이 높다. 에러 메시지 대신 조용히 정리.
+          await fetchRooms({ force: true }).catch(() => null)
+          exitFocus()
+          return
+        }
+        setError(data.message || "체크아웃 실패")
+        return
+      }
       // 2026-05-01 R-Counter-Speed: settlement + receipt + fetchRooms 모두
       //   체크아웃 직후 독립 작업. 직렬 (settlement → receipt → rooms) 1초+ →
       //   Promise.all 병렬 max(~400ms). settlement/receipt 는 non-blocking.
@@ -154,7 +171,12 @@ export function useCheckoutFlow(deps: Deps): UseCheckoutFlowReturn {
         method: "POST",
         body: JSON.stringify({ session_id: focusData.sessionId, receipt_type: "final" }),
       }).catch(() => null)
-      const fetchRoomsP = fetchRooms().catch(() => null)
+      // 2026-05-06: force:true 로 browser cache (max-age=6) 우회.
+      //   기존: 체크아웃 성공 후 fetchRooms 가 stale 데이터 반환 → UI 갱신 안 됨 →
+      //   사용자가 "실패한 줄 알고" 다시 swipe → 같은 session_id 로 두 번째 호출 →
+      //   서버: SESSION_NOT_ACTIVE (이미 closed). "여러 번 눌러야 한다" 증상.
+      //   현재: 즉시 fresh fetch → UI 즉시 비어있음으로 갱신.
+      const fetchRoomsP = fetchRooms({ force: true }).catch(() => null)
       await Promise.all([settlementP, receiptP, fetchRoomsP])
       exitFocus()
     } catch { setError("요청 오류") }

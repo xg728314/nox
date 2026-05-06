@@ -51,12 +51,17 @@ export default function TotalsCheckout() {
           이전엔 얼마나 밀어야 완료되는지 시각적 피드백 없어서 2~3회 시도
           후 포기하는 문제. 진행률과 "놓으면 완료" 메시지로 개선. */}
       <div
-        onPointerDown={blocked ? undefined : onSwipeStart}
-        onPointerMove={blocked ? undefined : onSwipeMove}
-        onPointerUp={blocked ? undefined : onSwipeEnd}
-        onPointerCancel={blocked ? undefined : onSwipeEnd}
+        // 2026-05-06: busy 시에도 swipe 차단. 기존: busy 표시는 텍스트만 바뀌고
+        //   swipe 자체는 동작 → 사용자가 응답 대기 중 다시 swipe → 두 번째 checkout
+        //   POST → 서버 첫 RPC 가 끝나기 전이면 SESSION_CLOSE_RACE, 끝난 후면
+        //   SESSION_NOT_ACTIVE. 어느 쪽이든 사용자에게 "실패"로 보임.
+        //   현재: busy 일 때도 blocked 처리.
+        onPointerDown={blocked || busy ? undefined : onSwipeStart}
+        onPointerMove={blocked || busy ? undefined : onSwipeMove}
+        onPointerUp={blocked || busy ? undefined : onSwipeEnd}
+        onPointerCancel={blocked || busy ? undefined : onSwipeEnd}
         className={`relative h-14 rounded-xl overflow-hidden select-none touch-none ${
-          blocked
+          blocked || busy
             ? "bg-slate-500/10 border border-slate-500/20 cursor-not-allowed"
             : "bg-orange-500/20 border border-orange-500/40 cursor-pointer"
         }`}
