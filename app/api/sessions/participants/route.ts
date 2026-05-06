@@ -342,6 +342,13 @@ export async function POST(request: Request) {
       console.warn("[participants] audit write failed:", e instanceof Error ? e.message : e)
     })
     invalidateCache("monitor")
+    // 2026-05-06: room_participants scope 도 invalidate.
+    //   기존: 빠짐 → 8s TTL 동안 server cache 가 추가 전 empty 응답 → 클라
+    //   focus view stale (optimistic update 덮임). "체크인했는데 30초 후에야
+    //   스태프 나타남" 증상.
+    invalidateCache("room_participants")
+    invalidateCache("session_orders")
+    invalidateCache("rooms")
 
     return NextResponse.json(
       {

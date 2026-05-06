@@ -227,6 +227,9 @@ export async function POST(request: Request) {
     // R29-perf: 캐시 즉시 무효화 → 다른 카운터에서 바로 반영.
     invalidateCache("rooms")
     invalidateCache("monitor")
+    // 2026-05-06: room_participants/session_orders 도 invalidate — 새 세션 빈 상태로 즉시 반영.
+    invalidateCache("room_participants")
+    invalidateCache("session_orders")
 
     return NextResponse.json(
       {

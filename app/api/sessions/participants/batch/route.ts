@@ -380,6 +380,10 @@ export async function POST(request: Request) {
     })
     invalidateCache("monitor")
     invalidateCache("rooms")
+    // 2026-05-06: room_participants 캐시 invalidate — 추가된 N명 즉시 반영.
+    //   기존: 빠져서 focus view 가 8s TTL stale empty 표시 → "스태프 안 나타남".
+    invalidateCache("room_participants")
+    invalidateCache("session_orders")
 
     const okCount = responses.filter((r) => "ok" in r && r.ok).length
     const failCount = responses.length - okCount

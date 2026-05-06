@@ -208,6 +208,9 @@ export async function POST(request: Request) {
     // R29-perf: monitor/rooms 캐시 무효화
     invalidateCache("rooms")
     invalidateCache("monitor")
+    // 2026-05-06: room_participants/session_orders 도 invalidate.
+    invalidateCache("room_participants")
+    invalidateCache("session_orders")
 
     return NextResponse.json(
       {

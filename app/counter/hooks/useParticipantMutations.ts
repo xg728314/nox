@@ -15,8 +15,8 @@ import type { FocusData } from "../types"
 type Deps = {
   focusRoomId: string | null
   focusData: FocusData | null
-  fetchRooms: () => Promise<void>
-  fetchFocusData: (roomId: string, sessionId: string, startedAt: string) => Promise<void>
+  fetchRooms: (opts?: { force?: boolean }) => Promise<void>
+  fetchFocusData: (roomId: string, sessionId: string, startedAt: string, opts?: { force?: boolean }) => Promise<void>
   /** 2026-05-01 R-Counter-Speed: optimistic update 직접 적용. */
   setFocusData: Dispatch<SetStateAction<FocusData | null>>
   setBusy: Dispatch<SetStateAction<boolean>>
@@ -165,9 +165,11 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         })
       }
 
-      // Background refetch (realtime patch 와 함께 eventual consistency).
-      void fetchRooms()
-      if (focusRoomId && sessionId) void fetchFocusData(focusRoomId, sessionId, "")
+      // 2026-05-06: force:true — browser cache (max-age=6) 우회.
+      //   기존: 추가 직후 fetchFocusData 가 stale empty 응답 → optimistic update
+      //   덮음 → "체크인 했는데 스태프 안 보임" 30초 증상.
+      void fetchRooms({ force: true })
+      if (focusRoomId && sessionId) void fetchFocusData(focusRoomId, sessionId, "", { force: true })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -199,7 +201,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       // 즉시 선택 상태에서 제거 + 데이터 갱신
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
       // 2026-05-01 R-Counter-Speed: await 제거. realtime + background sync.
-      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at, { force: true })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }
@@ -228,7 +230,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         })
       ))
       setSelectedIds(new Set())
-      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at, { force: true })
     } catch { setError("연장 실패") }
     finally { setBusy(false) }
   }
@@ -395,7 +397,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
       body: JSON.stringify({ action: "update_external_name", external_name: val }),
     })
     if (res.ok && deps.focusData?.roomId && deps.focusData?.sessionId) {
-      void deps.fetchFocusData(deps.focusData.roomId, deps.focusData.sessionId, deps.focusData.started_at)
+      void deps.fetchFocusData(deps.focusData.roomId, deps.focusData.sessionId, deps.focusData.started_at, { force: true })
     }
   }
 
@@ -408,7 +410,7 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
     if (p && p.status !== "active") {
       // UI 갱신만 트리거.
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
-      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at, { force: true })
       return
     }
     if (!confirm("스태프를 삭제하시겠습니까?")) return
@@ -424,14 +426,14 @@ export function useParticipantMutations(deps: Deps): UseParticipantMutationsRetu
         //   (서버 idempotent 응답 이전 배포 호환).
         if (data.error === "PARTICIPANT_NOT_ACTIVE" || data.error === "PARTICIPANT_NOT_FOUND") {
           setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
-          void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+          void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at, { force: true })
           return
         }
         setError(data.message || "삭제 실패")
         return
       }
       setSelectedIds(prev => { const next = new Set(prev); next.delete(participantId); return next })
-      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at)
+      void fetchFocusData(focusData.roomId, focusData.sessionId, focusData.started_at, { force: true })
     } catch { setError("요청 오류") }
     finally { setBusy(false) }
   }

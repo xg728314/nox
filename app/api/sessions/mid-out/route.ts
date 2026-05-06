@@ -6,6 +6,7 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { loadSessionScoped } from "@/lib/session/sessionLoader"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
+import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 
 export async function POST(request: Request) {
   try {
@@ -167,6 +168,11 @@ export async function POST(request: Request) {
         { status: 500 }
       )
     }
+
+    // 2026-05-06: 캐시 invalidate — mid-out 즉시 UI 반영.
+    invalidateCache("room_participants")
+    invalidateCache("monitor")
+    invalidateCache("rooms")
 
     // 5. Audit — background fire (응답 latency 차감 ~150ms).
     void writeSessionAudit(supabase, {
