@@ -32,56 +32,64 @@ export async function GET(request: Request) {
       return NextResponse.json({ settlements: [], daily_summary: [] })
     }
 
-    // 2. 세션 정보 (room_uuid, business_day_id)
+    // 2026-05-06: 5 RTT (Phase 1 sessions → Phase 2 rooms+bizDays+receipts) →
+    //   2 wave: Phase 1 sessions + receipts (sessionIds 의존), Phase 2 rooms +
+    //   bizDays (sessions 결과 의존).
     const sessionIds = [...new Set(participants.map((p: { session_id: string }) => p.session_id))]
 
-    const { data: sessions } = await supabase
-      .from("room_sessions")
-      .select("id, room_uuid, business_day_id, status")
-      .eq("store_uuid", authContext.store_uuid)
-      .in("id", sessionIds)
+    const [sessionsRes, receiptsRes] = await Promise.all([
+      supabase
+        .from("room_sessions")
+        .select("id, room_uuid, business_day_id, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .in("id", sessionIds),
+      supabase
+        .from("receipts")
+        .select("session_id, status")
+        .eq("store_uuid", authContext.store_uuid)
+        .in("session_id", sessionIds)
+        .order("version", { ascending: false }),
+    ])
+
+    const sessions = sessionsRes.data
+    const receipts = receiptsRes.data
 
     const sessionMap = new Map<string, { room_uuid: string; business_day_id: string | null; status: string }>()
     for (const s of sessions ?? []) {
       sessionMap.set(s.id, { room_uuid: s.room_uuid, business_day_id: s.business_day_id, status: s.status })
     }
 
-    // 3. 방 이름
+    // 3-4. rooms + bizDays 동시 fetch (Phase 2).
     const roomUuids = [...new Set((sessions ?? []).map((s: { room_uuid: string }) => s.room_uuid))]
-    const roomNameMap = new Map<string, string>()
-    if (roomUuids.length > 0) {
-      const { data: rooms } = await supabase
-        .from("rooms")
-        .select("id, name")
-        .eq("store_uuid", authContext.store_uuid)
-        .in("id", roomUuids)
-      for (const r of rooms ?? []) roomNameMap.set(r.id, r.name)
-    }
-
-    // 4. 영업일 정보
     const bizDayIds = [...new Set(
       (sessions ?? [])
         .map((s: { business_day_id: string | null }) => s.business_day_id)
         .filter((id): id is string => id !== null)
     )]
-    const bizDayMap = new Map<string, string>()
-    if (bizDayIds.length > 0) {
-      const { data: bizDays } = await supabase
-        .from("store_operating_days")
-        .select("id, business_date")
-        .in("id", bizDayIds)
-        .eq("store_uuid", authContext.store_uuid)
-        .is("deleted_at", null)
-      for (const b of bizDays ?? []) bizDayMap.set(b.id, b.business_date)
-    }
 
-    // 5. 영수증 상태
-    const { data: receipts } = await supabase
-      .from("receipts")
-      .select("session_id, status")
-      .eq("store_uuid", authContext.store_uuid)
-      .in("session_id", sessionIds)
-      .order("version", { ascending: false })
+    const [roomsRes, bizDaysRes] = await Promise.all([
+      roomUuids.length > 0
+        ? supabase
+            .from("rooms")
+            .select("id, name")
+            .eq("store_uuid", authContext.store_uuid)
+            .in("id", roomUuids)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
+      bizDayIds.length > 0
+        ? supabase
+            .from("store_operating_days")
+            .select("id, business_date")
+            .in("id", bizDayIds)
+            .eq("store_uuid", authContext.store_uuid)
+            .is("deleted_at", null)
+        : Promise.resolve({ data: [] as Array<{ id: string; business_date: string }> }),
+    ])
+
+    const roomNameMap = new Map<string, string>()
+    for (const r of roomsRes.data ?? []) roomNameMap.set(r.id, r.name)
+
+    const bizDayMap = new Map<string, string>()
+    for (const b of bizDaysRes.data ?? []) bizDayMap.set(b.id, b.business_date)
 
     const receiptStatusMap = new Map<string, string>()
     for (const r of receipts ?? []) {

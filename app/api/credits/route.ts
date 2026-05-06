@@ -80,32 +80,32 @@ export async function POST(request: Request) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // 방 존재 확인
-    const { data: room } = await supabase
-      .from("rooms")
-      .select("id")
-      .eq("id", room_uuid)
-      .eq("store_uuid", authContext.store_uuid)
-      .maybeSingle()
+    // 2026-05-06: room + manager 동시 fetch (서로 무관). 직렬 2 RTT → 1 RTT.
+    const [roomRes, managerRes] = await Promise.all([
+      supabase
+        .from("rooms")
+        .select("id")
+        .eq("id", room_uuid)
+        .eq("store_uuid", authContext.store_uuid)
+        .maybeSingle(),
+      supabase
+        .from("store_memberships")
+        .select("id")
+        .eq("id", manager_membership_id)
+        .eq("store_uuid", authContext.store_uuid)
+        .eq("role", "manager")
+        .eq("status", "approved")
+        .maybeSingle(),
+    ])
 
-    if (!room) {
+    if (!roomRes.data) {
       return NextResponse.json(
         { error: "ROOM_NOT_FOUND", message: "Room not found in this store." },
         { status: 404 }
       )
     }
 
-    // 담당실장 멤버십 확인
-    const { data: managerMembership } = await supabase
-      .from("store_memberships")
-      .select("id")
-      .eq("id", manager_membership_id)
-      .eq("store_uuid", authContext.store_uuid)
-      .eq("role", "manager")
-      .eq("status", "approved")
-      .maybeSingle()
-
-    if (!managerMembership) {
+    if (!managerRes.data) {
       return NextResponse.json(
         { error: "MANAGER_NOT_FOUND", message: "Manager membership not found in this store." },
         { status: 404 }
