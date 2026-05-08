@@ -33,6 +33,8 @@ export type MenuItemId =
   | "me"
   | "security"
   | "reconcile"
+  | "ble_management"
+  | "label_settings"
 
 export type MenuItemDefinition = {
   id: MenuItemId
@@ -133,6 +135,20 @@ export const COUNTER_MENU: readonly MenuItemDefinition[] = [
   {
     id: "reconcile", label: "종이장부 대조", icon: "📑", path: "/reconcile",
     requiredRoles: ["owner", "manager"],
+    togglable: true,
+  },
+  // 2026-05-08: BLE 게이트웨이 + 태그 관리. owner 전용.
+  //   알리바바 게이트웨이/태그 도착 시 점주가 직접 등록 + secret 발급.
+  {
+    id: "ble_management", label: "BLE 관리", icon: "📡", path: "/owner/ble",
+    requiredRoles: ["owner"],
+    togglable: true,
+  },
+  // 2026-05-08: 매장별 라벨 customization. owner 전용.
+  //   "실장/퍼블릭/스태프" 등 본인 매장 단어로 자유 설정.
+  {
+    id: "label_settings", label: "라벨 설정", icon: "🏷️", path: "/owner/labels",
+    requiredRoles: ["owner"],
     togglable: true,
   },
 ] as const
