@@ -772,6 +772,8 @@ export default function OwnerPage() {
               { label: "회원 생성", path: "/admin/members/create", icon: "➕" },
               { label: "가입 승인", path: "/admin/approvals", icon: "✅" },
               { label: "계정 관리", path: "/admin/members", icon: "👥" },
+              { label: "라벨 설정", path: "/owner/labels", icon: "🏷️" },
+              { label: "BLE 관리", path: "/owner/ble", icon: "📡" },
             ].map((item) => (
               <button
                 key={item.path}
