@@ -1,6 +1,7 @@
 "use client"
 
 import type { Participant } from "../../types"
+import { L, serviceTypeLabel } from "@/lib/labels/replaceMap"
 import {
   remainingMsForParticipant,
   roomRemainingMs,
@@ -331,12 +332,12 @@ export default function ParticipantCardV2({
           }}
           disabled={!onInlineEdit}
           className="truncate max-w-[5.5rem] hover:underline underline-offset-2 text-left disabled:no-underline"
-          title={h.manager_name ?? "실장 미지정"}
+          title={h.manager_name ?? `${L("manager")} 미지정`}
         >
           {h.manager_name ? (
             <span className="text-purple-300/80">{h.manager_name}</span>
           ) : (
-            <span className="text-slate-500">실장 없음</span>
+            <span className="text-slate-500">{L("manager")} 없음</span>
           )}
         </button>
         {/* 소속 매장 — 클릭 시 매장 교체 (store mode). origin_store_name
@@ -389,9 +390,9 @@ export default function ParticipantCardV2({
             else onOpenEdit(h.id)
           }}
           className="ml-auto text-slate-300 hover:text-cyan-400 transition-colors truncate text-right"
-          title={onInlineEdit ? "개수 조정" : "종목/실장 변경"}
+          title={onInlineEdit ? "개수 조정" : `종목/${L("manager")} 변경`}
         >
-          {displayCategory}
+          {serviceTypeLabel(displayCategory)}
           {unitLabel
             ? ` ${unitLabel}`
             : (Number(h.time_minutes) > 0 ? " 1개" : "")}

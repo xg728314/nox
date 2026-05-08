@@ -9,6 +9,7 @@
 import { useRoomContext } from "../RoomContext"
 import { remainingColor, fmtRemaining } from "../../helpers"
 import { formatRoomLabel } from "@/lib/rooms/formatRoomLabel"
+import { L, serviceTypeLabel } from "@/lib/labels/replaceMap"
 
 export default function HeaderExpanded() {
   const {
@@ -35,7 +36,7 @@ export default function HeaderExpanded() {
               onClick={async e => { e.stopPropagation(); if (!isFocused) await onFocus(room); onOpenMgrModal() }}
               className={`text-[13px] font-medium truncate max-w-[6rem] ${room.session.manager_name ? "text-purple-300 hover:text-purple-200" : "text-amber-400 hover:text-amber-300"}`}
             >
-              {room.session.manager_name || "실장 미지정"}
+              {room.session.manager_name || `${L("manager")} 미지정`}
             </button>
             <span className="text-[11px] text-slate-500 flex-shrink-0">·</span>
             <button
@@ -44,10 +45,10 @@ export default function HeaderExpanded() {
             >
               {room.session.customer_name_snapshot
                 ? `${room.session.customer_name_snapshot}${customerPartySize > 0 ? ` ${customerPartySize}인` : ""}`
-                : "손님 미입력"}
+                : `${L("customer")} 미입력`}
             </button>
           </div>
-          <span className="text-[13px] font-semibold text-slate-200 text-center">{dominantCategory}</span>
+          <span className="text-[13px] font-semibold text-slate-200 text-center">{serviceTypeLabel(dominantCategory)}</span>
           <span className={`text-xl font-bold text-right ${remainingColor(collapsedRemMs)}`}>{fmtRemaining(collapsedRemMs)}</span>
         </div>
       ) : (

@@ -20,10 +20,13 @@ type StaffMember = {
   role: string
 }
 
+// 2026-05-08: code 는 DB 에 저장되는 영구 키 (변경 X). label 만 빌드 모드별 표시.
+//   web: 퍼블릭/셔츠/하퍼 / app: P 이용권/S 이용권/H 이용권.
+const IS_APP_BUILD = process.env.NEXT_PUBLIC_BUILD_MODE === "app"
 const BASE_CATEGORIES: Category[] = [
-  { label: "퍼블릭", code: "퍼블릭", fullTime: 90, halfTime: 45, fullPrice: 130000, halfPrice: 70000 },
-  { label: "셔츠",   code: "셔츠",   fullTime: 60, halfTime: 30, fullPrice: 140000, halfPrice: 70000 },
-  { label: "하퍼",   code: "하퍼",   fullTime: 60, halfTime: 30, fullPrice: 120000, halfPrice: 60000 },
+  { label: IS_APP_BUILD ? "P 이용권" : "퍼블릭", code: "퍼블릭", fullTime: 90, halfTime: 45, fullPrice: 130000, halfPrice: 70000 },
+  { label: IS_APP_BUILD ? "S 이용권" : "셔츠",   code: "셔츠",   fullTime: 60, halfTime: 30, fullPrice: 140000, halfPrice: 70000 },
+  { label: IS_APP_BUILD ? "H 이용권" : "하퍼",   code: "하퍼",   fullTime: 60, halfTime: 30, fullPrice: 120000, halfPrice: 60000 },
 ]
 
 type Step = "category" | "cha3_base" | "duration" | "staff" | "manager" | "confirm"
