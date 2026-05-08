@@ -7,6 +7,7 @@ import StoreContextBar from "@/components/StoreContextBar"
 import SentryClientInit from "./SentryClientInit"
 import RegisterServiceWorker from "@/components/RegisterServiceWorker"
 import SessionExpiredGate from "@/components/SessionExpiredGate"
+import { LabelsProvider } from "@/lib/labels/LabelsProvider"
 
 // 2026-05-08: 빌드 모드 따라 metadata 분기. 앱 빌드 시 generic B2B 단어.
 const IS_APP_MODE = process.env.NEXT_PUBLIC_BUILD_MODE === "app"
@@ -73,16 +74,21 @@ export default function RootLayout({
         {/* 2026-04-25: 전역 Toast / Confirm Provider. window.alert / confirm 대체. */}
         <ToastProvider>
           <ConfirmProvider>
-            {/* 2026-04-28: 4시간 무조작 시 자동 로그아웃 (운영 정책).
-                /login, /signup, /reset-password, /find-id 에서는 자동 비활성. */}
-            <IdleLogoutGate />
-            {/* 2026-04-30 (R-store-name): 모든 보호 페이지 상단에 매장명 +
-                역할 표시. super_admin 의 매장/역할 override 중에는 fuchsia
-                강조 + "원래로" 버튼. /login 등 인증 전 화면은 자동 숨김. */}
-            <StoreContextBar />
-            {children}
-            {/* 전역 플로팅 버그 신고 버튼. 미로그인 시 내부에서 숨김. */}
-            <IssueReportButton />
+            {/* 2026-05-08: 매장별 라벨 customization Provider.
+                /api/auth/me 응답의 display_labels 를 Context 에 적재 →
+                useLabel(key) 가 매장별 override 적용. 미로그인 / 빈 객체면
+                빌드 모드 default 사용. */}
+            <LabelsProvider>
+              {/* 2026-04-28: 4시간 무조작 시 자동 로그아웃 (운영 정책). */}
+              <IdleLogoutGate />
+              {/* 2026-04-30 (R-store-name): 모든 보호 페이지 상단에 매장명 +
+                  역할 표시. super_admin 의 매장/역할 override 중에는 fuchsia
+                  강조 + "원래로" 버튼. /login 등 인증 전 화면은 자동 숨김. */}
+              <StoreContextBar />
+              {children}
+              {/* 전역 플로팅 버그 신고 버튼. 미로그인 시 내부에서 숨김. */}
+              <IssueReportButton />
+            </LabelsProvider>
           </ConfirmProvider>
         </ToastProvider>
       </body>

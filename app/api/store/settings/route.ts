@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { sanitizeStoreLabels } from "@/lib/labels"
 
 // 2026-05-03 R-Speed-x10: store_settings 는 영업일 중 잠겨있고 owner 만 변경 →
 //   변경 빈도 매우 낮음. 카운터 / 정산 / 청구서 화면이 자주 읽음 (TC율, 카드수수료,
@@ -24,7 +25,9 @@ export async function GET(request: Request) {
 
     // R29-fix: migration 018/087 미적용 환경 → 42703 (column does not exist).
     //   credits 와 같은 FULL → BASE 폴백 패턴. migration 095 적용하면 자동 복구.
-    const FULL_COLS = "id, store_uuid, tc_rate, manager_payout_rate, hostess_payout_rate, payout_basis, rounding_unit, card_fee_rate, default_waiter_tip, attendance_period_days, attendance_min_days, performance_unit, performance_min_count, monthly_rent, monthly_utilities, monthly_misc, liquor_target_mode, liquor_target_amount, updated_at"
+    // 2026-05-08: display_labels 추가 (migration 110).
+    //   미적용 환경 → 42703 → BASE_COLS fallback.
+    const FULL_COLS = "id, store_uuid, tc_rate, manager_payout_rate, hostess_payout_rate, payout_basis, rounding_unit, card_fee_rate, default_waiter_tip, attendance_period_days, attendance_min_days, performance_unit, performance_min_count, monthly_rent, monthly_utilities, monthly_misc, liquor_target_mode, liquor_target_amount, display_labels, updated_at"
     const BASE_COLS = "id, store_uuid, tc_rate, manager_payout_rate, hostess_payout_rate, payout_basis, rounding_unit, card_fee_rate, default_waiter_tip, updated_at"
 
     type SettingsResp = {
@@ -96,6 +99,8 @@ export async function GET(request: Request) {
             monthly_misc: s.monthly_misc ?? 0,
             liquor_target_mode: s.liquor_target_mode ?? "auto",
             liquor_target_amount: s.liquor_target_amount ?? 0,
+            // 2026-05-08: 매장별 라벨 customization. {} 면 빌드 모드 default 사용.
+            display_labels: s.display_labels ?? {},
             updated_at: s.updated_at,
           },
         }
@@ -179,6 +184,12 @@ export async function PATCH(request: Request) {
       if (v !== undefined) {
         updateData[field] = v
       }
+    }
+
+    // 2026-05-08: 매장별 라벨 customization. sanitizeStoreLabels 가 unknown
+    //   key 거부 + 빈 값 제거 + 길이 제한. 빈 객체 {} 도 OK (default 복구).
+    if (body.display_labels !== undefined) {
+      updateData.display_labels = sanitizeStoreLabels(body.display_labels)
     }
 
     if (Object.keys(updateData).length === 0) {

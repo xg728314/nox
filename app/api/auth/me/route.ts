@@ -17,6 +17,8 @@ export async function GET(request: Request) {
       backup_codes_remaining: number
       store_name: string | null
       store_floor: number | null
+      // 2026-05-08: 매장별 라벨 customization. 빈 객체면 빌드 모드 default.
+      display_labels: Record<string, string>
     }
 
     // R26: mfa_enabled + backup_codes_remaining 노출 (additive). /me/security
@@ -31,12 +33,15 @@ export async function GET(request: Request) {
         let backupCodesRemaining = 0
         let storeName: string | null = null
         let storeFloor: number | null = null
+        let displayLabels: Record<string, string> = {}
         try {
           const url = process.env.NEXT_PUBLIC_SUPABASE_URL
           const key = process.env.SUPABASE_SERVICE_ROLE_KEY
           if (url && key) {
             const sb = createClient(url, key)
-            const [mfaRes, storeRes] = await Promise.all([
+            // 2026-05-08: store_settings.display_labels 도 동시 fetch.
+            //   migration 110 미적용 시 42703 → 빈 객체로 fallback.
+            const [mfaRes, storeRes, settingsRes] = await Promise.all([
               sb
                 .from("user_mfa_settings")
                 .select("is_enabled, backup_codes_hashed")
@@ -48,6 +53,12 @@ export async function GET(request: Request) {
                 .from("stores")
                 .select("store_name, floor")
                 .eq("id", authContext.store_uuid)
+                .maybeSingle(),
+              sb
+                .from("store_settings")
+                .select("display_labels")
+                .eq("store_uuid", authContext.store_uuid)
+                .is("deleted_at", null)
                 .maybeSingle(),
             ])
             const r = mfaRes.data as
@@ -62,6 +73,12 @@ export async function GET(request: Request) {
               | null
             storeName = s?.store_name ?? null
             storeFloor = typeof s?.floor === "number" ? s.floor : null
+            // settings.display_labels 가 객체면 채택. 42703 (migration 미적용)
+            //   이거나 NULL 이면 빈 객체 (빌드 모드 default 사용).
+            const ds = settingsRes.data as { display_labels?: unknown } | null
+            if (ds?.display_labels && typeof ds.display_labels === "object" && !Array.isArray(ds.display_labels)) {
+              displayLabels = ds.display_labels as Record<string, string>
+            }
           }
         } catch {
           // best-effort — me 응답은 MFA / store 조회 실패해도 정상 동작.
@@ -71,6 +88,7 @@ export async function GET(request: Request) {
           backup_codes_remaining: backupCodesRemaining,
           store_name: storeName,
           store_floor: storeFloor,
+          display_labels: displayLabels,
         }
       },
     )
@@ -86,6 +104,8 @@ export async function GET(request: Request) {
       is_super_admin: authContext.is_super_admin,
       mfa_enabled: extras.mfa_enabled,
       backup_codes_remaining: extras.backup_codes_remaining,
+      // 2026-05-08: 매장별 라벨. 클라이언트의 LabelsProvider 가 hydrate.
+      display_labels: extras.display_labels,
     })
     // 짧은 max-age + 긴 SWR — 페이지 전환마다 호출되어도 즉시 반환.
     res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=60")

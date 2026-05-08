@@ -8,7 +8,7 @@
 
 import { useRoomContext } from "../RoomContext"
 import { fmtWon } from "../../helpers"
-import { L } from "@/lib/labels/replaceMap"
+import { useLabel } from "@/lib/labels/LabelsProvider"
 
 export default function TotalsCheckout() {
   const {
@@ -17,25 +17,28 @@ export default function TotalsCheckout() {
     hasUnassignedManager, unassignedManagerCount,
     onSwipeStart, onSwipeMove, onSwipeEnd,
   } = useRoomContext()
+  const staffLabel = useLabel("staff")
+  const managerLabel = useLabel("manager")
+  const orderTotalLabel = useLabel("order_total")
 
   // 2026-05-01 R-No-Manager-OK: 실장 미지정 차단 제거.
   //   운영자 정책: 실장 미지정 → 가게 매출. 체크아웃 진행 OK.
   //   스태프 종목 미확정만 차단 유지 (정산 계산 필수).
   const blocked = hasUnresolved
   const blockMsg = hasUnresolved
-    ? `${L("staff")} ${unresolvedCount}명 확정 후 체크아웃 가능`
+    ? `${staffLabel} ${unresolvedCount}명 확정 후 체크아웃 가능`
     : ""
   // 매니저 미지정 시 안내 (차단 X) — 매출 분류 명확히.
   const noManagerHint = !hasUnresolved && hasUnassignedManager
-    ? `${L("manager")} 미지정 (${unassignedManagerCount}명) — 매장 매출로 분류됨`
+    ? `${managerLabel} 미지정 (${unassignedManagerCount}명) — 매장 매출로 분류됨`
     : ""
 
   return (
     <div className="px-4 py-3 border-t border-white/10 bg-black/30">
       <div className="text-[10px] text-slate-500 mb-1.5">정산 확인</div>
       <div className="space-y-1 text-sm mb-3">
-        <div className="flex justify-between text-slate-400"><span>{L("staff")} 이용권</span><span>{fmtWon(participantTotal)}</span></div>
-        <div className="flex justify-between text-slate-400"><span>{L("order_total")}</span><span>{fmtWon(orderTotal)}</span></div>
+        <div className="flex justify-between text-slate-400"><span>{staffLabel} 이용권</span><span>{fmtWon(participantTotal)}</span></div>
+        <div className="flex justify-between text-slate-400"><span>{orderTotalLabel}</span><span>{fmtWon(orderTotal)}</span></div>
         <div className="flex justify-between text-emerald-300 font-bold pt-1 border-t border-white/10">
           <span>현재 합계</span>
           <span className="text-lg">{fmtWon(grandTotal)}</span>
