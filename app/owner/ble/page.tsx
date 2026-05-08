@@ -47,15 +47,28 @@ type Tag = {
 type Room = { id: string; room_no: string; room_name: string | null }
 type StaffMember = { membership_id: string; name: string; role: string }
 
+type Discovered = {
+  minor: number
+  first_seen_at: string
+  last_seen_at: string
+  detect_count: number
+  avg_rssi: number | null
+  last_gateway_id: string
+  last_gateway_label: string | null
+  last_room_label: string | null
+}
+
 export default function BleManagementPage() {
   const router = useRouter()
   const [tab, setTab] = useState<"gateway" | "tag">("gateway")
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [tags, setTags] = useState<Tag[]>([])
+  const [discovered, setDiscovered] = useState<Discovered[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [discoveryRefresh, setDiscoveryRefresh] = useState(0)
 
   // 게이트웨이 등록 form
   const [gwOpen, setGwOpen] = useState(false)
@@ -76,6 +89,14 @@ export default function BleManagementPage() {
   useEffect(() => {
     void loadAll()
   }, [])
+
+  // 태그 탭 진입 시 + 5초마다 자동 감지 polling.
+  useEffect(() => {
+    if (tab !== "tag") return
+    void loadDiscovered()
+    const t = setInterval(() => loadDiscovered(), 5000)
+    return () => clearInterval(t)
+  }, [tab, discoveryRefresh])
 
   async function loadAll() {
     setLoading(true)
@@ -113,6 +134,40 @@ export default function BleManagementPage() {
       setError("데이터 조회 실패")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadDiscovered() {
+    try {
+      const res = await apiFetch("/api/ble/tags/discovered")
+      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      setDiscovered(data?.discovered ?? [])
+    } catch {
+      /* swallow — polling */
+    }
+  }
+
+  async function handleQuickRegister(d: Discovered, membershipId: string) {
+    setError("")
+    try {
+      const res = await apiFetch("/api/ble/tags", {
+        method: "POST",
+        body: JSON.stringify({
+          minor: d.minor,
+          membership_id: membershipId || null,
+          tag_label: null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.message || "등록 실패")
+        return
+      }
+      setDiscoveryRefresh((v) => v + 1)
+      void loadAll()
+    } catch {
+      setError("네트워크 오류")
     }
   }
 
@@ -453,11 +508,73 @@ export default function BleManagementPage() {
 
         {!loading && tab === "tag" && (
           <div className="px-4 py-4 space-y-3">
+            {/* 🆕 자동 감지 — 게이트웨이가 본 미등록 태그 */}
+            {discovered.length > 0 && (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-amber-300 font-semibold text-sm">
+                    🆕 자동 감지된 새 태그 ({discovered.length}개)
+                  </div>
+                  <span className="text-[10px] text-amber-400/60">5초마다 갱신</span>
+                </div>
+                <div className="text-[11px] text-amber-200/70 mb-1">
+                  태그를 게이트웨이 가까이 가져오면 여기 나타납니다. 신호 강한 순.
+                </div>
+                <div className="space-y-1.5">
+                  {discovered.map((d) => (
+                    <div key={d.minor} className="rounded-lg bg-black/20 border border-amber-500/20 p-2.5">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-base font-bold text-amber-200">#{d.minor}</span>
+                          {d.avg_rssi !== null && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded ${
+                              d.avg_rssi > -60 ? "bg-emerald-500/20 text-emerald-300" :
+                              d.avg_rssi > -80 ? "bg-cyan-500/20 text-cyan-300" :
+                              "bg-slate-500/20 text-slate-400"
+                            }`}>
+                              📶 {d.avg_rssi}dBm {d.avg_rssi > -60 ? "(매우 가까움)" : d.avg_rssi > -80 ? "(가까움)" : "(멀음)"}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          {d.detect_count}회 감지
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mb-2">
+                        감지 위치: {d.last_room_label ?? d.last_gateway_label ?? d.last_gateway_id}
+                      </div>
+                      <div className="flex gap-1.5 items-center">
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            const m = e.target.value
+                            if (m !== undefined) {
+                              void handleQuickRegister(d, m)
+                              e.target.value = ""
+                            }
+                          }}
+                          className="flex-1 bg-white/[0.04] border border-amber-500/30 rounded px-2 py-1.5 text-xs"
+                        >
+                          <option value="" disabled>+ 등록 (직원 선택)</option>
+                          <option value="">직원 미지정으로 등록</option>
+                          {staff.map((s) => (
+                            <option key={s.membership_id} value={s.membership_id}>
+                              {s.name} ({s.role})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => setTagOpen((v) => !v)}
               className="w-full py-3 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-sm font-semibold"
             >
-              {tagOpen ? "닫기" : "+ 태그 등록"}
+              {tagOpen ? "닫기" : "+ 태그 등록 (수동 minor 입력)"}
             </button>
 
             {tagOpen && (
