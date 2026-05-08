@@ -133,6 +133,62 @@ FCM 프로젝트 생성 → `google-services.json` 다운로드 →
 
 ---
 
+## iOS 빌드 (Mac 필수)
+
+### Mac 환경 준비
+- macOS 13 (Ventura) 이상
+- Xcode 15+ 설치 (App Store 무료, ~10GB)
+- CocoaPods 설치: `sudo gem install cocoapods`
+- Apple Developer Program 가입 ($99/년) — https://developer.apple.com/programs/
+
+### iOS 빌드 절차
+
+#### 1. Mac 에서 NOX clone
+```bash
+git clone https://github.com/xg728314/nox.git
+cd nox
+npm install
+```
+
+#### 2. iOS 의존성 설치 + 빌드
+```bash
+npm run build:app           # Next.js + Capacitor sync
+cd ios/App
+pod install                 # CocoaPods 의존성 (BLE 등)
+cd ../..
+npx cap open ios            # Xcode 열기
+```
+
+#### 3. Xcode 에서
+- `Signing & Capabilities` → Team 선택 (Apple Developer 계정)
+- Bundle Identifier 확인: `kr.ai.nox`
+- Build → Archive
+- Distribute App → App Store Connect 또는 TestFlight 업로드
+
+### TestFlight 배포 (앱스토어 우회)
+1. Xcode Archive → Upload to App Store Connect
+2. App Store Connect → TestFlight → 빌드 처리 1-2시간
+3. 내부 테스터 (최대 100명) 또는 외부 테스터 (최대 10,000명, Beta App Review 1-3일)
+4. 매장 점주 이메일 추가 → 초대 발송 → 점주가 TestFlight 앱으로 설치
+
+### iOS 권한 메시지 (Info.plist 설정 완료)
+- BLE: `NSBluetoothAlwaysUsageDescription`, `NSBluetoothPeripheralUsageDescription`
+- 위치 (BLE 스캔): `NSLocationWhenInUseUsageDescription`
+- 카메라/사진: `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`
+- HTTPS only: `NSAppTransportSecurity` 에 nox.ai.kr 만 허용
+- 한국어 default: `CFBundleDevelopmentRegion=ko`
+
+### Mac 없을 때 대안
+| 방식 | 비용 | 메모 |
+|---|---|---|
+| Mac 구매 (Mac mini M2) | ~80만원 | 가장 확실 |
+| MacInCloud | $20/월 | 원격 데스크톱 |
+| GitHub Actions macOS runner | 무료 (월 2,000분) | CI 자동 빌드 |
+| Codemagic | 무료 한도 | iOS 전용 CI |
+| Capacitor Ionic Appflow | $49/월~ | 통합 솔루션 |
+
+---
+
 ## 디버깅
 
 ### Chrome DevTools 로 Android WebView 디버깅
@@ -140,6 +196,10 @@ FCM 프로젝트 생성 → `google-services.json` 다운로드 →
 adb devices  # 기기 연결 확인
 # Chrome 에서 chrome://inspect 접속 → Capacitor WebView 선택
 ```
+
+### Safari Web Inspector 로 iOS WebView 디버깅 (Mac)
+- iPhone: 설정 → Safari → 고급 → 웹 검사기 ON
+- Mac Safari: 개발자 메뉴 → iPhone → NOX → WebView 선택
 
 ### 로그 확인
 ```bash

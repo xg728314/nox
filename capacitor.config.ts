@@ -40,10 +40,16 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false,
+    // 서버 식별용 UA suffix (MainActivity.java 에서도 추가).
+    appendUserAgent: "NOX-App/1.0",
   },
   ios: {
     contentInset: "always",
     scrollEnabled: true,
+    // iOS WKWebView 가 자동 UTF-8 처리. UA suffix 만 추가.
+    appendUserAgent: "NOX-App/1.0",
+    // 한국어 키보드 입력 시 Auto-correct 끔 (정산 입력 보호).
+    limitsNavigationsToAppBoundDomains: false,
   },
   plugins: {
     SplashScreen: {

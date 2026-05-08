@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CAPACITOR_DEBUG</key>
+	<string>$(CAPACITOR_DEBUG)</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ko</string>
+	<key>CFBundleDisplayName</key>
+        <string>NOX</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ko</string>
+		<string>en</string>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>armv7</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<true/>
+
+	<!-- ─────────────────────────────────────────────────────────────────
+	     iOS 권한 메시지 — 한국어 (CFBundleDevelopmentRegion=ko 따라 표시)
+	     앱스토어 심사 시 권한 사용 사유가 명확해야 통과.
+	     ───────────────────────────────────────────────────────────────── -->
+
+	<!-- BLE 게이트웨이 통신 (NOX BLE 태그 시스템) -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>매장 BLE 게이트웨이와 통신하여 직원 위치를 확인합니다.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>매장 BLE 게이트웨이와 통신하여 직원 위치를 확인합니다.</string>
+
+	<!-- 위치 (BLE 스캔 시 일부 iOS 버전에서 요구) -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>매장 안 BLE 기기 검색에 위치 권한이 필요합니다.</string>
+
+	<!-- 카메라 (영수증 / 종이장부 촬영 — 향후 사용) -->
+	<key>NSCameraUsageDescription</key>
+	<string>영수증 / 종이장부 촬영을 위해 카메라가 필요합니다.</string>
+
+	<!-- 사진 라이브러리 (영수증 업로드) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>영수증 이미지를 업로드하기 위해 사진 접근 권한이 필요합니다.</string>
+
+	<!-- ─────────────────────────────────────────────────────────────────
+	     App Transport Security — HTTPS only.
+	     nox.ai.kr 만 허용. cleartext 차단으로 MITM 방어.
+	     ───────────────────────────────────────────────────────────────── -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>nox.ai.kr</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<true/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.2</string>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>
