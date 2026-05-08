@@ -8,9 +8,14 @@ import SentryClientInit from "./SentryClientInit"
 import RegisterServiceWorker from "@/components/RegisterServiceWorker"
 import SessionExpiredGate from "@/components/SessionExpiredGate"
 
+// 2026-05-08: 빌드 모드 따라 metadata 분기. 앱 빌드 시 generic B2B 단어.
+const IS_APP_MODE = process.env.NEXT_PUBLIC_BUILD_MODE === "app"
+
 export const metadata = {
-  title: "NOX Counter OS",
-  description: "NOX 카운터 운영 시스템",
+  title: IS_APP_MODE ? "NOX 매장 운영 관리" : "NOX Counter OS",
+  description: IS_APP_MODE
+    ? "매장 운영 통합 관리 — 직원·고객·정산"
+    : "NOX 카운터 운영 시스템",
   // 2026-04-30: PWA — Next.js 가 app/manifest.ts 를 /manifest.webmanifest 로 serve.
   //   Android Chrome / iOS Safari "홈 화면에 추가" 지원.
   manifest: "/manifest.webmanifest",

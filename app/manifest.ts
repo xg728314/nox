@@ -22,10 +22,15 @@ import type { MetadataRoute } from "next"
  */
 
 export default function manifest(): MetadataRoute.Manifest {
+  // 2026-05-08: 빌드 모드 분기. 앱스토어 (Apple/Google/원스토어) 심사 시
+  //   description 의 "유흥업소" 같은 단어가 reject 사유 → generic B2B 표현.
+  const isAppMode = process.env.NEXT_PUBLIC_BUILD_MODE === "app"
   return {
-    name: "NOX Counter OS",
+    name: isAppMode ? "NOX 매장 운영 관리" : "NOX Counter OS",
     short_name: "NOX",
-    description: "NOX — 유흥업소 운영 관리 시스템",
+    description: isAppMode
+      ? "다중 매장 운영 통합 관리 — 매장·직원·고객·정산"
+      : "NOX — 매장 운영 관리 시스템",
     start_url: "/",
     display: "standalone",
     background_color: "#030814",

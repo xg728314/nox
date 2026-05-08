@@ -42,3 +42,33 @@ service.*.yaml
 
 service.yaml
 service.*.yaml
+
+# ─────────────────────────────────────────────────────────────────────
+# Capacitor / Android — generated build artifacts (commit X)
+# ─────────────────────────────────────────────────────────────────────
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/release/
+android/app/debug/
+android/captures/
+android/.idea/
+android/.cxx/
+# Capacitor sync 결과물 (sync 시 자동 재생성)
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# iOS Capacitor (Mac 환경에서만)
+ios/App/build/
+ios/App/Pods/
+ios/.idea/
+ios/App/output/
+ios/DerivedData/
+
+# Capacitor 작업 디렉토리
+.capacitor/
+
+# Claude Code session locks
+.claude/scheduled_tasks.lock

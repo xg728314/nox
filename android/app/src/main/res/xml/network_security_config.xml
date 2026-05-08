@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NOX Network Security Config
+  - HTTPS 강제 (cleartext HTTP 차단).
+  - nox.ai.kr 만 허용.
+  - cleartext 차단으로 MITM 공격 방어.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">nox.ai.kr</domain>
+    </domain-config>
+</network-security-config>
