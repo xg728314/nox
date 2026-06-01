@@ -1253,12 +1253,11 @@
         </div>
       </div>
 
-      <div class="filter-row" style="padding-left:22px;">
-        <div class="chip active">전체<span class="b">9</span></div>
-        <div class="chip">일하는 중<span class="b">6</span></div>
-        <div class="chip">대기<span class="b">2</span></div>
-        <div class="chip">휴식<span class="b">1</span></div>
-        <div class="chip">자주 함께</div>
+      <div class="filter-row" id="staff-filter" style="padding-left:22px;">
+        <div class="chip active" data-filter="all">전체<span class="b">9</span></div>
+        <div class="chip" data-filter="working">일하는 중<span class="b">6</span></div>
+        <div class="chip" data-filter="waiting">대기<span class="b">2</span></div>
+        <div class="chip" data-filter="rest">휴식<span class="b">1</span></div>
       </div>
 
       <!-- 매장 섹션들 -->
@@ -1500,10 +1499,23 @@
 
 <script>
   function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
-  document.querySelectorAll('.chip').forEach(chip => {
+  // 스태프 필터 칩 (data-filter 기반)
+  function applyStaffFilter(filter) {
+    document.querySelectorAll('.family .section').forEach(sec => {
+      const head = sec.querySelector('.section-head');
+      let status = 'working';
+      if (head && head.classList.contains('waiting')) status = 'waiting';
+      else if (head && head.classList.contains('rest')) status = 'rest';
+      else if (head && head.classList.contains('off')) status = 'off';
+      sec.style.display = (filter === 'all' || filter === status) ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('#staff-filter .chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      document.querySelectorAll('#staff-filter .chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
+      const f = chip.getAttribute('data-filter') || 'all';
+      applyStaffFilter(f);
       haptic();
     });
   });
