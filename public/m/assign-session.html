@@ -143,6 +143,62 @@
     opacity: 0.35; cursor: not-allowed; pointer-events: none;
   }
 
+  /* 시작 시각 stepper */
+  .time-stepper {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .time-stepper .step-btn {
+    width: 46px; height: 46px;
+    flex-shrink: 0;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 13px; font-weight: 800;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.14s;
+    font-family: inherit;
+  }
+  .time-stepper .step-btn:active { transform: scale(0.92); }
+  .time-stepper .step-btn:hover {
+    background: rgba(196, 155, 97, 0.1);
+    border-color: rgba(196, 155, 97, 0.4);
+  }
+  .time-stepper .time-display {
+    flex: 1;
+    text-align: center;
+  }
+  .time-stepper .time-display .t {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .time-stepper .time-display .offset {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 2px;
+    letter-spacing: -0.02em;
+  }
+  .time-stepper .time-display.adjusted .offset {
+    color: var(--gold-deep);
+  }
+  .step-hint {
+    margin-top: 6px;
+    padding: 0 4px;
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
   /* 가게 영역 — 비어있을 때 안내 */
   .stores-area {
     min-height: 60px;
@@ -335,9 +391,25 @@
     </div>
   </div>
 
-  <!-- Step 5: 룸 번호 (선택) -->
+  <!-- Step 5: 시작 시각 (현재 ± 분 조정) -->
   <div class="step">
-    <div class="h"><div class="num">5</div><div class="lbl">룸 (선택)</div></div>
+    <div class="h"><div class="num">5</div><div class="lbl">시작 시각</div></div>
+    <div class="time-stepper" id="time-stepper">
+      <button type="button" class="step-btn" data-d="-10" aria-label="10분 전">-10</button>
+      <button type="button" class="step-btn" data-d="-5" aria-label="5분 전">-5</button>
+      <div class="time-display">
+        <div class="t" id="start-time-display">--:--</div>
+        <div class="offset" id="start-time-offset">지금</div>
+      </div>
+      <button type="button" class="step-btn" data-d="5" aria-label="5분 후">+5</button>
+      <button type="button" class="step-btn" data-d="10" aria-label="10분 후">+10</button>
+    </div>
+    <div class="step-hint">안 건드리면 현재 시각으로 등록됩니다</div>
+  </div>
+
+  <!-- Step 6: 룸 번호 (선택) -->
+  <div class="step">
+    <div class="h"><div class="num">6</div><div class="lbl">룸 번호 직접 입력 (선택)</div></div>
     <div class="room-wrap">
       <input type="text" id="room-input" inputmode="numeric" placeholder="3" autocomplete="off" maxlength="3" />
     </div>
@@ -374,10 +446,25 @@
     8: [{ id: null, room_no: '지점 E', floor_no: 8 }],
   };
   // Mock 종목/시간 (NOX 비즈니스 규칙 기반)
+  // shape: { P: { name, durations: { mins: { price, time_type, manager_deduction } } } }
+  //   이 shape 가 renderTypeGrid/renderTimeGrid 에서 .price / .time_type 접근하는 코드와 매칭.
+  //   숫자만 넣으면 d.price === undefined → NaN 만~ 표시 + state.dur.price === undefined.
   const MOCK_TYPES = {
-    P: { name: '퍼블릭', durations: { 90: 130000, 45: 70000, 15: 30000 } },
-    S: { name: '셔츠',   durations: { 60: 140000, 30: 70000, 15: 30000 } },
-    H: { name: '하퍼',   durations: { 60: 120000, 30: 60000, 15: 30000 } },
+    P: { name: 'P 타입', durations: {
+      90: { price: 130000, time_type: '기본', manager_deduction: 5000 },
+      45: { price:  70000, time_type: '반티', manager_deduction: 5000 },
+      15: { price:  30000, time_type: '차3',  manager_deduction: 0 },
+    }},
+    S: { name: 'S 타입', durations: {
+      60: { price: 140000, time_type: '기본', manager_deduction: 5000 },
+      30: { price:  70000, time_type: '반티', manager_deduction: 5000 },
+      15: { price:  30000, time_type: '차3',  manager_deduction: 0 },
+    }},
+    H: { name: 'H 타입', durations: {
+      60: { price: 120000, time_type: '기본', manager_deduction: 5000 },
+      30: { price:  60000, time_type: '반티', manager_deduction: 5000 },
+      15: { price:  30000, time_type: '차3',  manager_deduction: 0 },
+    }},
   };
 
   const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
@@ -432,9 +519,56 @@
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
   function refreshTime() {
-    const t = now();
-    if ($heroTime) $heroTime.textContent = t;
-    if ($previewTime) $previewTime.textContent = t;
+    if ($heroTime) $heroTime.textContent = now();
+    renderStartTime();
+    // preview 의 시작 시각도 stepper 값 반영
+    if ($previewTime) $previewTime.textContent = fmtHHMM(computeStartDate());
+  }
+  // ─── 시작 시각 stepper ─────────────────────────
+  // state: startOffsetMin (-60 ~ +30). 0 = 지금. 음수 = N분 전 (등록 늦었음).
+  let startOffsetMin = 0;
+  function computeStartDate() {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + startOffsetMin);
+    return d;
+  }
+  function fmtHHMM(d) {
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function renderStartTime() {
+    const $disp = document.getElementById('start-time-display');
+    const $off = document.getElementById('start-time-offset');
+    const $wrap = $disp ? $disp.parentElement : null;
+    if (!$disp) return;
+    $disp.textContent = fmtHHMM(computeStartDate());
+    if ($off) {
+      if (startOffsetMin === 0) $off.textContent = '지금';
+      else if (startOffsetMin < 0) $off.textContent = `${-startOffsetMin}분 전에 들어감`;
+      else $off.textContent = `${startOffsetMin}분 후 예정`;
+    }
+    if ($wrap) $wrap.classList.toggle('adjusted', startOffsetMin !== 0);
+    // preview 의 시작 시각도 즉시 동기화
+    if ($previewTime) $previewTime.textContent = fmtHHMM(computeStartDate());
+  }
+  function bindStartTimeStepper() {
+    const $stepper = document.getElementById('time-stepper');
+    if (!$stepper) return;
+    $stepper.querySelectorAll('.step-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        startOffsetMin += Number(b.dataset.d);
+        // clamp: -60분 ~ +30분 (현실적 범위)
+        if (startOffsetMin < -60) startOffsetMin = -60;
+        if (startOffsetMin > 30) startOffsetMin = 30;
+        haptic(8);
+        renderStartTime();
+      });
+    });
+    // 표시 더블 탭으로 리셋
+    const $disp = document.getElementById('start-time-display');
+    if ($disp) {
+      $disp.addEventListener('dblclick', () => { startOffsetMin = 0; haptic(8); renderStartTime(); });
+    }
+    renderStartTime();
   }
   refreshTime();
   setInterval(refreshTime, 30 * 1000);
@@ -707,12 +841,18 @@
 
   // ─── 초기화: API 로드 ────────────────────────────
   async function init() {
+    // 첫 렌더부터 TYPES_BY_CAT 가 있어야 종목/시간 click 핸들러가 attach 됨.
+    //   이전 버그: TYPES_BY_CAT 가 null 상태로 renderTypeGrid → early return →
+    //   static HTML 의 P/S/H 옵션이 click 핸들러 없이 그대로 남음 → 탭해도 무반응.
+    if (!TYPES_BY_CAT) TYPES_BY_CAT = MOCK_TYPES;
+
     bindFloors();
     renderTypeGrid();
     renderTimeGrid();
+    bindStartTimeStepper();
 
     if (!window.NoxAPI) {
-      // API 없음 → mock 모드
+      // API 없음 → mock 모드 (MOCK_TYPES 그대로 사용)
       return;
     }
     try {
