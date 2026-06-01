@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 새 그룹 채팅</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sheet-head {
+    padding: 60px 22px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  @media (max-width: 500px) {
+    .sheet-head { padding-top: calc(env(safe-area-inset-top, 16px) + 22px); }
+  }
+  .sheet-head .ttl {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .sheet-head .ttl .sub {
+    display: block;
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .sheet-head .close {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none; color: var(--sub);
+    font-size: 14px;
+  }
+
+  /* 검색바 */
+  .search-bar {
+    margin: 0 22px 14px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1.5px solid var(--gold);
+    border-radius: 14px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 4px 14px rgba(196, 155, 97, 0.15);
+  }
+  .search-bar .ic { font-size: 14px; }
+  .search-bar input {
+    flex: 1;
+    border: none; background: transparent;
+    font-family: inherit;
+    font-size: 14px; font-weight: 700;
+    color: var(--ink);
+    outline: none;
+    letter-spacing: -0.02em;
+  }
+  .search-bar input::placeholder { color: var(--sub); font-weight: 500; }
+
+  /* 탭 — 실장 / 아가씨 */
+  .role-tabs {
+    margin: 0 22px 16px;
+    display: flex;
+    background: var(--bg-soft);
+    border-radius: 12px;
+    padding: 3px;
+  }
+  .role-tab {
+    flex: 1;
+    padding: 9px 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: all 0.18s;
+    letter-spacing: -0.01em;
+  }
+  .role-tab .cnt {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-left: 3px;
+  }
+  .role-tab.active {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 2px 6px rgba(45, 43, 38, 0.08);
+  }
+
+  /* 멤버 리스트 */
+  .members-list {
+    margin: 0 22px 0;
+    background: var(--card);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .member-row:first-child { border-top: none; }
+  .member-row:active { background: var(--bg-soft); }
+
+  .member-row .check {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--line);
+    background: var(--card);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .member-row.selected .check {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    border-color: transparent;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .member-row.selected .check::before {
+    content: '✓';
+  }
+
+  .member-row .av {
+    width: 34px; height: 34px;
+    border-radius: 11px;
+    background: var(--bg-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    flex-shrink: 0;
+    color: var(--ink);
+  }
+  .member-row.owner .av { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
+  .member-row.manager .av { background: linear-gradient(135deg, rgba(30, 64, 175, 0.18), rgba(30, 64, 175, 0.1)); color: var(--S); }
+  .member-row.staff .av { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .member-row.staff.S .av { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .member-row.staff.P .av { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+
+  .member-row .info { flex: 1; min-width: 0; }
+  .member-row .name {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .member-row .name .tag {
+    font-size: 8px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--sub);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .member-row.owner .name .tag { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
+  .member-row.manager .name .tag { background: rgba(30, 64, 175, 0.12); color: var(--S); }
+  .member-row .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 1px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 그룹 이름 */
+  .group-name-card {
+    margin: 16px 22px 0;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.08), var(--card));
+    border: 1px solid rgba(196, 155, 97, 0.2);
+    border-radius: 14px;
+  }
+  .group-name-card .lbl {
+    font-size: 10px;
+    color: var(--gold-deep);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .group-name-card input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+    outline: none;
+    letter-spacing: -0.02em;
+  }
+  .group-name-card input::placeholder { color: var(--sub); font-weight: 500; }
+
+  /* 선택된 멤버 미리보기 (하단 바 위) */
+  .selected-preview {
+    position: sticky;
+    bottom: 86px;
+    margin: 16px 22px 0;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, var(--ink), #1a1813);
+    color: #fff;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 20px rgba(45, 43, 38, 0.18);
+    z-index: 5;
+  }
+  .selected-preview.hidden { display: none; }
+  .selected-preview .ic {
+    width: 28px; height: 28px;
+    background: rgba(196, 155, 97, 0.3);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .selected-preview .body { flex: 1; min-width: 0; }
+  .selected-preview .body .l {
+    font-size: 9px;
+    color: var(--gold-soft);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .selected-preview .body .names {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .selected-preview .count {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--gold-soft);
+    letter-spacing: -0.02em;
+  }
+
+  /* 하단 생성 버튼 */
+  .bottom-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 60;
+    display: flex; gap: 8px;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 14px); }
+  }
+  .bottom-bar .cancel {
+    padding: 14px 22px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+  .bottom-bar .create-btn {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.35);
+    letter-spacing: -0.02em;
+  }
+  .bottom-bar .create-btn:disabled {
+    background: var(--bg-soft);
+    color: var(--sub);
+    box-shadow: none;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 140px;">
+
+  <div class="sheet-head">
+    <div class="ttl">
+      새 그룹 채팅
+      <span class="sub">실장 / 아가씨 검색해서 멤버 선택</span>
+    </div>
+    <a href="chat.html" class="close">✕</a>
+  </div>
+
+  <!-- 검색 -->
+  <div class="search-bar">
+    <span class="ic">🔍</span>
+    <input type="text" id="search-input" placeholder="이름 검색..." />
+  </div>
+
+  <!-- 탭 -->
+  <div class="role-tabs">
+    <div class="role-tab active" data-role="all">전체<span class="cnt" data-cnt="all">0</span></div>
+    <div class="role-tab" data-role="manager">실장<span class="cnt" data-cnt="manager">0</span></div>
+    <div class="role-tab" data-role="staff">아가씨<span class="cnt" data-cnt="staff">0</span></div>
+  </div>
+
+  <!-- 멤버 리스트 -->
+  <div class="members-list" id="members-list"></div>
+
+  <!-- 그룹 이름 -->
+  <div class="group-name-card">
+    <div class="lbl">그룹 이름 (자동 추천 · 수정 가능)</div>
+    <input type="text" id="group-name" placeholder="멤버 선택 시 자동 생성" />
+  </div>
+
+  <!-- 선택된 멤버 미리보기 -->
+  <div class="selected-preview hidden" id="selected-preview">
+    <div class="ic">✏️</div>
+    <div class="body">
+      <div class="l">선택된 멤버</div>
+      <div class="names" id="selected-names"></div>
+    </div>
+    <div class="count" id="selected-count">0</div>
+  </div>
+
+  <!-- 하단 -->
+  <div class="bottom-bar">
+    <a href="chat.html" class="cancel">취소</a>
+    <button class="create-btn" id="create-btn" disabled>채팅방 만들기</button>
+  </div>
+
+</div></div></div>
+
+<script>
+// 멤버 목록 (실장 14명 + 아가씨 48명 = 62명, 일부만)
+const MEMBERS = [
+  // 실장 14명
+  { id: 'm-cho', type: 'manager', cls: 'owner', av: '조', name: '조준성', tag: '사장+실장', sub: '마블 본 매장' },
+  { id: 'm-kim-master', type: 'manager', cls: 'manager', av: '김', name: '김부장', tag: '실장', sub: '마블 소속' },
+  { id: 'm-park', type: 'manager', cls: 'manager', av: '박', name: '박실장', tag: '실장', sub: '라이브 소속' },
+  { id: 'm-jung', type: 'manager', cls: 'manager', av: '정', name: '정실장', tag: '실장', sub: '신세계 소속' },
+  { id: 'm-choi', type: 'manager', cls: 'manager', av: '최', name: '최실장', tag: '실장', sub: '아라요 소속' },
+  { id: 'm-takhun', type: 'manager', cls: 'manager', av: '택', name: '택헌 실장', tag: '실장', sub: '7층 소속' },
+  { id: 'm-im', type: 'manager', cls: 'manager', av: '임', name: '임대표', tag: '실장', sub: '8층 소속' },
+  { id: 'm-lee', type: 'manager', cls: 'manager', av: '이', name: '이실장', tag: '실장', sub: '7층 소속' },
+  { id: 'm-han', type: 'manager', cls: 'manager', av: '한', name: '한실장', tag: '실장', sub: '8층 소속' },
+  { id: 'm-min', type: 'manager', cls: 'manager', av: '민', name: '민실장', tag: '실장', sub: '8층 소속' },
+  { id: 'm-noh', type: 'manager', cls: 'manager', av: '노', name: '노실장', tag: '실장', sub: '파티 소속' },
+  { id: 'm-hwang', type: 'manager', cls: 'manager', av: '황', name: '황실장', tag: '실장', sub: '버닝 소속' },
+  { id: 'm-yoo', type: 'manager', cls: 'manager', av: '유', name: '유실장', tag: '실장', sub: '흑백 소속' },
+  { id: 'm-baek', type: 'manager', cls: 'manager', av: '백', name: '백실장', tag: '실장', sub: '새벽 소속' },
+
+  // 마블 내 아가씨 12명
+  { id: 's-jiyu', type: 'staff', cls: 'staff S', av: '지', name: '지유', tag: '셔츠', sub: '마블 소속 · 라이브 단골' },
+  { id: 's-kyeoul', type: 'staff', cls: 'staff P', av: '겨', name: '겨울', tag: '퍼블', sub: '마블 소속 · 마블 자주' },
+  { id: 's-haneul', type: 'staff', cls: 'staff S', av: '하', name: '하늘', tag: '셔츠', sub: '마블 소속 · 신세계 자주' },
+  { id: 's-yuna', type: 'staff', cls: 'staff', av: '유', name: '유나', tag: '셔하', sub: '마블 소속 · 아지트 단골' },
+  { id: 's-yuri', type: 'staff', cls: 'staff S', av: '유', name: '유리', tag: '셔츠', sub: '마블 소속 · 라이브 단골' },
+  { id: 's-bangul', type: 'staff', cls: 'staff P', av: '방', name: '방울', tag: '퍼블', sub: '마블 소속 · 7층 자주' },
+  { id: 's-eunseo', type: 'staff', cls: 'staff P', av: '은', name: '은서', tag: '퍼블', sub: '마블 소속 · 2T 자주' },
+  { id: 's-ajing', type: 'staff', cls: 'staff S', av: '아', name: '아징', tag: '셔퍼', sub: '마블 소속 · 버닝 자주' },
+  { id: 's-ajung', type: 'staff', cls: 'staff S', av: '아', name: '아정', tag: '셔츠', sub: '마블 소속 · 아우라 자주' },
+  { id: 's-hayoung', type: 'staff', cls: 'staff S', av: '하', name: '하영', tag: '셔츠', sub: '마블 소속' },
+  { id: 's-mieum', type: 'staff', cls: 'staff P', av: '미', name: '미음', tag: '퍼블', sub: '마블 소속' },
+  { id: 's-jihyun', type: 'staff', cls: 'staff S', av: '지', name: '지현', tag: '셔츠', sub: '마블 소속' },
+
+  // 타매장 아가씨 일부 (검색 가능)
+  { id: 's-chae', type: 'staff', cls: 'staff P', av: '채', name: '채아', tag: '퍼블', sub: '8층 소속 · 임대표 스태프' },
+  { id: 's-mira', type: 'staff', cls: 'staff S', av: '미', name: '미라', tag: '셔츠', sub: '신세계 소속 · 정실장 스태프' },
+  { id: 's-suah', type: 'staff', cls: 'staff S', av: '수', name: '수아', tag: '셔츠', sub: '7층 소속 · 택헌 스태프' },
+  { id: 's-minji', type: 'staff', cls: 'staff P', av: '민', name: '민지', tag: '퍼블', sub: '7층 소속 · 택헌 스태프' },
+  { id: 's-hana', type: 'staff', cls: 'staff', av: '하', name: '하나', tag: '하퍼', sub: '7층 소속 · 택헌 스태프' },
+  { id: 's-sohee', type: 'staff', cls: 'staff S', av: '소', name: '소희', tag: '셔츠', sub: '7층 소속 · 택헌 스태프' }
+];
+
+let currentRole = 'all';
+const selected = new Set();
+const $list = document.getElementById('members-list');
+const $count = document.getElementById('selected-count');
+const $names = document.getElementById('selected-names');
+const $preview = document.getElementById('selected-preview');
+const $createBtn = document.getElementById('create-btn');
+const $groupName = document.getElementById('group-name');
+const $search = document.getElementById('search-input');
+
+function render() {
+  const q = $search.value.trim();
+  const filtered = MEMBERS.filter(m => {
+    if (currentRole !== 'all' && m.type !== currentRole) return false;
+    if (q && !m.name.includes(q)) return false;
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    $list.innerHTML = `<div style="padding: 32px; text-align: center; color: var(--sub); font-weight: 600; font-size: 12px;">검색 결과 없음</div>`;
+    return;
+  }
+
+  $list.innerHTML = filtered.map(m => {
+    const sel = selected.has(m.id) ? 'selected' : '';
+    return `
+      <div class="member-row ${m.cls} ${sel}" data-id="${m.id}">
+        <div class="check"></div>
+        <div class="av">${m.av}</div>
+        <div class="info">
+          <div class="name">${m.name} <span class="tag">${m.tag}</span></div>
+          <div class="sub">${m.sub}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $list.querySelectorAll('.member-row').forEach(row => {
+    row.addEventListener('click', () => toggleSelect(row.dataset.id));
+  });
+}
+
+function toggleSelect(id) {
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  if (navigator.vibrate) navigator.vibrate(10);
+  updatePreview();
+  render();
+}
+
+function updatePreview() {
+  const cnt = selected.size;
+  $count.textContent = cnt;
+  $createBtn.disabled = cnt < 1;
+  $createBtn.textContent = cnt > 0 ? `${cnt}명과 채팅 만들기` : '채팅방 만들기';
+
+  if (cnt === 0) {
+    $preview.classList.add('hidden');
+    $groupName.placeholder = '멤버 선택 시 자동 생성';
+    $groupName.value = '';
+    return;
+  }
+
+  $preview.classList.remove('hidden');
+  const names = [...selected].slice(0, 3).map(id => MEMBERS.find(m => m.id === id)?.name).filter(Boolean);
+  $names.textContent = cnt > 3 ? `${names.join(', ')} 외 ${cnt - 3}명` : names.join(', ');
+  if (!$groupName.value || $groupName.dataset.auto === '1') {
+    $groupName.value = cnt > 3 ? `${names[0]} 외 ${cnt - 1}명` : names.join(', ');
+    $groupName.dataset.auto = '1';
+  }
+}
+
+$groupName.addEventListener('input', () => $groupName.dataset.auto = '0');
+$search.addEventListener('input', render);
+
+// 탭 카운트 자동 계산 (MEMBERS 배열 기준)
+(function updateTabCounts() {
+  const totals = { all: MEMBERS.length, manager: 0, staff: 0 };
+  MEMBERS.forEach(m => { if (m.type === 'manager') totals.manager++; else if (m.type === 'staff') totals.staff++; });
+  document.querySelectorAll('[data-cnt]').forEach(el => {
+    const key = el.getAttribute('data-cnt');
+    if (totals[key] != null) el.textContent = totals[key];
+  });
+})();
+
+document.querySelectorAll('.role-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.role-tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    currentRole = t.dataset.role;
+    if (navigator.vibrate) navigator.vibrate(8);
+    render();
+  });
+});
+
+$createBtn.addEventListener('click', () => {
+  if (selected.size === 0) return;
+  if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+  setTimeout(() => location.href = 'chat-room.html', 200);
+});
+
+render();
+</script>
+
+</body>
+</html>

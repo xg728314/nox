@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 매장 간 정산 상세</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 큰 정산 hero */
+  .settle-hero {
+    margin: 0 22px 16px;
+    padding: 22px;
+    background: linear-gradient(135deg, var(--ink) 0%, #1a1813 100%);
+    color: #fff;
+    border-radius: 24px;
+    box-shadow: 0 8px 28px rgba(45, 43, 38, 0.25);
+    position: relative;
+    overflow: hidden;
+  }
+  .settle-hero::after {
+    content: '';
+    position: absolute;
+    top: -50px; right: -50px;
+    width: 160px; height: 160px;
+    background: radial-gradient(circle, rgba(196, 155, 97, 0.22), transparent 70%);
+    pointer-events: none;
+  }
+  .settle-hero .lbl {
+    position: relative; z-index: 1;
+    font-size: 11px;
+    color: var(--gold-soft);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .settle-hero .arrow {
+    margin: 8px 0 4px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.7);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    position: relative; z-index: 1;
+  }
+  .settle-hero .arrow b { color: #fff; font-weight: 800; }
+  .settle-hero .arrow .way { color: var(--gold-soft); margin: 0 6px; font-size: 18px; }
+  .settle-hero .amount {
+    position: relative; z-index: 1;
+    display: flex; align-items: baseline; gap: 4px;
+    margin-top: 4px;
+  }
+  .settle-hero .amount .sign {
+    font-size: 30px;
+    font-weight: 800;
+    color: var(--green);
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+  .settle-hero .amount.out .sign { color: #FCA5A5; }
+  .settle-hero .amount .num {
+    font-size: 44px;
+    font-weight: 800;
+    color: var(--gold-soft);
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+  .settle-hero .amount .unit {
+    font-size: 18px;
+    color: rgba(255,255,255,0.6);
+    font-weight: 700;
+  }
+  .settle-hero .stats {
+    margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    position: relative; z-index: 1;
+  }
+  .settle-hero .stat { text-align: center; }
+  .settle-hero .stat .v {
+    font-size: 17px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.025em;
+  }
+  .settle-hero .stat .l {
+    font-size: 9px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 700;
+    margin-top: 2px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* 스태프별 정산 카드 */
+  .sec-h {
+    padding: 0 22px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .sec-h .ttl {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .sec-h .cnt {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+
+  .staff-card {
+    margin: 0 22px 10px;
+    background: var(--card);
+    border-radius: 18px;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.05);
+    overflow: hidden;
+  }
+  .staff-card .head {
+    padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.04), transparent);
+  }
+  .staff-card .head .av {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    flex-shrink: 0;
+  }
+  .staff-card.S .head .av { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .staff-card.H .head .av { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .staff-card.P .head .av { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+  .staff-card.mixed .head .av { background: linear-gradient(135deg, #DBEAFE, #FEE2E2); color: var(--ink); }
+  .staff-card .head .body { flex: 1; }
+  .staff-card .head .nm {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .staff-card .head .nm .from {
+    font-size: 9px;
+    padding: 2px 7px;
+    background: rgba(196, 155, 97, 0.18);
+    color: var(--gold-deep);
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .staff-card .head .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 1px;
+    letter-spacing: -0.01em;
+  }
+  .staff-card .head .tot {
+    text-align: right;
+  }
+  .staff-card .head .tot .v {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--gold-deep);
+    letter-spacing: -0.025em;
+  }
+  .staff-card .head .tot .l {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 1px;
+  }
+
+  /* 메이드 흐름 */
+  .maid-list {
+    padding: 6px 14px;
+  }
+  .maid-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .maid-row:first-child { border-top: none; }
+  .maid-row .t {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 800;
+    min-width: 40px;
+    letter-spacing: -0.01em;
+  }
+  .maid-row .b { flex: 1; }
+  .maid-row .b .lbl {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .maid-row .b .lbl .pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+    margin-left: 4px;
+  }
+  .maid-row.S .b .lbl .pill { background: var(--S-bg); color: var(--S); }
+  .maid-row.H .b .lbl .pill { background: var(--H-bg); color: var(--H); }
+  .maid-row.P .b .lbl .pill { background: var(--P-bg); color: var(--P); }
+  .maid-row .b .sub {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 1px;
+  }
+  .maid-row .v {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+  }
+
+  /* 보너스 행 */
+  .bonus-row {
+    padding: 9px 14px;
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.06), transparent);
+    border-top: 1px dashed rgba(196, 155, 97, 0.3);
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .bonus-row .ic {
+    width: 22px; height: 22px;
+    background: rgba(196, 155, 97, 0.18);
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    color: var(--gold-deep);
+  }
+  .bonus-row .l { flex: 1; color: var(--gold-deep); letter-spacing: -0.01em; }
+  .bonus-row .v {
+    color: var(--gold-deep);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+
+  /* 카드 하단 소계 */
+  .staff-card .sum {
+    padding: 10px 16px;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .staff-card .sum .l { color: var(--ink); letter-spacing: -0.02em; }
+  .staff-card .sum .v {
+    color: var(--gold-deep);
+    font-size: 16px;
+    letter-spacing: -0.025em;
+  }
+
+  /* 최종 합계 카드 */
+  .grand-card {
+    margin: 18px 22px 0;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border: 1px solid rgba(196, 155, 97, 0.3);
+    border-radius: 20px;
+  }
+  .grand-card .row {
+    display: flex; justify-content: space-between;
+    padding: 5px 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sub);
+  }
+  .grand-card .row .v { color: var(--ink); font-weight: 800; }
+  .grand-card .total {
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(196, 155, 97, 0.3);
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .grand-card .total .l {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .grand-card .total .v {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--gold-deep);
+    letter-spacing: -0.035em;
+  }
+
+  /* 액션 */
+  .actions {
+    margin: 18px 22px 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .actions .btn {
+    padding: 13px;
+    border-radius: 14px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    text-decoration: none;
+    letter-spacing: -0.02em;
+    transition: transform 0.15s;
+  }
+  .actions .btn:active { transform: scale(0.97); }
+  .actions .btn.chat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+  .actions .btn.pdf {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(196, 155, 97, 0.35);
+  }
+
+  /* 안내 */
+  .footer-tip {
+    margin: 14px 22px 0;
+    padding: 11px 14px;
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.08), transparent);
+    border: 1px solid rgba(196, 155, 97, 0.2);
+    border-radius: 12px;
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+  }
+  .footer-tip b { color: var(--gold-deep); font-weight: 800; }
+
+  .empty {
+    margin: 22px 22px 0;
+    padding: 32px 18px;
+    background: var(--card);
+    border-radius: 18px;
+    border: 1.5px dashed var(--line);
+    text-align: center;
+  }
+  .empty .ic { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
+  .empty .ttl {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .empty .sub {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 4px;
+    letter-spacing: -0.01em;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="settle.html" class="back">←</a>
+    <div class="ttl" id="page-title">매장 간 정산</div>
+    <a href="chat-room.html" class="more">💬</a>
+  </header>
+
+  <div id="hero-mount"></div>
+  <div id="content-mount"></div>
+
+  <div style="height: 110px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab"><div class="icon">💬</div><div class="lbl">채팅</div><div class="badge-dot"></div></a>
+    <a href="settle.html" class="tab active"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+<script>
+// ───── 매장별 정산 데이터 ─────
+// 각 매장에서 우리 스태프가 일한 내역 + 받을 돈 / 줄 돈 계산
+const SETTLEMENTS = {
+  '라이브': {
+    name: '라이브', from: '라이브', to: '마블', dir: 'in', count: 2, sessions: 9,
+    staff: [
+      {
+        name: '지유', nm0: '지', type: 'S',
+        maids: [
+          { time: '09:53', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '11:10', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '12:10', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '01:48', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '02:46', cat: '셔츠 완', dur: '60분', price: 14, ongoing: true }
+        ],
+        bonus: [{ label: '단골 손님 보너스', amt: 12 }]
+      },
+      {
+        name: '유리', nm0: '유', type: 'S',
+        maids: [
+          { time: '09:49', cat: '셔츠 완', dur: '60분', price: 13 },
+          { time: '11:47', cat: '셔츠 완', dur: '60분', price: 13 },
+          { time: '12:44', cat: '셔츠 완', dur: '60분', price: 13 },
+          { time: '01:30', cat: '셔츠 완', dur: '60분', price: 13, ongoing: true }
+        ],
+        bonus: [{ label: '라이브 단골 (4회째)', amt: 84 }]
+      }
+    ]
+  },
+  '신세계': {
+    name: '신세계', from: '신세계', to: '마블', dir: 'in', count: 1, sessions: 5,
+    staff: [
+      {
+        name: '하늘', nm0: '하', type: 'S',
+        maids: [
+          { time: '10:34', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '11:14', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '12:14', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '01:22', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '02:37', cat: '셔츠 완', dur: '60분', price: 14, ongoing: true }
+        ],
+        bonus: []
+      }
+    ]
+  },
+  '아지트': {
+    name: '아지트', from: '아지트', to: '마블', dir: 'in', count: 1, sessions: 5,
+    staff: [
+      {
+        name: '유나', nm0: '유', type: 'mixed',
+        maids: [
+          { time: '11:09', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '12:09', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '01:09', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '02:15', cat: '하퍼 완', dur: '60분', price: 12, heart: true },
+          { time: '03:00', cat: '하퍼 완', dur: '60분', price: 12, heart: true, ongoing: true }
+        ],
+        bonus: [{ label: '아지트 단골 ❤ × 2건', amt: 59 }]
+      }
+    ]
+  },
+  '7층': {
+    name: '7층', from: '7층', to: '마블', dir: 'in', count: 1, sessions: 4,
+    staff: [
+      {
+        name: '방울', nm0: '방', type: 'P',
+        maids: [
+          { time: '02:21', cat: '퍼블 완', dur: '90분', price: 13 },
+          { time: '03:49', cat: '퍼블 완', dur: '90분', price: 13 },
+          { time: '05:00', cat: '퍼블 완', dur: '90분', price: 13 },
+          { time: '06:00', cat: '퍼블 완', dur: '90분', price: 13 }
+        ],
+        bonus: []
+      }
+    ]
+  },
+  '신세계_out': {
+    name: '신세계', from: '마블', to: '신세계', dir: 'out', count: 1, sessions: 5,
+    staff: [
+      {
+        name: '미라', nm0: '미', type: 'S', external: true,
+        maids: [
+          { time: '10:00', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '11:30', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '01:00', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '02:30', cat: '셔츠 완', dur: '60분', price: 14 },
+          { time: '04:00', cat: '셔츠 완', dur: '60분', price: 14, ongoing: true }
+        ],
+        bonus: [{ label: '신세계 → 마블 워킹', amt: 10 }]
+      }
+    ]
+  }
+};
+
+// 보안: 화이트리스트 검증 + escape 헬퍼 (XSS 이중 방어)
+const ALLOWED_KEYS = Object.keys(SETTLEMENTS).map(k => k.replace(/_out$/, ''));
+const ALLOWED_DIRS = ['in', 'out'];
+const params = new URLSearchParams(location.search);
+const rawKey = params.get('store') || '라이브';
+const rawDir = params.get('dir') || 'in';
+const key = ALLOWED_KEYS.includes(rawKey) ? rawKey : '라이브';
+const dir = ALLOWED_DIRS.includes(rawDir) ? rawDir : 'in';
+const lookupKey = dir === 'out' ? key + '_out' : key;
+const data = SETTLEMENTS[lookupKey] || SETTLEMENTS[key];
+const esc = (window.SecUtils && window.SecUtils.escapeHtml) || (s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
+if (!data) {
+  document.getElementById('page-title').textContent = '정산 상세';
+  document.getElementById('hero-mount').innerHTML = `
+    <div class="empty">
+      <div class="ic">📭</div>
+      <div class="ttl">정산 내역 없음</div>
+      <div class="sub">선택한 매장에서 우리 스태프 일한 기록이 없습니다.</div>
+    </div>
+  `;
+} else {
+  document.getElementById('page-title').textContent = `${data.name} 정산 상세`;
+
+  // 계산
+  let staffSums = data.staff.map(s => {
+    const maidSum = s.maids.reduce((sum, m) => sum + m.price, 0);
+    const bonusSum = (s.bonus || []).reduce((sum, b) => sum + b.amt, 0);
+    return { ...s, maidSum, bonusSum, total: maidSum + bonusSum };
+  });
+  const grandMaid = staffSums.reduce((s, st) => s + st.maidSum, 0);
+  const grandBonus = staffSums.reduce((s, st) => s + st.bonusSum, 0);
+  const grandTotal = grandMaid + grandBonus;
+
+  // Hero
+  document.getElementById('hero-mount').innerHTML = `
+    <div class="settle-hero">
+      <div class="lbl">${data.dir === 'in' ? '받을 돈' : '줄 돈'}</div>
+      <div class="arrow"><b>${data.from}</b><span class="way">→</span><b>${data.to}</b></div>
+      <div class="amount ${data.dir === 'out' ? 'out' : ''}">
+        <span class="sign">${data.dir === 'in' ? '+' : '−'}</span>
+        <span class="num">${grandTotal}</span>
+        <span class="unit">만원</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="v">${data.count}</div><div class="l">스태프</div></div>
+        <div class="stat"><div class="v">${data.sessions}</div><div class="l">메이드</div></div>
+        <div class="stat"><div class="v">${grandBonus}</div><div class="l">보너스 (만)</div></div>
+      </div>
+    </div>
+  `;
+
+  // 스태프별 카드
+  const staffCards = staffSums.map(s => {
+    const maidRows = s.maids.map(m => {
+      const typeLetter = m.cat.startsWith('셔츠') ? 'S' : m.cat.startsWith('하퍼') ? 'H' : 'P';
+      return `
+        <div class="maid-row ${typeLetter}">
+          <div class="t">${m.time}</div>
+          <div class="b">
+            <div class="lbl">
+              ${m.cat} <span class="pill">${m.dur}</span>
+              ${m.heart ? '<span style="color: var(--H); font-size: 10px;">❤</span>' : ''}
+              ${m.ongoing ? '<span style="color: var(--green); font-size: 9px; padding: 1px 5px; background: rgba(34,197,94,0.12); border-radius: 999px; margin-left: 3px; font-weight: 800;">진행 중</span>' : ''}
+            </div>
+            <div class="sub">${data.name} 매장 · 단가 ${m.price}만</div>
+          </div>
+          <div class="v">${m.price}만</div>
+        </div>
+      `;
+    }).join('');
+
+    const bonusRows = (s.bonus || []).map(b => `
+      <div class="bonus-row">
+        <div class="ic">🎁</div>
+        <div class="l">${b.label}</div>
+        <div class="v">+${b.amt}만</div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="staff-card ${s.type}">
+        <div class="head">
+          <div class="av">${s.nm0}</div>
+          <div class="body">
+            <div class="nm">${s.name} ${s.external ? `<span class="from">${data.name} 소속</span>` : `<span class="from">마블 소속</span>`}</div>
+            <div class="sub">${s.maids.length}건 메이드 · ${data.name} ${data.dir === 'in' ? '워킹' : '입장'}</div>
+          </div>
+          <div class="tot">
+            <div class="v">${s.total}만</div>
+            <div class="l">소계</div>
+          </div>
+        </div>
+        <div class="maid-list">
+          ${maidRows}
+        </div>
+        ${bonusRows}
+        <div class="sum">
+          <div class="l">메이드 ${s.maidSum}만 + 보너스 ${s.bonusSum}만</div>
+          <div class="v">${s.total}만</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('content-mount').innerHTML = `
+    <div class="sec-h">
+      <div class="ttl">스태프별 내역</div>
+      <div class="cnt">${data.count}명 · ${data.sessions}건</div>
+    </div>
+    ${staffCards}
+    <div class="grand-card">
+      <div class="row"><span>메이드 단가 합계</span><span class="v">${grandMaid}만</span></div>
+      <div class="row"><span>보너스 합계</span><span class="v">${grandBonus}만</span></div>
+      <div class="total">
+        <span class="l">${data.dir === 'in' ? '받을 돈' : '줄 돈'}</span>
+        <span class="v">${data.dir === 'in' ? '+' : '−'}${grandTotal}만</span>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="chat-room.html" class="btn chat">💬 ${data.name} 실장 채팅</a>
+      <a href="javascript:void(0)" class="btn pdf">📄 정산표 PDF</a>
+    </div>
+    <div class="footer-tip">
+      💡 정산은 영업일 마감 후 자동 집계. <b>${data.name} 실장</b> 과 채팅으로 수정 / 보너스 협의 가능.<br>
+      스태프 카드 탭 시 본인 정산 규칙 (떼는 돈 / 차비) 확인.
+    </div>
+  `;
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 매장 설정</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .intro {
+    margin: 0 22px 16px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.1), var(--card));
+    border: 1px solid rgba(196, 155, 97, 0.2);
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.55;
+    letter-spacing: -0.01em;
+  }
+  .intro b { color: var(--gold-deep); font-weight: 800; }
+
+  /* 매장 카드 */
+  .store-card {
+    margin: 0 22px 14px;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .store-card.mine {
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border: 1px solid rgba(196, 155, 97, 0.25);
+  }
+  .store-card .head {
+    padding: 16px 18px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .store-card .head .ico {
+    width: 44px; height: 44px;
+    background: var(--bg-soft);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .store-card.mine .head .ico {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+  }
+  .store-card .head .body { flex: 1; }
+  .store-card .head .name {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .store-card .head .name .badge {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 7px;
+    background: rgba(196, 155, 97, 0.2);
+    color: var(--gold-deep);
+    border-radius: 999px;
+    letter-spacing: 0.05em;
+  }
+  .store-card .head .sub {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 관리 방식 토글 (큰 두 개 박스) */
+  .mode-toggle {
+    margin: 0 16px 14px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border-radius: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .mode-toggle .opt {
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: all 0.18s;
+  }
+  .mode-toggle .opt .ic { font-size: 16px; line-height: 1; margin-bottom: 4px; }
+  .mode-toggle .opt .nm {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+  }
+  .mode-toggle .opt .desc {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 1px;
+    letter-spacing: -0.01em;
+  }
+  .mode-toggle .opt.active {
+    background: var(--card);
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.08);
+  }
+  .mode-toggle .opt.active .nm { color: var(--ink); }
+  .mode-toggle .opt.active.together .ic { color: var(--green); }
+  .mode-toggle .opt.active.solo .ic { color: var(--gold-deep); }
+
+  /* 멤버 리스트 */
+  .members {
+    padding: 0 16px 14px;
+  }
+  .members .label {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .members .label .cnt { color: var(--gold-deep); font-weight: 800; }
+  .member-list {
+    background: var(--bg);
+    border-radius: 14px;
+    padding: 4px 0;
+    border: 1px solid var(--line);
+  }
+  .member {
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .member:first-child { border-top: none; }
+  .member .av {
+    width: 30px; height: 30px;
+    border-radius: 10px;
+    background: var(--bg-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .member.owner .av { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
+  .member.manager .av { background: rgba(30, 64, 175, 0.15); color: var(--S); }
+  .member.waiter .av { background: rgba(107, 101, 96, 0.18); color: var(--P); }
+  .member .info { flex: 1; }
+  .member .nm {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .member .nm .tag {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--sub);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .member.owner .nm .tag { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
+  .member.manager .nm .tag { background: rgba(30, 64, 175, 0.12); color: var(--S); }
+  .member .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .member .perm {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .member .perm.you {
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+
+  /* 같이/개별 결과 안내 */
+  .summary-note {
+    padding: 0 16px 16px;
+  }
+  .summary-note .body {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: #15803D;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+  }
+  .summary-note .body.solo {
+    background: rgba(196, 155, 97, 0.08);
+    border-color: rgba(196, 155, 97, 0.25);
+    color: var(--gold-deep);
+  }
+
+  /* 개별 관리 매장 — 실장 리스트 (collapsed) */
+  .solo-managers {
+    padding: 0 16px 14px;
+  }
+  .solo-managers .label {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+  }
+  .solo-managers .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .solo-managers .mgr {
+    padding: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .solo-managers .mgr.me {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.15), rgba(196, 155, 97, 0.05));
+    border-color: var(--gold);
+    color: var(--gold-deep);
+  }
+  .solo-managers .mgr .cnt {
+    display: block;
+    font-size: 9px;
+    color: var(--sub);
+    margin-top: 2px;
+    font-weight: 600;
+  }
+  .solo-managers .mgr.me .cnt { color: var(--gold-deep); opacity: 0.7; }
+
+  /* + 매장 추가 */
+  .add-store {
+    margin: 0 22px 0;
+    padding: 16px;
+    background: rgba(196, 155, 97, 0.08);
+    border: 1.5px dashed rgba(196, 155, 97, 0.3);
+    border-radius: 16px;
+    text-align: center;
+    color: var(--gold-deep);
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="me.html" class="back">←</a>
+    <div class="ttl">매장 설정<span class="sub-ttl">관리 방식 / 멤버</span></div>
+    <a href="javascript:void(0)" class="more" aria-label="더보기">⋯</a>
+  </header>
+
+  <div class="intro">
+    매장마다 <b>같이 관리 / 개별 관리</b> 를 선택할 수 있습니다. 같이 관리 = 매장의 모든 멤버가 같은 스태프 장부를 봅니다.
+  </div>
+
+  <!-- 마블 — 같이 관리 (자기 매장) -->
+  <div class="store-card mine">
+    <div class="head">
+      <div class="ico">M</div>
+      <div class="body">
+        <div class="name">마블 <span class="badge">본 매장</span></div>
+        <div class="sub">사장 1 · 실장 1 · 웨이터 2 · 스태프 12명</div>
+      </div>
+    </div>
+
+    <div class="mode-toggle">
+      <div class="opt together active">
+        <div class="ic">👥</div>
+        <div class="nm">같이 관리</div>
+        <div class="desc">멤버 모두 같은 장부</div>
+      </div>
+      <div class="opt solo">
+        <div class="ic">🔒</div>
+        <div class="nm">개별 관리</div>
+        <div class="desc">각자 본인 스태프만</div>
+      </div>
+    </div>
+
+    <div class="members">
+      <div class="label">
+        <span>멤버 (4명)</span>
+        <span class="cnt">+ 초대</span>
+      </div>
+      <div class="member-list">
+        <div class="member owner">
+          <div class="av">조</div>
+          <div class="info">
+            <div class="nm">조준성 <span class="tag">사장 + 실장</span></div>
+            <div class="sub">본 매장 + 7층 협력</div>
+          </div>
+          <div class="perm you">나</div>
+        </div>
+        <div class="member manager">
+          <div class="av">김</div>
+          <div class="info">
+            <div class="nm">김부장 <span class="tag">실장</span></div>
+            <div class="sub">관리 스태프 5명</div>
+          </div>
+          <div class="perm">전체</div>
+        </div>
+        <div class="member waiter">
+          <div class="av">박</div>
+          <div class="info">
+            <div class="nm">박웨이터 <span class="tag">웨이터</span></div>
+            <div class="sub">메이드 입력 가능</div>
+          </div>
+          <div class="perm">제한</div>
+        </div>
+        <div class="member waiter">
+          <div class="av">이</div>
+          <div class="info">
+            <div class="nm">이웨이터 <span class="tag">웨이터</span></div>
+            <div class="sub">메이드 입력 가능</div>
+          </div>
+          <div class="perm">제한</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-note">
+      <div class="body">
+        ✓ 마블 멤버 4명이 스태프 12명의 메이드 / 정산을 같이 봅니다.<br>
+        ✓ 스태프 카드에 담당 실장 (조 / 김) 표시됨.
+      </div>
+    </div>
+  </div>
+
+  <!-- 7층 — 개별 관리 -->
+  <div class="store-card">
+    <div class="head">
+      <div class="ico">7</div>
+      <div class="body">
+        <div class="name">7층 <span class="badge" style="background: rgba(30, 64, 175, 0.12); color: var(--S);">협력 매장</span></div>
+        <div class="sub">실장 4명 · 각자 본인 스태프</div>
+      </div>
+    </div>
+
+    <div class="mode-toggle">
+      <div class="opt together">
+        <div class="ic">👥</div>
+        <div class="nm">같이 관리</div>
+        <div class="desc">멤버 모두 같은 장부</div>
+      </div>
+      <div class="opt solo active">
+        <div class="ic">🔒</div>
+        <div class="nm">개별 관리</div>
+        <div class="desc">각자 본인 스태프만</div>
+      </div>
+    </div>
+
+    <div class="solo-managers">
+      <div class="label">실장별 (4명)</div>
+      <div class="grid">
+        <div class="mgr me">조준성 <span class="cnt">내 스태프 3명</span></div>
+        <div class="mgr">박실장 <span class="cnt">스태프 비공개</span></div>
+        <div class="mgr">김실장 <span class="cnt">스태프 비공개</span></div>
+        <div class="mgr">택헌 실장 <span class="cnt">스태프 비공개</span></div>
+      </div>
+    </div>
+
+    <div class="summary-note">
+      <div class="body solo">
+        🔒 각 실장이 본인 스태프만 관리합니다.<br>
+        다른 실장의 스태프는 채팅으로만 확인 가능.
+      </div>
+    </div>
+  </div>
+
+  <!-- 8층 — 같이 관리 -->
+  <div class="store-card">
+    <div class="head">
+      <div class="ico">8</div>
+      <div class="body">
+        <div class="name">8층 <span class="badge" style="background: rgba(34, 197, 94, 0.12); color: var(--green);">파트너 매장</span></div>
+        <div class="sub">실장 3명 · 같이 관리</div>
+      </div>
+    </div>
+
+    <div class="mode-toggle">
+      <div class="opt together active">
+        <div class="ic">👥</div>
+        <div class="nm">같이 관리</div>
+        <div class="desc">멤버 모두 같은 장부</div>
+      </div>
+      <div class="opt solo">
+        <div class="ic">🔒</div>
+        <div class="nm">개별 관리</div>
+        <div class="desc">각자 본인 스태프만</div>
+      </div>
+    </div>
+
+    <div class="members">
+      <div class="label">
+        <span>멤버 (3명)</span>
+      </div>
+      <div class="member-list">
+        <div class="member manager">
+          <div class="av">정</div>
+          <div class="info">
+            <div class="nm">정실장 <span class="tag">실장</span></div>
+            <div class="sub">관리 스태프 8명</div>
+          </div>
+          <div class="perm">전체</div>
+        </div>
+        <div class="member manager">
+          <div class="av">한</div>
+          <div class="info">
+            <div class="nm">한실장 <span class="tag">실장</span></div>
+            <div class="sub">관리 스태프 6명</div>
+          </div>
+          <div class="perm">전체</div>
+        </div>
+        <div class="member manager">
+          <div class="av">민</div>
+          <div class="info">
+            <div class="nm">민실장 <span class="tag">실장</span></div>
+            <div class="sub">관리 스태프 7명</div>
+          </div>
+          <div class="perm">전체</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-note">
+      <div class="body">
+        ✓ 8층 실장 3명이 스태프 21명을 같이 봅니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- + 매장 추가 -->
+  <div class="add-store">+ 다른 매장 추가 / 협력 신청</div>
+
+  <!-- 🌐 라벨 모드 (iOS 심사 / 본 용어) -->
+  <div style="margin: 22px 22px 0; padding: 18px; background: linear-gradient(135deg, rgba(196, 155, 97, 0.08), var(--card)); border: 1px solid rgba(196, 155, 97, 0.25); border-radius: 18px;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+      <div style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px;">🏷️</div>
+      <div style="flex: 1;">
+        <div style="font-size: 13px; font-weight: 800; letter-spacing: -0.02em;">표시 단어 모드</div>
+        <div style="font-size: 10px; color: var(--sub); font-weight: 600; margin-top: 2px; letter-spacing: -0.01em;">매장에서 쓰는 본 용어로 변경 가능</div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+      <div id="label-mode-business" class="label-mode-opt" style="padding: 12px 10px; background: var(--card); border: 2px solid var(--gold); border-radius: 12px; text-align: center; cursor: pointer; transition: all 0.18s;">
+        <div style="font-size: 18px; margin-bottom: 4px;">💼</div>
+        <div style="font-size: 12px; font-weight: 800; color: var(--gold-deep);">비즈니스 톤</div>
+        <div style="font-size: 9px; color: var(--sub); font-weight: 600; margin-top: 2px;">P/S/H 타입 · 지점 A</div>
+      </div>
+      <div id="label-mode-venue" class="label-mode-opt" style="padding: 12px 10px; background: var(--card); border: 2px solid transparent; border-radius: 12px; text-align: center; cursor: pointer; transition: all 0.18s;">
+        <div style="font-size: 18px; margin-bottom: 4px;">🏪</div>
+        <div style="font-size: 12px; font-weight: 800; color: var(--sub);">매장 본 용어</div>
+        <div style="font-size: 9px; color: var(--sub); font-weight: 600; margin-top: 2px;">퍼블/셔츠/하퍼 · 마블</div>
+      </div>
+    </div>
+
+    <div style="padding: 10px 12px; background: rgba(34, 197, 94, 0.06); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 10px; font-size: 10px; color: #15803D; font-weight: 600; line-height: 1.5; letter-spacing: -0.01em;">
+      💡 변경 즉시 모든 화면에 적용. 로컬 저장 (서버 X) — 본인 폰에서만 적용됩니다.
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const $biz = document.getElementById('label-mode-business');
+      const $ven = document.getElementById('label-mode-venue');
+      function paint(mode) {
+        if (mode === 'venue') {
+          $ven.style.borderColor = 'var(--gold)';
+          $ven.querySelector('div:nth-child(2)').style.color = 'var(--gold-deep)';
+          $biz.style.borderColor = 'transparent';
+          $biz.querySelector('div:nth-child(2)').style.color = 'var(--sub)';
+        } else {
+          $biz.style.borderColor = 'var(--gold)';
+          $biz.querySelector('div:nth-child(2)').style.color = 'var(--gold-deep)';
+          $ven.style.borderColor = 'transparent';
+          $ven.querySelector('div:nth-child(2)').style.color = 'var(--sub)';
+        }
+      }
+      function apply() {
+        if (window.LabelMode) {
+          paint(window.LabelMode.get());
+        }
+      }
+      $biz.addEventListener('click', () => {
+        if (window.LabelMode) window.LabelMode.set('business');
+        paint('business');
+        if (navigator.vibrate) navigator.vibrate(12);
+        setTimeout(() => location.reload(), 200);
+      });
+      $ven.addEventListener('click', () => {
+        if (window.LabelMode) window.LabelMode.set('venue');
+        paint('venue');
+        if (navigator.vibrate) navigator.vibrate(12);
+        setTimeout(() => location.reload(), 200);
+      });
+      // 라벨 시스템 준비될 때까지 잠깐 대기
+      setTimeout(apply, 100);
+    })();
+  </script>
+
+  <div style="height: 110px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab"><div class="icon">💬</div><div class="lbl">채팅</div><div class="badge-dot"></div></a>
+    <a href="settle.html" class="tab"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab active"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.mode-toggle').forEach(group => {
+    group.querySelectorAll('.opt').forEach(o => {
+      o.addEventListener('click', () => {
+        group.querySelectorAll('.opt').forEach(x => x.classList.remove('active'));
+        o.classList.add('active');
+        if (navigator.vibrate) navigator.vibrate(12);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 메이드 추가</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 시트 모달 톤 — 위에 핸들바 */
+  .sheet-handle {
+    width: 40px; height: 5px;
+    background: rgba(45, 43, 38, 0.2);
+    border-radius: 999px;
+    margin: 12px auto 0;
+  }
+
+  .sheet-head {
+    padding: 24px 22px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sheet-head .ttl {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .sheet-head .close {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--sub);
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  /* 진행 단계 (Step) */
+  .step-dots {
+    margin: 12px 22px 22px;
+    display: flex;
+    gap: 6px;
+  }
+  .step-dots .d {
+    flex: 1;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    transition: background 0.3s;
+  }
+  .step-dots .d.done { background: var(--gold-deep); }
+  .step-dots .d.active { background: var(--gold); }
+
+  /* 큰 라벨 */
+  .field-label {
+    padding: 0 22px;
+    font-size: 13px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 14px;
+  }
+  .field-label b {
+    color: var(--gold-deep);
+  }
+
+  /* 스태프 선택 그리드 */
+  .pick-grid {
+    padding: 0 22px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .pick {
+    aspect-ratio: 1;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 1px 4px rgba(45, 43, 38, 0.04);
+    position: relative;
+  }
+  .pick:active { transform: scale(0.95); }
+  .pick.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.4);
+    transform: scale(1.02);
+  }
+  .pick.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 22px; height: 22px;
+    background: rgba(255, 255, 255, 0.3);
+    color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .pick .nm {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .pick .mini {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 4px;
+    letter-spacing: -0.01em;
+  }
+  .pick.selected .mini { color: rgba(255,255,255,0.85); }
+
+  /* 매장 선택 (가로 스크롤) */
+  .store-row {
+    padding: 0 22px;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -22px;
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .store-row::-webkit-scrollbar { display: none; }
+  .store-pill {
+    flex-shrink: 0;
+    padding: 12px 18px;
+    background: var(--card);
+    border: 2px solid var(--line);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.18s;
+    letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .store-pill:active { transform: scale(0.94); }
+  .store-pill.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-color: transparent;
+  }
+  .store-pill.mine { color: var(--gold-deep); border-color: var(--gold); }
+  .store-pill.mine.selected { color: #fff; }
+  .store-pill .ic { font-size: 11px; }
+
+  /* 종목 큰 3 버튼 */
+  .type-row {
+    padding: 0 22px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .type-btn {
+    padding: 22px 12px;
+    border: 2px solid transparent;
+    border-radius: 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.05);
+  }
+  .type-btn.S { background: linear-gradient(135deg, #EFF6FF, #DBEAFE); }
+  .type-btn.H { background: linear-gradient(135deg, #FEF2F2, #FEE2E2); }
+  .type-btn.P { background: linear-gradient(135deg, #FAF7F2, #EFEBE3); }
+  .type-btn:active { transform: scale(0.96); }
+  .type-btn.selected {
+    transform: scale(1.04);
+    box-shadow: 0 8px 24px rgba(45, 43, 38, 0.15);
+  }
+  .type-btn.S.selected { border-color: var(--S); }
+  .type-btn.H.selected { border-color: var(--H); }
+  .type-btn.P.selected { border-color: var(--P); }
+
+  .type-btn .icon {
+    font-size: 28px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .type-btn.S .icon { color: var(--S); }
+  .type-btn.H .icon { color: var(--H); }
+  .type-btn.P .icon { color: var(--P); }
+  .type-btn .nm {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .type-btn .price {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .type-btn.S.selected .nm { color: var(--S); }
+  .type-btn.H.selected .nm { color: var(--H); }
+  .type-btn.P.selected .nm { color: var(--P); }
+
+  /* 시간 옵션 */
+  .time-grid {
+    padding: 0 22px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .time-opt {
+    padding: 16px 8px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 1px 4px rgba(45, 43, 38, 0.04);
+  }
+  .time-opt:active { transform: scale(0.94); }
+  .time-opt.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(196, 155, 97, 0.35);
+  }
+  .time-opt .lbl {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .time-opt .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .time-opt.selected .sub { color: rgba(255,255,255,0.85); }
+
+  /* 시작 시각 */
+  .time-input {
+    padding: 0 22px;
+    margin-top: 16px;
+  }
+  .time-input .field {
+    padding: 14px 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .time-input .field .label { color: var(--sub); font-weight: 600; }
+  .time-input .field .value {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .time-input .field .value small {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-left: 4px;
+  }
+
+  /* 미리보기 (요약) */
+  .preview-card {
+    margin: 22px 22px 0;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border-radius: 22px;
+    border: 1px solid rgba(196, 155, 97, 0.3);
+  }
+  .preview-card .ttl {
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+  }
+  .preview-card .summary {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.4;
+  }
+  .preview-card .summary .nm { color: var(--ink); }
+  .preview-card .summary .at { color: var(--gold-deep); }
+  .preview-card .summary .type {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--S-bg);
+    color: var(--S);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 800;
+    margin-left: 4px;
+  }
+  .preview-card .price {
+    margin-top: 8px;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--gold-deep);
+  }
+  .preview-card .note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* 하단 버튼 */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 16px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 30;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 18px); }
+  }
+  .save-btn {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 18px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    cursor: pointer;
+    transition: transform 0.15s;
+    box-shadow: 0 8px 24px rgba(196, 155, 97, 0.4);
+  }
+  .save-btn:active { transform: scale(0.97); }
+  .save-btn:disabled {
+    background: var(--bg-soft);
+    color: var(--sub);
+    box-shadow: none;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 110px;">
+
+  <div class="sheet-handle"></div>
+
+  <div class="sheet-head">
+    <div class="ttl">메이드 추가</div>
+    <a href="index.html" class="close">✕</a>
+  </div>
+
+  <div class="step-dots">
+    <div class="d done"></div>
+    <div class="d done"></div>
+    <div class="d done"></div>
+    <div class="d active"></div>
+  </div>
+
+  <!-- 스태프 선택 -->
+  <div class="field-label">1. 누구 — <b>지유</b> 선택됨</div>
+  <div class="pick-grid" style="margin-bottom: 22px;">
+    <div class="pick selected">
+      <div class="nm">지유</div>
+      <div class="mini">5건 진행 중</div>
+    </div>
+    <div class="pick"><div class="nm">겨울</div><div class="mini">7건</div></div>
+    <div class="pick"><div class="nm">하늘</div><div class="mini">5건</div></div>
+    <div class="pick"><div class="nm">유나</div><div class="mini">5건</div></div>
+    <div class="pick"><div class="nm">유리</div><div class="mini">4건</div></div>
+    <div class="pick"><div class="nm">방울</div><div class="mini">대기</div></div>
+  </div>
+
+  <!-- 매장 -->
+  <div class="field-label">2. 어디서 — <b>라이브</b> 선택됨</div>
+  <div class="store-row" style="margin-bottom: 22px;">
+    <div class="store-pill mine">🟡 마블</div>
+    <div class="store-pill selected">라이브</div>
+    <div class="store-pill">신세계</div>
+    <div class="store-pill">파티</div>
+    <div class="store-pill">7층</div>
+    <div class="store-pill">아지트</div>
+    <div class="store-pill">아라요</div>
+    <div class="store-pill">아우라</div>
+    <div class="store-pill">+</div>
+  </div>
+
+  <!-- 종목 -->
+  <div class="field-label">3. 종목 — <b>셔츠</b> 선택됨</div>
+  <div class="type-row" style="margin-bottom: 22px;">
+    <div class="type-btn P">
+      <div class="icon">●</div>
+      <div class="nm">퍼블릭</div>
+      <div class="price">13만</div>
+    </div>
+    <div class="type-btn S selected">
+      <div class="icon">★</div>
+      <div class="nm">셔츠</div>
+      <div class="price">14만</div>
+    </div>
+    <div class="type-btn H">
+      <div class="icon">♥</div>
+      <div class="nm">하퍼</div>
+      <div class="price">12만</div>
+    </div>
+  </div>
+
+  <!-- 시간 -->
+  <div class="field-label">4. 시간 — <b>완티</b> 선택됨</div>
+  <div class="time-grid">
+    <div class="time-opt selected">
+      <div class="lbl">완</div>
+      <div class="sub">60분</div>
+    </div>
+    <div class="time-opt">
+      <div class="lbl">반</div>
+      <div class="sub">30분</div>
+    </div>
+    <div class="time-opt">
+      <div class="lbl">차3</div>
+      <div class="sub">10~15분</div>
+    </div>
+    <div class="time-opt">
+      <div class="lbl">반차3</div>
+      <div class="sub">반티+차3</div>
+    </div>
+  </div>
+
+  <!-- 시작 시각 -->
+  <div class="time-input">
+    <div class="field">
+      <span class="label">시작 시각</span>
+      <span class="value">지금<small>· 02:48</small></span>
+    </div>
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview-card">
+    <div class="ttl">⚡ 미리보기</div>
+    <div class="summary">
+      <span class="nm">지유</span> 가
+      <span class="at">라이브</span> 에서
+      <span class="type">셔츠 완</span>
+    </div>
+    <div class="price">14만원</div>
+    <div class="note">실장 수익 -1만 = 스태프 받을 돈 13만 (계좌)</div>
+  </div>
+
+  <div style="height: 100px;"></div>
+
+  <div class="bottom-bar">
+    <button class="save-btn">저장 — 채팅에도 자동 알림</button>
+  </div>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.pick').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.pick').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.store-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.store-pill').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.type-btn').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.type-btn').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.time-opt').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.time-opt').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelector('.save-btn').addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+    setTimeout(() => location.href = 'index.html', 200);
+  });
+</script>
+
+</body>
+</html>

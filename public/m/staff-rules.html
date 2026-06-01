@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 지유 정산 규칙</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sheet-handle { width: 40px; height: 5px; background: rgba(45, 43, 38, 0.2); border-radius: 999px; margin: 12px auto 0; }
+  .sheet-head { padding: 16px 22px 4px; display: flex; align-items: center; justify-content: space-between; }
+  .sheet-head .ttl { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
+  .sheet-head .ttl .sub {
+    display: block; font-size: 12px; color: var(--sub);
+    font-weight: 600; margin-top: 2px; letter-spacing: -0.01em;
+  }
+  .sheet-head .close {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none; color: var(--sub);
+    font-size: 14px;
+  }
+
+  /* 스태프 미니 카드 (헤더) */
+  .who-mini {
+    margin: 16px 22px 0;
+    padding: 14px;
+    background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 4px 14px rgba(30, 64, 175, 0.18);
+  }
+  .who-mini .av {
+    width: 48px; height: 48px;
+    background: rgba(255,255,255,0.6);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--S);
+  }
+  .who-mini .nm {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+  .who-mini .sub {
+    font-size: 11px;
+    color: var(--S);
+    font-weight: 700;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 섹션 카드 */
+  .section-card {
+    margin: 20px 22px 0;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.05);
+  }
+  .section-card .head {
+    padding: 16px 18px 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-card .head .ic {
+    width: 28px; height: 28px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .section-card .head .ic.take { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
+  .section-card .head .ic.car { background: rgba(245, 158, 11, 0.18); color: #B45309; }
+  .section-card .head .ic.bonus { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .section-card .head .ttl {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .section-card .head .ttl .sub {
+    display: block;
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 떼는 금액 4단계 */
+  .take-grid {
+    padding: 0 18px 16px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .take-opt {
+    padding: 14px 4px;
+    background: var(--bg);
+    border: 2px solid transparent;
+    border-radius: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+  }
+  .take-opt:active { transform: scale(0.94); }
+  .take-opt.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(196, 155, 97, 0.35);
+    border-color: transparent;
+  }
+
+  /* 차비 (고정 안내) */
+  .car-info {
+    padding: 0 18px 16px;
+  }
+  .car-toggle {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), var(--card));
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .car-toggle .amt {
+    flex: 1;
+  }
+  .car-toggle .amt .v {
+    font-size: 18px;
+    font-weight: 800;
+    color: #B45309;
+    letter-spacing: -0.025em;
+  }
+  .car-toggle .amt .l {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .car-toggle .amt .l b {
+    color: #B45309;
+    font-weight: 800;
+    padding: 1px 6px;
+    background: rgba(245, 158, 11, 0.18);
+    border-radius: 999px;
+    font-size: 10px;
+  }
+  .car-toggle .toggle {
+    width: 44px; height: 26px;
+    background: var(--amber);
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .car-toggle .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 22px; height: 22px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  /* 보너스 조건 카드 */
+  .bonus-list {
+    padding: 0 18px 16px;
+  }
+  .bonus-card {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.04), var(--card));
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    position: relative;
+  }
+  .bonus-card .top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .bonus-card .type-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(34, 197, 94, 0.15);
+    color: #15803D;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .bonus-card .del {
+    color: var(--red);
+    font-size: 18px;
+    cursor: pointer;
+    width: 24px;
+    text-align: center;
+  }
+
+  .bonus-card .condition {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+  .bonus-card .condition b {
+    color: #15803D;
+    font-weight: 800;
+  }
+
+  /* 슬라이더 */
+  .slider-wrap {
+    margin-top: 10px;
+  }
+  .slider-wrap .slider-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .slider-wrap .slider-label .val { color: #15803D; font-weight: 800; font-size: 11px; }
+  .slider-wrap .slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--green) 60%, var(--bg-soft) 60%);
+    outline: none;
+  }
+  .slider-wrap .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px; height: 22px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid var(--green);
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+  }
+
+  /* 금액 */
+  .bonus-amount {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(34, 197, 94, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .bonus-amount .lbl {
+    color: var(--sub);
+  }
+  .bonus-amount .v {
+    font-size: 18px;
+    font-weight: 800;
+    color: #15803D;
+    letter-spacing: -0.025em;
+  }
+
+  /* + 보너스 추가 버튼 */
+  .add-bonus {
+    margin: 0 18px 16px;
+    padding: 14px;
+    background: rgba(34, 197, 94, 0.05);
+    border: 1.5px dashed rgba(34, 197, 94, 0.35);
+    border-radius: 14px;
+    text-align: center;
+    color: var(--green);
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+  }
+  .add-bonus:active { transform: scale(0.97); }
+
+  /* 직접 입력 옵션 */
+  .custom-input {
+    padding: 0 18px 16px;
+  }
+  .custom-input .label {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .custom-input input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+    outline: none;
+    text-align: center;
+  }
+
+  /* 미리보기 */
+  .preview-rules {
+    margin: 22px 22px 0;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--ink), #1a1813);
+    color: #fff;
+    border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(45, 43, 38, 0.25);
+  }
+  .preview-rules .lbl {
+    font-size: 10px;
+    color: var(--gold-soft);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+  }
+  .preview-rules .item {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.85);
+  }
+  .preview-rules .item .v {
+    color: var(--gold-soft);
+    font-weight: 800;
+  }
+  .preview-rules .item.minus .v { color: #FCA5A5; }
+  .preview-rules .item.bonus .v { color: #86EFAC; }
+
+  /* 저장 버튼 */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 30;
+    display: flex; gap: 8px;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 18px); }
+  }
+  .bottom-bar .cancel {
+    padding: 14px 24px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+  .bottom-bar .save-btn {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.35);
+    letter-spacing: -0.02em;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 110px;">
+
+  <div class="sheet-handle"></div>
+
+  <div class="sheet-head">
+    <div class="ttl">
+      정산 규칙
+      <span class="sub">스태프별로 다르게 설정</span>
+    </div>
+    <a href="staff.html" class="close">✕</a>
+  </div>
+
+  <!-- 스태프 미니 카드 -->
+  <div class="who-mini">
+    <div class="av">지</div>
+    <div>
+      <div class="nm">지유</div>
+      <div class="sub">⭐ 셔츠 · 라이브 자주 · 5건/일 평균</div>
+    </div>
+  </div>
+
+  <!-- 1. 떼는 금액 -->
+  <div class="section-card">
+    <div class="head">
+      <div class="ic take">💰</div>
+      <div class="ttl">
+        메이드당 떼는 돈
+        <span class="sub">5천 ~ 2만 4단계 · 직접 입력 가능</span>
+      </div>
+    </div>
+    <div class="take-grid">
+      <div class="take-opt">5천</div>
+      <div class="take-opt">1만</div>
+      <div class="take-opt selected">1.5만</div>
+      <div class="take-opt">2만</div>
+    </div>
+    <div class="custom-input">
+      <div class="label">또는 직접 입력</div>
+      <input type="text" placeholder="예: 12000" value="" />
+    </div>
+  </div>
+
+  <!-- 2. 차비 (1일 1회 고정) -->
+  <div class="section-card">
+    <div class="head">
+      <div class="ic car">🚗</div>
+      <div class="ttl">
+        차비 지원
+        <span class="sub">출근 시 1회만 지급 · 매장 도착 자동 인식</span>
+      </div>
+    </div>
+    <div class="car-info">
+      <div class="car-toggle">
+        <div class="amt">
+          <div class="v">1만원</div>
+          <div class="l"><b>🔒 1일 1회 고정</b> · 중복 지급 X</div>
+        </div>
+        <div class="toggle"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 추가 보너스 (조건 설정) -->
+  <div class="section-card">
+    <div class="head">
+      <div class="ic bonus">🎁</div>
+      <div class="ttl">
+        추가 보너스
+        <span class="sub">월 출근 일수 / 메이드 갯수 / 하루 평균 등 조건</span>
+      </div>
+    </div>
+
+    <div class="bonus-list">
+
+      <!-- 보너스 1: 월 출근 -->
+      <div class="bonus-card">
+        <div class="top-row">
+          <span class="type-pill">📅 월 출근 일수</span>
+          <span class="del">×</span>
+        </div>
+        <div class="condition">
+          월 <b>20일</b> 이상 출근 시
+        </div>
+        <div class="slider-wrap">
+          <div class="slider-label">
+            <span>1일</span>
+            <span class="val">20일</span>
+            <span>30일</span>
+          </div>
+          <input class="slider" type="range" min="1" max="30" value="20" />
+        </div>
+        <div class="bonus-amount">
+          <span class="lbl">보너스 금액</span>
+          <span class="v">+20만원</span>
+        </div>
+      </div>
+
+      <!-- 보너스 2: 하루 평균 -->
+      <div class="bonus-card">
+        <div class="top-row">
+          <span class="type-pill">⚡ 하루 평균 갯수</span>
+          <span class="del">×</span>
+        </div>
+        <div class="condition">
+          하루 평균 <b>5건</b> 이상 시
+        </div>
+        <div class="slider-wrap">
+          <div class="slider-label">
+            <span>1건</span>
+            <span class="val">5건</span>
+            <span>30건</span>
+          </div>
+          <input class="slider" type="range" min="1" max="30" value="5" style="background: linear-gradient(90deg, var(--green) 17%, var(--bg-soft) 17%);" />
+        </div>
+        <div class="bonus-amount">
+          <span class="lbl">보너스 금액</span>
+          <span class="v">+30만원</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="add-bonus">+ 보너스 조건 추가</div>
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview-rules">
+    <div class="lbl">⚡ 지유 정산 미리보기 (오늘)</div>
+    <div class="item">
+      <span>💙 메이드 5건</span>
+      <span class="v">+70만</span>
+    </div>
+    <div class="item minus">
+      <span>💰 떼는 돈 (1.5만 × 5건)</span>
+      <span class="v">-7.5만</span>
+    </div>
+    <div class="item bonus">
+      <span>🚗 차비 (1일 1회)</span>
+      <span class="v">+1만</span>
+    </div>
+    <div class="item bonus">
+      <span>🎁 월 출근 보너스 (예정)</span>
+      <span class="v">+20만</span>
+    </div>
+    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.2); display: flex; justify-content: space-between; font-size: 14px; font-weight: 800;">
+      <span style="color: #fff;">오늘 받을 돈</span>
+      <span style="color: var(--gold-soft);">83.5만</span>
+    </div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div class="bottom-bar">
+    <a href="staff.html" class="cancel">취소</a>
+    <button class="save-btn">규칙 저장</button>
+  </div>
+
+</div></div></div>
+
+<script>
+  function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
+
+  document.querySelectorAll('.take-opt').forEach(o => {
+    o.addEventListener('click', () => {
+      document.querySelectorAll('.take-opt').forEach(x => x.classList.remove('selected'));
+      o.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+
+  function updateSliderFill(slider) {
+    const val = +slider.value;
+    const max = +slider.max;
+    const pct = (val / max) * 100;
+    slider.style.background = `linear-gradient(90deg, var(--green) ${pct}%, var(--bg-soft) ${pct}%)`;
+  }
+  document.querySelectorAll('.slider').forEach(s => {
+    // 초기 fill 동기화
+    updateSliderFill(s);
+    s.addEventListener('input', e => {
+      const val = e.target.value;
+      updateSliderFill(e.target);
+      const valEl = e.target.parentElement.querySelector('.val');
+      if (valEl) {
+        const unit = valEl.textContent.replace(/[0-9]/g, '');
+        valEl.textContent = val + unit;
+      }
+      const card = e.target.closest('.bonus-card');
+      const cond = card ? card.querySelector('.condition b') : null;
+      if (cond) {
+        const unit = cond.textContent.replace(/[0-9]/g, '');
+        cond.textContent = val + unit;
+      }
+      if (navigator.vibrate) navigator.vibrate(3);
+    });
+  });
+
+  document.querySelector('.save-btn').addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+    setTimeout(() => location.href = 'staff.html', 200);
+  });
+</script>
+
+</body>
+</html>

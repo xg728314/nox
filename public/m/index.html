@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 홈 mock v4</title>
+
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+
+<style>
+  /* ───────────────────────────────────────────
+     NOX Manager — 홈 v4
+     변경:
+       - 채팅 상단 노출 (가로 스크롤 미리보기)
+       - 곧 끝나는 메이드 알림 추가
+       - 상단 검색바 (50명 관리용)
+     ─────────────────────────────────────────── */
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
+
+  :root {
+    --bg: #F8F4ED;
+    --bg-soft: #F2EDE2;
+    --card: #FFFFFF;
+    --ink: #2D2B26;
+    --sub: #8B8276;
+    --line: rgba(45, 43, 38, 0.08);
+    --gold: #C49B61;
+    --gold-soft: #E5C68A;
+    --gold-deep: #B8924F;
+    --S: #1E40AF; --S-bg: #DBEAFE;
+    --H: #B91C1C; --H-bg: #FEE2E2;
+    --P: #6B6560; --P-bg: #EFEBE3;
+    --green: #22C55E;
+    --amber: #F59E0B;
+    --red: #DC2626;
+  }
+
+  html, body {
+    font-family: 'Pretendard Variable', 'Pretendard',
+                 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
+    color: var(--ink);
+  }
+
+  body {
+    background: radial-gradient(ellipse at top, #2a2520, #0e0c0a 60%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  .phone-frame {
+    width: 393px; height: 852px;
+    border-radius: 56px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #000 100%);
+    padding: 14px;
+    box-shadow: 0 0 0 2px #2a2a2a, 0 30px 80px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .phone-frame::before {
+    content: '';
+    position: absolute;
+    top: 22px; left: 50%; transform: translateX(-50%);
+    width: 124px; height: 36px;
+    background: #000; border-radius: 22px;
+    z-index: 100;
+  }
+  .phone-screen {
+    width: 100%; height: 100%;
+    border-radius: 42px;
+    overflow: hidden;
+    background: var(--bg);
+    position: relative;
+  }
+  @media (max-width: 500px) {
+    body { padding: 0; background: var(--bg); min-height: 100dvh; align-items: stretch; }
+    .phone-frame { width: 100%; height: 100dvh; border-radius: 0; padding: 0; box-shadow: none; background: var(--bg); }
+    .phone-frame::before { display: none; }
+    .phone-screen { border-radius: 0; height: 100%; }
+  }
+
+  .screen {
+    width: 100%; height: 100%;
+    overflow-y: auto; overflow-x: hidden;
+    background: var(--bg);
+    /* position: relative 제거 — .tabbar 가 콘텐츠 따라 흘러내리지 않게 */
+    padding-bottom: 110px;
+    scroll-behavior: smooth;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* ───── 상단 인사 + 검색 ───── */
+  .top-bar {
+    padding: 52px 22px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  @media (max-width: 500px) {
+    .top-bar { padding-top: calc(env(safe-area-inset-top, 16px) + 14px); }
+  }
+  .top-bar .greet .date {
+    font-size: 12px;
+    color: var(--sub);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .top-bar .greet .name {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin-top: 2px;
+  }
+  .top-bar .greet .name .store { color: var(--gold); }
+  .top-bar .greet .name .dot { color: var(--gold); margin: 0 2px; }
+  .top-bar .greet .name .real { display: none; color: var(--ink); }
+  .top-bar .greet .name .masked {
+    display: inline; color: var(--sub); letter-spacing: 0.1em;
+  }
+  .top-bar .greet .name.revealed .real { display: inline; }
+  .top-bar .greet .name.revealed .masked { display: none; }
+  .top-bar .actions {
+    display: flex;
+    gap: 8px;
+  }
+  .top-bar .icon-btn {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s;
+    position: relative;
+    font-size: 16px;
+  }
+  .top-bar .icon-btn:active { transform: scale(0.92); }
+  .top-bar .icon-btn .dot {
+    position: absolute;
+    top: 8px; right: 9px;
+    width: 7px; height: 7px;
+    background: var(--red);
+    border-radius: 50%;
+    border: 2px solid var(--card);
+  }
+
+  /* 검색바 */
+  .search {
+    margin: 0 22px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--sub);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .search:active { transform: scale(0.99); }
+  .search .ico { font-size: 14px; }
+  .search .ph { flex: 1; font-weight: 600; letter-spacing: -0.01em; }
+  .search kbd {
+    font-size: 9px;
+    background: var(--bg-soft);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-weight: 700;
+    color: var(--sub);
+  }
+
+  /* ───── 채팅 실시간 (세로 리스트, 한 줄씩 올라옴) ───── */
+  .chat-strip {
+    margin: 0 22px 16px;
+  }
+  .chat-strip .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .chat-strip .head .lbl {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chat-strip .head .lbl .pulse {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.8s infinite;
+  }
+  .chat-strip .head .more {
+    font-size: 11px;
+    color: var(--gold-deep);
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+  }
+  .chat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .chat-card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 9px 12px;
+    box-shadow: 0 1px 4px rgba(45, 43, 38, 0.04);
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s;
+    position: relative;
+    border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* 한 줄씩 위에서 등장 */
+    animation: slide-down 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  }
+  .chat-card:nth-child(1) { animation-delay: 0s; }
+  .chat-card:nth-child(2) { animation-delay: 0.08s; }
+  .chat-card:nth-child(3) { animation-delay: 0.16s; }
+  .chat-card:nth-child(4) { animation-delay: 0.24s; }
+  .chat-card:nth-child(5) { animation-delay: 0.32s; }
+  @keyframes slide-down {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .chat-card:active { transform: scale(0.98); }
+  .chat-card.unread {
+    background: linear-gradient(90deg, rgba(196, 155, 97, 0.06), rgba(255, 255, 255, 1));
+    border-color: rgba(196, 155, 97, 0.2);
+  }
+  .chat-card.unread.hot {
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.08), rgba(255, 255, 255, 1));
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+  /* 좌측 상태 점 */
+  .chat-card::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--sub);
+    flex-shrink: 0;
+    opacity: 0.3;
+  }
+  .chat-card.unread::before {
+    background: var(--gold);
+    opacity: 1;
+  }
+  .chat-card.unread.hot::before {
+    background: var(--green);
+    opacity: 1;
+    animation: pulse 1.8s infinite;
+  }
+  /* 본문 영역 */
+  .chat-card .body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .chat-card .row1 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .chat-card .room {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .chat-card .room .badge-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    background: var(--gold);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+  }
+  .chat-card.hot .room .badge-num { background: var(--green); }
+  .chat-card .time {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .chat-card .preview {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chat-card .preview b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .chat-card.unread .preview {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .chat-card.unread .preview b {
+    color: var(--gold-deep);
+  }
+  .chat-card.hot.unread .preview b {
+    color: #15803D;
+  }
+
+  .chat-more-card {
+    background: rgba(196, 155, 97, 0.06);
+    border: 1px dashed rgba(196, 155, 97, 0.3);
+    border-radius: 12px;
+    padding: 8px 14px;
+    text-align: center;
+    color: var(--gold-deep);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition: transform 0.12s;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    animation: slide-down 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+    animation-delay: 0.4s;
+  }
+  .chat-more-card:active { transform: scale(0.97); }
+  .chat-more-card .arrow {
+    width: 20px; height: 20px;
+    background: var(--gold);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+
+  /* ───── 요약 카드 (컴팩트) ───── */
+  .summary {
+    margin: 0 22px;
+    padding: 14px 16px;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.6), rgba(255,255,255,0.95)),
+      linear-gradient(135deg, #FAF5EC 0%, #F0E8D8 100%);
+    border-radius: 22px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.6) inset, 0 6px 24px rgba(45, 43, 38, 0.08);
+    position: relative;
+    overflow: hidden;
+  }
+  .summary::after {
+    content: '';
+    position: absolute;
+    top: -50px; right: -50px;
+    width: 160px; height: 160px;
+    background: radial-gradient(circle, rgba(196, 155, 97, 0.22), transparent 70%);
+    pointer-events: none;
+  }
+  .summary .label {
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .summary .label .live {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: 8px;
+    color: var(--green);
+    text-transform: none;
+    letter-spacing: -0.01em;
+    font-size: 10px;
+  }
+  .summary .label .live .pulse {
+    width: 5px; height: 5px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.8s infinite;
+  }
+  .status-row {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+  }
+  .status-row.three {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .status-cell {
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 11px;
+    padding: 7px 4px;
+    text-align: center;
+    border: 1px solid rgba(45, 43, 38, 0.05);
+  }
+  .status-cell .num {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .status-cell .lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--sub);
+    margin-top: 3px;
+    letter-spacing: -0.01em;
+  }
+  .status-cell.working { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.25); }
+  .status-cell.working .num, .status-cell.working .lbl { color: #15803D; }
+  .status-cell.waiting { background: rgba(196, 155, 97, 0.1); border-color: rgba(196, 155, 97, 0.25); }
+  .status-cell.waiting .num, .status-cell.waiting .lbl { color: var(--gold-deep); }
+  .status-cell.rest .num { color: var(--amber); }
+  .status-cell.off { opacity: 0.7; }
+
+  .meta-row {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(45, 43, 38, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .meta-row .left { display: flex; gap: 10px; }
+  .meta-row .left span b { color: var(--gold-deep); font-size: 13px; }
+  .meta-row .left span small { color: var(--sub); font-weight: 600; margin-left: 2px; font-size: 9px; }
+
+  /* ───── 곧 끝나는 메이드 알림 ───── */
+  .soon-end {
+    margin: 16px 22px 0;
+  }
+  .soon-end-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .soon-end-head .lbl {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .soon-end-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -22px;
+    padding: 0 22px 4px;
+  }
+  .soon-end-list::-webkit-scrollbar { display: none; }
+  .soon-card {
+    flex-shrink: 0;
+    background: var(--card);
+    border-radius: 12px;
+    padding: 9px 11px;
+    box-shadow: 0 2px 6px rgba(45, 43, 38, 0.05);
+    border-left: 3px solid var(--amber);
+    cursor: pointer;
+    min-width: 96px;
+    transition: transform 0.15s;
+  }
+  .soon-card:active { transform: scale(0.96); }
+  .soon-card.urgent { border-left-color: var(--red); }
+  .soon-card .min {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--amber);
+    letter-spacing: -0.025em;
+    line-height: 1;
+  }
+  .soon-card.urgent .min { color: var(--red); }
+  .soon-card .min .unit { font-size: 9px; font-weight: 700; opacity: 0.7; margin-left: 2px; }
+  .soon-card .who {
+    font-size: 11px;
+    font-weight: 800;
+    margin-top: 4px;
+    letter-spacing: -0.02em;
+  }
+  .soon-card .where {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 1px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ───── 매장 분포 미니 ───── */
+  .stores-mini {
+    margin: 16px 22px 0;
+    padding: 14px 18px;
+    background: var(--card);
+    border-radius: 18px;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .stores-mini .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .stores-mini .head .lbl {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .stores-mini .head .total {
+    font-size: 11px;
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+  .store-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .store-bar .name { width: 56px; flex-shrink: 0; letter-spacing: -0.01em; }
+  .store-bar.mine .name { color: var(--gold-deep); }
+  .store-bar .bar-track {
+    flex: 1; height: 8px;
+    background: var(--bg-soft);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .store-bar .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-soft), var(--gold));
+    border-radius: 999px;
+  }
+  .store-bar.mine .bar-fill { background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
+  .store-bar .cnt {
+    width: 22px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  /* ───── 매장별 분포 (컴팩트 가로 스크롤 — 14개 매장) ───── */
+  .store-grid {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -18px;
+    padding: 0 18px 4px;
+  }
+  .store-grid::-webkit-scrollbar { display: none; }
+  .store-tile {
+    flex-shrink: 0;
+    width: 72px;
+    padding: 12px 8px 10px;
+    background: var(--bg);
+    border-radius: 11px;
+    border: 1px solid var(--line);
+    transition: transform 0.15s;
+    text-align: center;
+  }
+  .store-tile:active { transform: scale(0.94); }
+  .store-tile.mine {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.12), rgba(196, 155, 97, 0.04));
+    border-color: rgba(196, 155, 97, 0.35);
+  }
+  .store-tile.empty {
+    opacity: 0.45;
+  }
+  .store-tile .abbr { display: none; }
+  .store-tile .nm {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .store-tile.mine .nm { color: var(--gold-deep); }
+  .store-tile .cnt-row {
+    margin-top: 3px;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 1px;
+  }
+  .store-tile .cnt-row .cnt {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .store-tile.mine .cnt-row .cnt { color: var(--gold-deep); }
+  .store-tile.empty .cnt-row .cnt { color: var(--sub); }
+  .store-tile .cnt-row .unit {
+    font-size: 8px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .store-tile .bar-track {
+    margin-top: 5px;
+    height: 3px;
+    background: var(--bg-soft);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .store-tile .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-soft), var(--gold));
+    border-radius: 999px;
+  }
+  .store-tile.mine .bar-fill {
+    background: linear-gradient(90deg, var(--gold), var(--gold-deep));
+  }
+
+  /* ───── 정렬 / 필터 ───── */
+  .controls {
+    margin-top: 22px;
+    padding: 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .controls .title {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .sort-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sort-btn:active { transform: scale(0.94); }
+  .sort-btn .arrow { font-size: 9px; color: var(--sub); }
+
+  .filter-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -22px 14px;
+    padding: 0 22px;
+  }
+  .filter-row::-webkit-scrollbar { display: none; }
+  .chip {
+    flex-shrink: 0;
+    padding: 7px 13px;
+    border-radius: 999px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sub);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .chip:active { transform: scale(0.94); }
+  .chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .chip .b { font-weight: 800; opacity: 0.6; font-size: 10px; }
+  .chip.active .b { opacity: 0.9; }
+
+  /* ───── 매장 섹션 ───── */
+  .section {
+    padding: 0 22px;
+    margin-bottom: 18px;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 0 2px;
+  }
+  .section-head .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--card);
+    box-shadow: 0 1px 4px rgba(45, 43, 38, 0.06);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .section-head .badge .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.8s infinite;
+  }
+  .section-head.mine .badge {
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-deep) 100%);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(196, 155, 97, 0.35);
+  }
+  .section-head .count {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .section-head .meta {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+  }
+  .section-head.waiting .badge { background: rgba(196, 155, 97, 0.12); color: var(--gold-deep); }
+  .section-head.rest .badge { background: rgba(245, 158, 11, 0.12); color: #B45309; }
+  .section-head.off .badge { background: rgba(45, 43, 38, 0.06); color: var(--sub); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  /* 카드 */
+  .card {
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,1) inset, 0 2px 12px rgba(45, 43, 38, 0.06);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(.34,1.56,.64,1), box-shadow 0.18s;
+    position: relative;
+  }
+  .card:active { transform: scale(0.97); box-shadow: 0 1px 4px rgba(45, 43, 38, 0.08); }
+  .card .top {
+    aspect-ratio: 1 / 1.05;
+    padding: 10px 8px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .card.S .top {
+    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.4) 0%, transparent 50%),
+                linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%);
+  }
+  .card.H .top {
+    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.4) 0%, transparent 50%),
+                linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
+  }
+  .card.P .top {
+    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.4) 0%, transparent 50%),
+                linear-gradient(135deg, #EFEBE3 0%, #DDD5C5 100%);
+  }
+  .card.mixed .top {
+    background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%),
+                linear-gradient(135deg, #DBEAFE 0%, #FEE2E2 100%);
+  }
+  .card.waiting .top { background: linear-gradient(135deg, #FAF5EC 0%, #F0E8D8 100%); }
+  .card.rest .top { background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); }
+  .card.off .top { background: #EFEBE3; }
+  .card .top::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+      radial-gradient(rgba(0,0,0,0.02) 1px, transparent 1px);
+    background-size: 18px 18px, 12px 12px;
+    background-position: 0 0, 6px 6px;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .card .status-dot {
+    position: absolute;
+    top: 7px; left: 7px;
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
+    z-index: 2;
+  }
+  .card.waiting .status-dot { background: var(--gold); box-shadow: 0 0 0 1px rgba(196, 155, 97, 0.4); }
+  .card.rest .status-dot { background: var(--amber); box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4); }
+  .card.off .status-dot { background: #94A3B8; box-shadow: none; }
+  .card .where {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    z-index: 2;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 70%;
+  }
+  .card .where.mine { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
+  .card .where.waiting-tag { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
+  .card .where.rest-tag { background: rgba(245, 158, 11, 0.2); color: #B45309; }
+  .card .where.off-tag { background: rgba(45, 43, 38, 0.08); color: var(--sub); }
+  .card .nm {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    z-index: 1;
+    position: relative;
+    text-align: center;
+    margin: auto 0 2px;
+  }
+  .card .nm-sub {
+    text-align: center;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--ink);
+    opacity: 0.6;
+    margin-top: 3px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 2px;
+  }
+  .card.waiting .nm-sub { color: var(--gold-deep); opacity: 1; }
+  .card.rest .nm-sub { color: #B45309; opacity: 1; }
+  .card.off .nm-sub { color: var(--sub); opacity: 1; }
+  .card .marks {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    z-index: 1;
+    position: relative;
+    justify-content: center;
+    margin-top: 5px;
+    min-height: 6px;
+    flex-wrap: wrap;
+  }
+  .card .mark {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
+  }
+  .card .mark.S { background: var(--S); }
+  .card .mark.H { background: var(--H); }
+  .card .mark.P { background: var(--P); }
+  .card .bottom { padding: 8px 9px 10px; }
+  .card .row { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+  .card .row .amt {
+    font-size: 13px; font-weight: 800; letter-spacing: -0.025em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card .row .amt .plus { color: var(--H); font-size: 9px; font-weight: 700; }
+  .card .row .cnt { font-size: 9px; font-weight: 700; color: var(--gold); letter-spacing: -0.01em; }
+  .card.waiting .row .amt { color: var(--gold-deep); font-size: 11px; }
+  .card.off .row .amt { color: var(--sub); }
+  .card .sub-info {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 3px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card.off { opacity: 0.6; }
+
+  /* 탭바 */
+  .tabbar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-top: 1px solid var(--line);
+    padding: 10px 0 28px;
+    display: flex;
+    justify-content: space-around;
+    z-index: 100;
+  }
+  @media (max-width: 500px) {
+    .tabbar {
+      position: fixed;
+      padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 12px);
+    }
+  }
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    padding: 6px 14px;
+    transition: opacity 0.15s, transform 0.1s;
+    position: relative;
+    text-decoration: none;
+    color: inherit;
+  }
+  .tab:active { opacity: 0.5; transform: scale(0.94); }
+  .tab .icon { font-size: 22px; line-height: 1; filter: grayscale(0.4); transition: filter 0.2s, transform 0.2s; }
+  .tab .lbl { font-size: 10px; font-weight: 700; color: var(--sub); }
+  .tab.active .icon { filter: grayscale(0); transform: translateY(-1px); }
+  .tab.active .lbl { color: var(--ink); }
+  .tab .badge-dot {
+    position: absolute;
+    top: 4px; right: 8px;
+    width: 8px; height: 8px;
+    background: var(--red);
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.85);
+  }
+
+  /* FAB */
+  .fab {
+    position: absolute;
+    right: 22px; bottom: 100px;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-deep) 100%);
+    color: #fff;
+    border: none;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset,
+                0 8px 24px rgba(196, 155, 97, 0.45),
+                0 4px 12px rgba(45, 43, 38, 0.15);
+    font-size: 30px;
+    font-weight: 300;
+    cursor: pointer;
+    z-index: 40;
+    transition: transform 0.15s cubic-bezier(.34,1.56,.64,1);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab:active { transform: scale(0.92); }
+  @media (max-width: 500px) {
+    .fab { bottom: calc(env(safe-area-inset-bottom, 12px) + 90px); }
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame">
+  <div class="phone-screen">
+    <div class="screen">
+
+      <!-- 상단: 날짜만 + 알림 (이름/매장 통째 숨김 — 공간 절약) -->
+      <div class="top-bar">
+        <div class="greet">
+          <div class="date">4월 28일 월요일</div>
+        </div>
+        <div class="actions">
+          <div class="icon-btn" onclick="location.href='chat.html'">🔔<div class="dot"></div></div>
+        </div>
+      </div>
+
+      <!-- 검색바 -->
+      <div class="search" onclick="location.href='staff-list.html'">
+        <span class="ico">🔍</span>
+        <span class="ph">이름 / 매장 / 종목 검색...</span>
+        <kbd>50명</kbd>
+      </div>
+
+      <!-- ★ 채팅 상단 노출 -->
+      <div class="chat-strip">
+        <div class="head">
+          <div class="lbl">
+            <span class="pulse"></span> 채팅 · 실시간
+          </div>
+          <div class="more" onclick="location.href='chat.html'">전체 보기 →</div>
+        </div>
+        <div class="chat-list">
+          <!-- 1. 14매장 실장방 (hot, 새 메시지) — 최상단 -->
+          <div class="chat-card unread hot" onclick="location.href='chat-room.html'">
+            <div class="body">
+              <div class="row1">
+                <div class="room">14매장 실장방 <span class="badge-num">3</span></div>
+                <div class="time">방금</div>
+              </div>
+              <div class="preview"><b>박실장</b> 지유 셔츠 02:46 들어갔어요</div>
+            </div>
+          </div>
+
+          <!-- 2. 마블 실장방 -->
+          <div class="chat-card unread" onclick="location.href='chat-room.html'">
+            <div class="body">
+              <div class="row1">
+                <div class="room">마블 실장방 <span class="badge-num">1</span></div>
+                <div class="time">5분</div>
+              </div>
+              <div class="preview"><b>김부장</b> 오늘 출근 명단 확인 부탁드려요</div>
+            </div>
+          </div>
+
+          <!-- 3. 박실장 1:1 -->
+          <div class="chat-card" onclick="location.href='chat-room.html'">
+            <div class="body">
+              <div class="row1">
+                <div class="room">박실장 (라이브)</div>
+                <div class="time">12분</div>
+              </div>
+              <div class="preview"><b>나:</b> 지유 보너스 +12 추가됐어요</div>
+            </div>
+          </div>
+
+          <!-- 4. 정실장 1:1 -->
+          <div class="chat-card" onclick="location.href='chat-room.html'">
+            <div class="body">
+              <div class="row1">
+                <div class="room">정실장 (신세계)</div>
+                <div class="time">23분</div>
+              </div>
+              <div class="preview"><b>정실장:</b> 하늘 셔츠 어땠어요? 다음 주에도 보내주세요</div>
+            </div>
+          </div>
+
+          <!-- 더 보기 -->
+          <div class="chat-more-card" onclick="location.href='chat.html'">
+            <span class="arrow">→</span>
+            전체 채팅 보기
+          </div>
+        </div>
+      </div>
+
+      <!-- 요약 카드 -->
+      <div class="summary">
+        <div class="label">
+          오늘 우리 스태프
+          <span class="live"><span class="pulse"></span>실시간</span>
+        </div>
+        <div class="status-row three">
+          <div class="status-cell working"><div class="num">6</div><div class="lbl">일하는 중</div></div>
+          <div class="status-cell waiting"><div class="num">2</div><div class="lbl">대기</div></div>
+          <div class="status-cell rest"><div class="num">1</div><div class="lbl">휴식</div></div>
+        </div>
+        <div class="meta-row">
+          <div class="left">
+            <span><b>39</b><small> 메이드</small></span>
+            <span><b>5</b><small> 개 매장</small></span>
+          </div>
+          <div style="font-size:10px; color:var(--sub); font-weight:600;">오늘 출근 9명</div>
+        </div>
+      </div>
+
+
+      <!-- ★ 곧 끝나는 메이드 -->
+      <div class="soon-end">
+        <div class="soon-end-head">
+          <div class="lbl">⏰ 곧 끝나는 메이드</div>
+          <div style="font-size:10px; color:var(--sub); font-weight:600;">3건</div>
+        </div>
+        <div class="soon-end-list" onclick="location.href='staff.html'">
+          <div class="soon-card urgent">
+            <div class="min">7<span class="unit">분</span></div>
+            <div class="who">지유</div>
+            <div class="where">라이브 셔츠</div>
+          </div>
+          <div class="soon-card">
+            <div class="min">12<span class="unit">분</span></div>
+            <div class="who">유나</div>
+            <div class="where">아지트 하퍼</div>
+          </div>
+          <div class="soon-card">
+            <div class="min">18<span class="unit">분</span></div>
+            <div class="who">하늘</div>
+            <div class="where">신세계 셔츠</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 매장별 분포 (14개 매장 가로 스크롤) — 매장 클릭 시 그 매장 현황 -->
+      <div class="stores-mini">
+        <div class="head" onclick="location.href='settle.html'" style="cursor:pointer;">
+          <div class="lbl">매장별 분포 · 14개</div>
+          <div class="total">6명 일하는 중</div>
+        </div>
+        <div class="store-grid">
+          <div class="store-tile mine" onclick="location.href='store-detail.html?store=마블'" style="cursor:pointer;">
+            <div class="abbr">M</div>
+            <div class="nm">마블</div>
+            <div class="cnt-row"><span class="cnt">2</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:33%"></div></div>
+          </div>
+          <div class="store-tile" onclick="location.href='store-detail.html?store=라이브'" style="cursor:pointer;">
+            <div class="abbr">L</div>
+            <div class="nm">라이브</div>
+            <div class="cnt-row"><span class="cnt">2</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:33%"></div></div>
+          </div>
+          <div class="store-tile" onclick="location.href='store-detail.html?store=신세계'" style="cursor:pointer;">
+            <div class="abbr">S</div>
+            <div class="nm">신세계</div>
+            <div class="cnt-row"><span class="cnt">1</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:17%"></div></div>
+          </div>
+          <div class="store-tile" onclick="location.href='store-detail.html?store=아지트'" style="cursor:pointer;">
+            <div class="abbr">A</div>
+            <div class="nm">아지트</div>
+            <div class="cnt-row"><span class="cnt">1</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:17%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=7층'" style="cursor:pointer;">
+            <div class="abbr">7</div>
+            <div class="nm">7층</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=8층'" style="cursor:pointer;">
+            <div class="abbr">8</div>
+            <div class="nm">8층</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=파티'" style="cursor:pointer;">
+            <div class="abbr">P</div>
+            <div class="nm">파티</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=버닝'" style="cursor:pointer;">
+            <div class="abbr">B</div>
+            <div class="nm">버닝</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=흑백'" style="cursor:pointer;">
+            <div class="abbr">H</div>
+            <div class="nm">흑백</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=아라요'" style="cursor:pointer;">
+            <div class="abbr">R</div>
+            <div class="nm">아라요</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=아우라'" style="cursor:pointer;">
+            <div class="abbr">O</div>
+            <div class="nm">아우라</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=라엔'" style="cursor:pointer;">
+            <div class="abbr">E</div>
+            <div class="nm">라엔</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=황진이'" style="cursor:pointer;">
+            <div class="abbr">J</div>
+            <div class="nm">황진이</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+          <div class="store-tile empty" onclick="location.href='store-detail.html?store=새벽'" style="cursor:pointer;">
+            <div class="abbr">D</div>
+            <div class="nm">새벽</div>
+            <div class="cnt-row"><span class="cnt">0</span><span class="unit">명</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 정렬 / 필터 -->
+      <div class="controls">
+        <div class="title">내 스태프</div>
+        <div class="sort-btn">
+          <span>매장별</span><span class="arrow">▾</span>
+        </div>
+      </div>
+
+      <div class="filter-row" style="padding-left:22px;">
+        <div class="chip active">전체<span class="b">9</span></div>
+        <div class="chip">일하는 중<span class="b">6</span></div>
+        <div class="chip">대기<span class="b">2</span></div>
+        <div class="chip">휴식<span class="b">1</span></div>
+        <div class="chip">자주 함께</div>
+      </div>
+
+      <!-- 매장 섹션들 -->
+      <div class="section">
+        <div class="section-head mine">
+          <div class="badge"><span class="live-dot" style="background:rgba(255,255,255,0.9);"></span>마블</div>
+          <div class="count">2명 일하는 중</div>
+          <div class="meta">우리 매장</div>
+        </div>
+        <div class="grid">
+          <div class="card P">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where mine">마블</div>
+              <div class="nm">겨울</div>
+              <div class="nm-sub" style="color: var(--gold-deep); opacity: 1;">담당 김부장 · 파티 룸 7건</div>
+              <div class="marks">
+                <span class="mark P"></span><span class="mark P"></span><span class="mark P"></span>
+                <span class="mark P"></span><span class="mark P"></span><span class="mark P"></span>
+                <span class="mark P"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">82만</div><div class="cnt">7건</div></div>
+              <div class="sub-info">최근 03:03 시작</div>
+            </div>
+          </div>
+
+          <div class="card S">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where mine">마블</div>
+              <div class="nm">아정</div>
+              <div class="nm-sub" style="color: var(--gold-deep); opacity: 1;">담당 조준성 · 아우라 셔츠</div>
+              <div class="marks">
+                <span class="mark S"></span><span class="mark S"></span><span class="mark S"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">42만</div><div class="cnt">3건</div></div>
+              <div class="sub-info">05:40 시작 · 늦은 출근</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="badge"><span class="live-dot"></span>라이브</div>
+          <div class="count">2명 일하는 중</div>
+          <div class="meta">타매장 워킹</div>
+        </div>
+        <div class="grid">
+          <div class="card S" onclick="location.href='staff.html'">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where">라이브</div>
+              <div class="nm">지유</div>
+              <div class="nm-sub">셔츠 · 보너스 +12</div>
+              <div class="marks">
+                <span class="mark S"></span><span class="mark S"></span><span class="mark S"></span>
+                <span class="mark S"></span><span class="mark S"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">70만 <span class="plus">+12</span></div><div class="cnt">5건</div></div>
+              <div class="sub-info">최근 02:46 시작</div>
+            </div>
+          </div>
+
+          <div class="card S">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where">라이브</div>
+              <div class="nm">유리</div>
+              <div class="nm-sub">셔츠 · 단골 +84</div>
+              <div class="marks">
+                <span class="mark S"></span><span class="mark S"></span>
+                <span class="mark S"></span><span class="mark S"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">52만 <span class="plus">+84</span></div><div class="cnt">4건</div></div>
+              <div class="sub-info">12:44 시작 · 단골</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="badge"><span class="live-dot"></span>신세계</div>
+          <div class="count">1명 일하는 중</div>
+          <div class="meta">타매장 워킹</div>
+        </div>
+        <div class="grid">
+          <div class="card S">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where">신세계</div>
+              <div class="nm">하늘</div>
+              <div class="nm-sub">셔츠 5건</div>
+              <div class="marks">
+                <span class="mark S"></span><span class="mark S"></span>
+                <span class="mark S"></span><span class="mark S"></span>
+                <span class="mark P"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">70만</div><div class="cnt">5건</div></div>
+              <div class="sub-info">02:37 시작</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="badge"><span class="live-dot"></span>아지트</div>
+          <div class="count">1명 일하는 중</div>
+          <div class="meta">타매장 워킹</div>
+        </div>
+        <div class="grid">
+          <div class="card mixed">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where">아지트</div>
+              <div class="nm">유나</div>
+              <div class="nm-sub">셔츠+하퍼 ❤</div>
+              <div class="marks">
+                <span class="mark S"></span><span class="mark S"></span>
+                <span class="mark S"></span><span class="mark H"></span>
+                <span class="mark H"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">125만</div><div class="cnt">5건</div></div>
+              <div class="sub-info">7층 → 아지트 단골</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 대기 / 휴식 / 결근 -->
+      <div class="section">
+        <div class="section-head waiting">
+          <div class="badge">⏳ 대기 중</div>
+          <div class="count">2명 출근만 함</div>
+          <div class="meta">아직 메이드 없음</div>
+        </div>
+        <div class="grid">
+          <div class="card waiting">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where waiting-tag">대기</div>
+              <div class="nm">방울</div>
+              <div class="nm-sub">19:00 출근 · 4시간째</div>
+              <div class="marks">
+                <span style="font-size:10px; color:var(--gold-deep); font-weight:700; letter-spacing:-0.01em;">메이드 대기</span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">대기 중</div><div class="cnt">0건</div></div>
+              <div class="sub-info">자주 = 7층 · 흑백</div>
+            </div>
+          </div>
+          <div class="card waiting">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where waiting-tag">대기</div>
+              <div class="nm">은서</div>
+              <div class="nm-sub">19:30 출근 · 4시간째</div>
+              <div class="marks">
+                <span style="font-size:10px; color:var(--gold-deep); font-weight:700; letter-spacing:-0.01em;">메이드 대기</span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">대기 중</div><div class="cnt">0건</div></div>
+              <div class="sub-info">자주 = 2T · 파티</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head rest">
+          <div class="badge">☕ 잠시 쉼</div>
+          <div class="count">1명</div>
+          <div class="meta">복귀 예정</div>
+        </div>
+        <div class="grid">
+          <div class="card rest">
+            <div class="top">
+              <div class="status-dot"></div>
+              <div class="where rest-tag">휴식</div>
+              <div class="nm">아징</div>
+              <div class="nm-sub">02:40 휴식 시작</div>
+              <div class="marks">
+                <span class="mark P"></span><span class="mark P"></span>
+                <span class="mark S"></span><span class="mark S"></span>
+                <span class="mark S"></span>
+              </div>
+            </div>
+            <div class="bottom">
+              <div class="row"><div class="amt">52만</div><div class="cnt">5건</div></div>
+              <div class="sub-info">버닝 · 아우라</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- FAB 그룹 (3가지: 음성 / 빠른등록 / +) -->
+    <div class="fab-group" style="position:absolute; right:22px; bottom:100px; z-index:40; display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+      <a href="add-maid-fast.html" style="text-decoration:none; display:flex; align-items:center; gap:6px; padding:9px 14px 9px 12px; background:rgba(255,255,255,0.95); backdrop-filter:blur(20px); color:var(--ink); border-radius:999px; font-size:11px; font-weight:800; box-shadow:0 4px 14px rgba(45,43,38,0.12); border:1px solid var(--line);">
+        ⚡ 빠른 등록
+      </a>
+      <a href="add-maid-fast.html" style="text-decoration:none; display:flex; align-items:center; gap:6px; padding:9px 14px 9px 12px; background:linear-gradient(135deg, var(--ink), #1a1813); color:#fff; border-radius:999px; font-size:11px; font-weight:800; box-shadow:0 4px 14px rgba(45,43,38,0.25);">
+        🎤 음성
+      </a>
+      <a href="add-maid-fast.html" class="fab" aria-label="메이드 추가" style="text-decoration:none; position:static; box-shadow:0 1px 0 rgba(255,255,255,0.3) inset, 0 8px 24px rgba(196,155,97,0.45);">+</a>
+    </div>
+
+    <!-- 탭바 -->
+    <nav class="tabbar">
+      <a href="index.html" class="tab active"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+      <a href="staff-list.html" class="tab"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+      <a href="chat.html" class="tab">
+        <div class="icon">💬</div><div class="lbl">채팅</div>
+        <div class="badge-dot"></div>
+      </a>
+      <a href="settle.html" class="tab"><div class="icon">📊</div><div class="lbl">정산</div></a>
+      <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+    </nav>
+
+  </div>
+</div>
+
+<script>
+  function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      haptic();
+    });
+  });
+  document.querySelectorAll('.card, .chat-card, .soon-card').forEach(el => {
+    el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
+  });
+</script>
+
+</body>
+</html>

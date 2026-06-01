@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 내 스태프</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 검색 + 정렬 */
+  .filter-bar {
+    padding: 0 22px 14px;
+    display: flex; gap: 8px;
+    align-items: center;
+  }
+  .filter-bar .search {
+    flex: 1;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--sub);
+  }
+  .filter-bar .search .ph { flex: 1; font-weight: 600; letter-spacing: -0.01em; }
+  .filter-bar .sort-btn {
+    width: 40px; height: 40px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .filter-bar .sort-btn:active { transform: scale(0.94); }
+
+  /* 빠른 액션 */
+  .quick-bar {
+    margin: 0 22px 16px;
+    display: flex; gap: 8px;
+  }
+  .quick-action {
+    flex: 1;
+    padding: 14px;
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.15s;
+    text-decoration: none;
+    color: inherit;
+  }
+  .quick-action:active { transform: scale(0.96); }
+  .quick-action .ic { font-size: 22px; margin-bottom: 4px; }
+  .quick-action .nm { font-size: 12px; font-weight: 800; letter-spacing: -0.02em; }
+  .quick-action .sub { font-size: 10px; color: var(--sub); font-weight: 600; margin-top: 2px; }
+  .quick-action.add {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+  }
+  .quick-action.add .sub { color: rgba(255,255,255,0.85); }
+
+  /* 카운트 + 정렬 */
+  .list-head {
+    padding: 0 22px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .list-head .ttl {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .list-head .ttl b { color: var(--gold-deep); }
+  .list-head .sort {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+
+  /* 스태프 카드 (리스트 톤) */
+  .staff-list {
+    margin: 0 22px;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .staff-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-decoration: none;
+    color: inherit;
+  }
+  .staff-row:first-child { border-top: none; }
+  .staff-row:active { background: var(--bg-soft); }
+
+  .staff-row .nm-circle {
+    width: 44px; height: 44px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    flex-shrink: 0;
+    background: var(--bg-soft);
+    color: var(--ink);
+  }
+  .staff-row.S .nm-circle { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .staff-row.H .nm-circle { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .staff-row.P .nm-circle { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+  .staff-row.mixed .nm-circle { background: linear-gradient(135deg, #DBEAFE, #FEE2E2); color: var(--ink); }
+
+  .staff-row .body { flex: 1; min-width: 0; }
+  .staff-row .name {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .staff-row .name .star { color: var(--gold); font-size: 11px; }
+  .staff-row .meta {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .staff-row .meta .dot { margin: 0 4px; color: var(--gold); }
+
+  .staff-row .right {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .staff-row .right .amt {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .staff-row .right .pay {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .staff-row .right .pay.account { color: var(--green); }
+  .staff-row .right .pay.cash { color: var(--gold-deep); }
+
+  .staff-row.off .name,
+  .staff-row.off .meta,
+  .staff-row.off .right .amt { opacity: 0.5; }
+
+  /* 알파벳 인덱스 (오른쪽 사이드) */
+  .alpha-index {
+    position: absolute;
+    right: 8px;
+    top: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 10;
+  }
+  .alpha-index .l {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+    text-align: center;
+    padding: 1px 0;
+    cursor: pointer;
+  }
+  .alpha-index .l.active { color: var(--gold-deep); font-weight: 900; }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="index.html" class="back">←</a>
+    <div class="ttl">내 스태프<span class="sub-ttl">조준성 · 마블</span></div>
+    <a href="javascript:void(0)" class="more" aria-label="설정">⚙️</a>
+  </header>
+
+  <!-- 빠른 액션 -->
+  <div class="quick-bar">
+    <a href="add-staff.html" class="quick-action add">
+      <div class="ic">➕</div>
+      <div class="nm">새 스태프 추가</div>
+      <div class="sub">12명 등록됨</div>
+    </a>
+    <a href="attendance.html" class="quick-action">
+      <div class="ic">✅</div>
+      <div class="nm">출근 체크</div>
+      <div class="sub">9/12 출근</div>
+    </a>
+  </div>
+
+  <!-- 검색 -->
+  <div class="filter-bar">
+    <div class="search">
+      🔍 <span class="ph">이름 검색</span>
+    </div>
+    <div class="sort-btn">⇅</div>
+  </div>
+
+  <!-- 헤더 -->
+  <div class="list-head">
+    <div class="ttl"><b>12</b>명 스태프 · 9명 출근</div>
+    <div class="sort">정산순 ▾</div>
+  </div>
+
+  <!-- 스태프 리스트 -->
+  <div class="staff-list">
+
+    <a href="staff.html" class="staff-row S">
+      <div class="nm-circle">유</div>
+      <div class="body">
+        <div class="name">유리 <span class="star">⭐ ⭐</span></div>
+        <div class="meta">셔츠 단골 <span class="dot">·</span>라이브 자주 <span class="dot">·</span>+84</div>
+      </div>
+      <div class="right">
+        <div class="amt">132만</div>
+        <div class="pay cash">💵 현금</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row mixed">
+      <div class="nm-circle">유</div>
+      <div class="body">
+        <div class="name">유나 <span class="star">⭐ ♥</span></div>
+        <div class="meta">셔츠+하퍼 <span class="dot">·</span>아지트 단골</div>
+      </div>
+      <div class="right">
+        <div class="amt">120만</div>
+        <div class="pay cash">💵 현금</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row S">
+      <div class="nm-circle">지</div>
+      <div class="body">
+        <div class="name">지유 <span class="star">⭐</span></div>
+        <div class="meta">셔츠 <span class="dot">·</span>라이브 5건 <span class="dot">·</span>+12</div>
+      </div>
+      <div class="right">
+        <div class="amt">77만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row P">
+      <div class="nm-circle">겨</div>
+      <div class="body">
+        <div class="name">겨울</div>
+        <div class="meta">퍼블릭 <span class="dot">·</span>파티 룸 7건</div>
+      </div>
+      <div class="right">
+        <div class="amt">75만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row S">
+      <div class="nm-circle">하</div>
+      <div class="body">
+        <div class="name">하늘 <span class="star">⭐</span></div>
+        <div class="meta">셔츠 <span class="dot">·</span>신세계 5건</div>
+      </div>
+      <div class="right">
+        <div class="amt">65만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row mixed">
+      <div class="nm-circle">아</div>
+      <div class="body">
+        <div class="name">아징 <span class="star" style="color: var(--amber);">☕</span></div>
+        <div class="meta">셔츠+퍼블릭 <span class="dot">·</span>휴식 중</div>
+      </div>
+      <div class="right">
+        <div class="amt">52만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row P">
+      <div class="nm-circle">방</div>
+      <div class="body">
+        <div class="name">방울</div>
+        <div class="meta">퍼블릭 <span class="dot">·</span>7층 자주</div>
+      </div>
+      <div class="right">
+        <div class="amt">48만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row P">
+      <div class="nm-circle">은</div>
+      <div class="body">
+        <div class="name">은서</div>
+        <div class="meta">퍼블릭 <span class="dot">·</span>2T 자주</div>
+      </div>
+      <div class="right">
+        <div class="amt">45만</div>
+        <div class="pay cash">💵 현금</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row S">
+      <div class="nm-circle">아</div>
+      <div class="body">
+        <div class="name">아정 <span class="star">⭐</span></div>
+        <div class="meta">셔츠 <span class="dot">·</span>아우라 자주 <span class="dot">·</span>늦은 출근</div>
+      </div>
+      <div class="right">
+        <div class="amt">42만</div>
+        <div class="pay account">💳 계좌</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row off S">
+      <div class="nm-circle">하</div>
+      <div class="body">
+        <div class="name">하영</div>
+        <div class="meta">결근 <span class="dot">·</span>컨디션 불량</div>
+      </div>
+      <div class="right">
+        <div class="amt">—</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row off P">
+      <div class="nm-circle">미</div>
+      <div class="body">
+        <div class="name">미음</div>
+        <div class="meta">결근 <span class="dot">·</span>미응답</div>
+      </div>
+      <div class="right">
+        <div class="amt">—</div>
+      </div>
+    </a>
+
+    <a href="staff.html" class="staff-row off S">
+      <div class="nm-circle">지</div>
+      <div class="body">
+        <div class="name">지현</div>
+        <div class="meta">휴무 <span class="dot">·</span>이번 주</div>
+      </div>
+      <div class="right">
+        <div class="amt">—</div>
+      </div>
+    </a>
+
+  </div>
+
+  <div style="height: 30px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab active"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab"><div class="icon">💬</div><div class="lbl">채팅</div><div class="badge-dot"></div></a>
+    <a href="settle.html" class="tab"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+</body>
+</html>

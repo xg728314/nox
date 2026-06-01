@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 새 스태프 추가</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sheet-head {
+    padding: 60px 22px 22px;
+  }
+  @media (max-width: 500px) {
+    .sheet-head { padding-top: calc(env(safe-area-inset-top, 16px) + 22px); }
+  }
+  .sheet-head .ttl {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .sheet-head .sub {
+    font-size: 13px;
+    color: var(--sub);
+    font-weight: 500;
+    margin-top: 4px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 입력 필드 카드 */
+  .form-section {
+    margin: 22px 22px 0;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .form-section .head {
+    padding: 14px 18px 8px;
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .field {
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .field:first-of-type { border-top: none; }
+  .field .ic {
+    width: 28px; height: 28px;
+    background: var(--bg-soft);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .field .lbl {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    min-width: 60px;
+    letter-spacing: -0.01em;
+  }
+  .field .input {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sub);
+    border: none;
+    background: none;
+    outline: none;
+    letter-spacing: -0.01em;
+    text-align: right;
+  }
+  .field .input.filled { color: var(--ink); font-weight: 800; }
+  .field .arrow {
+    color: var(--sub);
+    font-size: 14px;
+  }
+
+  /* 종목 선택 */
+  .type-pick {
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
+  }
+  .type-pick .lbl-block {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+  }
+  .type-pick .lbl-block .ic {
+    width: 28px; height: 28px;
+    background: var(--bg-soft);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .type-pick .lbl-block .lbl {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .type-grid .tp {
+    padding: 12px 8px;
+    text-align: center;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.18s;
+    background: var(--bg-soft);
+    border: 2px solid transparent;
+  }
+  .type-grid .tp:active { transform: scale(0.96); }
+  .type-grid .tp .ic {
+    font-size: 18px;
+    margin-bottom: 3px;
+  }
+  .type-grid .tp .nm {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--sub);
+  }
+  .type-grid .tp.S.selected {
+    background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+    border-color: var(--S);
+  }
+  .type-grid .tp.H.selected {
+    background: linear-gradient(135deg, #FEE2E2, #FECACA);
+    border-color: var(--H);
+  }
+  .type-grid .tp.P.selected {
+    background: linear-gradient(135deg, #EFEBE3, #DDD5C5);
+    border-color: var(--P);
+  }
+  .type-grid .tp.S.selected .nm { color: var(--S); }
+  .type-grid .tp.H.selected .nm { color: var(--H); }
+  .type-grid .tp.P.selected .nm { color: var(--P); }
+
+  /* 수령 방식 */
+  .pay-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .pay-grid .pay-opt {
+    padding: 14px 8px;
+    text-align: center;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.18s;
+    background: var(--bg-soft);
+    border: 2px solid transparent;
+  }
+  .pay-grid .pay-opt:active { transform: scale(0.96); }
+  .pay-grid .pay-opt .ic { font-size: 20px; margin-bottom: 4px; }
+  .pay-grid .pay-opt .nm {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+  }
+  .pay-grid .pay-opt.selected {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.15), rgba(196, 155, 97, 0.05));
+    border-color: var(--gold);
+  }
+  .pay-grid .pay-opt.selected .nm { color: var(--gold-deep); }
+
+  /* 텍스트 영역 (메모) */
+  .memo-field {
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
+  }
+  .memo-field .lbl-block {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 8px;
+  }
+  .memo-field .lbl-block .ic {
+    width: 28px; height: 28px;
+    background: var(--bg-soft);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .memo-field .lbl-block .lbl {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .memo-field .input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    resize: none;
+    line-height: 1.5;
+    outline: none;
+    min-height: 70px;
+  }
+  .memo-field .input::placeholder { color: var(--sub); }
+
+  /* 저장 */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 16px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    display: flex; gap: 8px;
+    z-index: 30;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 18px); }
+  }
+  .bottom-bar .cancel {
+    padding: 16px 24px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 18px;
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+    text-align: center;
+  }
+  .bottom-bar .save-btn {
+    flex: 1;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 18px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(196, 155, 97, 0.4);
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 110px;">
+
+  <div class="sheet-head">
+    <div class="ttl">새 스태프 등록</div>
+    <div class="sub">기본 정보만 입력해도 OK. 나머지는 일하면서 채울 수 있어요.</div>
+  </div>
+
+  <!-- 기본 정보 -->
+  <div class="form-section">
+    <div class="head">기본 정보</div>
+    <div class="field">
+      <div class="ic">👤</div>
+      <div class="lbl">이름</div>
+      <input class="input filled" type="text" value="나비" />
+    </div>
+    <div class="field">
+      <div class="ic">📞</div>
+      <div class="lbl">연락처</div>
+      <input class="input" type="tel" placeholder="010-XXXX-XXXX" />
+    </div>
+    <div class="field">
+      <div class="ic">🏪</div>
+      <div class="lbl">소속</div>
+      <span class="input filled">마블</span>
+      <span class="arrow">▾</span>
+    </div>
+  </div>
+
+  <!-- 주력 종목 -->
+  <div class="form-section">
+    <div class="type-pick">
+      <div class="lbl-block">
+        <div class="ic">⭐</div>
+        <div class="lbl">주력 종목</div>
+      </div>
+      <div class="type-grid">
+        <div class="tp P">
+          <div class="ic">●</div>
+          <div class="nm">퍼블릭</div>
+        </div>
+        <div class="tp S selected">
+          <div class="ic">★</div>
+          <div class="nm">셔츠</div>
+        </div>
+        <div class="tp H">
+          <div class="ic">♥</div>
+          <div class="nm">하퍼</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 수령 방식 -->
+  <div class="form-section">
+    <div class="type-pick">
+      <div class="lbl-block">
+        <div class="ic">💰</div>
+        <div class="lbl">수령 방식</div>
+      </div>
+      <div class="pay-grid">
+        <div class="pay-opt selected">
+          <div class="ic">💳</div>
+          <div class="nm">계좌</div>
+        </div>
+        <div class="pay-opt">
+          <div class="ic">💵</div>
+          <div class="nm">현금</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="ic">🏦</div>
+      <div class="lbl">은행</div>
+      <input class="input" type="text" placeholder="국민은행" />
+    </div>
+    <div class="field">
+      <div class="ic">#️⃣</div>
+      <div class="lbl">계좌</div>
+      <input class="input" type="text" placeholder="계좌번호 입력" autocomplete="off" inputmode="numeric" />
+    </div>
+  </div>
+
+  <!-- 💰 정산 규칙 (스태프별 개별 설정) -->
+  <div class="form-section" style="border: 1px solid rgba(196, 155, 97, 0.25);">
+    <div class="head" style="color: var(--gold-deep);">💰 정산 규칙</div>
+
+    <div class="type-pick">
+      <div class="lbl-block">
+        <div class="ic" style="background: rgba(196, 155, 97, 0.15); color: var(--gold-deep);">💰</div>
+        <div class="lbl">메이드당 떼는 돈</div>
+      </div>
+      <div class="type-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="tp P" style="padding: 12px 4px;"><div class="nm" style="font-size: 13px;">5천</div></div>
+        <div class="tp P selected" style="padding: 12px 4px; background: linear-gradient(135deg, rgba(196, 155, 97, 0.15), rgba(196, 155, 97, 0.05)); border-color: var(--gold);"><div class="nm" style="font-size: 13px; color: var(--gold-deep);">1만</div></div>
+        <div class="tp P" style="padding: 12px 4px;"><div class="nm" style="font-size: 13px;">1.5만</div></div>
+        <div class="tp P" style="padding: 12px 4px;"><div class="nm" style="font-size: 13px;">2만</div></div>
+      </div>
+      <div style="margin-top: 8px; font-size: 10px; color: var(--sub); font-weight: 600; text-align: center; letter-spacing: -0.01em;">
+        직접 입력 가능 · 영업일 시작 후 변경 잠금
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="ic">🚗</div>
+      <div class="lbl">차비</div>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <span style="font-size: 13px; font-weight: 800; color: var(--ink);">1만원</span>
+        <span style="font-size: 9px; padding: 2px 6px; background: rgba(245, 158, 11, 0.18); color: #B45309; border-radius: 999px; font-weight: 800;">🔒 1일 1회</span>
+        <div class="toggle" style="width: 40px; height: 22px; background: var(--gold); border-radius: 999px; position: relative; cursor: pointer;">
+          <span style="position: absolute; top: 1px; right: 1px; width: 20px; height: 20px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 14px 18px; border-top: 1px solid var(--line); cursor: pointer;" onclick="location.href='staff-rules.html'">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
+        <div style="width: 28px; height: 28px; background: rgba(34, 197, 94, 0.15); color: var(--green); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 13px;">🎁</div>
+        <div style="font-size: 13px; font-weight: 700; flex: 1;">추가 보너스 조건</div>
+        <div style="font-size: 11px; color: var(--green); font-weight: 800;">2개 설정 ▸</div>
+      </div>
+      <div style="margin-left: 40px; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--sub); font-weight: 600; letter-spacing: -0.01em;">
+        <span>📅 월 출근 일수 (1~30일)</span>
+        <span>⚡ 하루 평균 갯수 (1~30건)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 메모 -->
+  <div class="form-section">
+    <div class="memo-field">
+      <div class="lbl-block">
+        <div class="ic">📝</div>
+        <div class="lbl">메모 (선택)</div>
+      </div>
+      <textarea class="input" placeholder="평소 특이사항 / 손님 선호 / 자주 가는 매장 등..."></textarea>
+    </div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div class="bottom-bar">
+    <a href="staff-list.html" class="cancel">취소</a>
+    <button class="save-btn">저장</button>
+  </div>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.type-grid .tp').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.type-grid .tp').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.pay-grid .pay-opt').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.pay-grid .pay-opt').forEach(x => x.classList.remove('selected'));
+      p.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelector('.save-btn').addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+    setTimeout(() => location.href = 'staff-list.html', 200);
+  });
+
+  // 차비 토글 (on/off)
+  document.querySelectorAll('.toggle').forEach(t => {
+    t.addEventListener('click', () => {
+      const thumb = t.querySelector('span');
+      const on = t.style.background !== 'var(--bg-soft)';
+      if (on) {
+        t.style.background = 'var(--bg-soft)';
+        if (thumb) { thumb.style.right = 'auto'; thumb.style.left = '1px'; }
+      } else {
+        t.style.background = 'var(--gold)';
+        if (thumb) { thumb.style.right = '1px'; thumb.style.left = 'auto'; }
+      }
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+</script>
+
+</body>
+</html>

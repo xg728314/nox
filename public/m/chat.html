@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 채팅</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 검색 */
+  .chat-search {
+    margin: 0 22px 18px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    font-size: 13px; color: var(--sub);
+    cursor: pointer;
+  }
+  .chat-search .ph { flex: 1; font-weight: 600; }
+
+  /* 메인 채팅방 (14매장) — 크게 강조 */
+  .main-room {
+    margin: 0 22px 22px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.06), var(--card));
+    border: 1.5px solid rgba(34, 197, 94, 0.25);
+    border-radius: 18px;
+    cursor: pointer;
+    transition: transform 0.15s;
+    box-shadow: 0 4px 14px rgba(34, 197, 94, 0.08);
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    position: relative;
+    overflow: hidden;
+  }
+  .main-room:active { transform: scale(0.98); }
+  .main-room::before {
+    content: '📌 고정';
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 9px;
+    color: var(--gold-deep);
+    font-weight: 800;
+    letter-spacing: 0.05em;
+  }
+  .main-room .row1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .main-room .av {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .main-room .av .live {
+    position: absolute;
+    bottom: -2px; right: -2px;
+    width: 14px; height: 14px;
+    background: var(--green);
+    border-radius: 50%;
+    border: 2.5px solid var(--card);
+    animation: pulse 1.8s infinite;
+  }
+  .main-room .info { flex: 1; }
+  .main-room .name {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .main-room .sub {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .main-room .unread-badge {
+    min-width: 24px; height: 24px;
+    padding: 0 8px;
+    background: var(--green);
+    color: #fff;
+    border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
+  }
+  .main-room .preview {
+    padding: 10px 12px;
+    background: var(--card);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .main-room .preview b { color: var(--gold-deep); font-weight: 800; }
+  .main-room .preview .time {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* + 새 그룹 만들기 큰 버튼 */
+  .new-group-btn {
+    margin: 0 22px 22px;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(196, 155, 97, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: transform 0.15s;
+    text-decoration: none;
+  }
+  .new-group-btn:active { transform: scale(0.98); }
+  .new-group-btn .ic {
+    width: 44px; height: 44px;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .new-group-btn .body { flex: 1; }
+  .new-group-btn .ttl {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .new-group-btn .sub {
+    font-size: 11px;
+    opacity: 0.9;
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .new-group-btn .arrow {
+    font-size: 18px;
+    opacity: 0.7;
+  }
+
+  /* 그룹 채팅 섹션 */
+  .my-groups {
+    padding: 0 22px;
+  }
+  .my-groups .head {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+    padding: 0 4px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .my-groups .head .num {
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+
+  .room-list {
+    background: var(--card);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .room {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-decoration: none;
+    color: inherit;
+    position: relative;
+  }
+  .room:first-child { border-top: none; }
+  .room:active { background: var(--bg-soft); }
+
+  .room .avatar {
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .room .avatar.group {
+    background: linear-gradient(135deg, var(--gold-soft), var(--gold));
+    color: #fff;
+  }
+  .room .avatar.mine {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+  }
+  .room .avatar.direct {
+    background: var(--bg-soft);
+    color: var(--ink);
+  }
+  .room .avatar.family {
+    background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+    color: var(--S);
+  }
+  .room .avatar.hostess {
+    background: linear-gradient(135deg, #FEE2E2, #FECACA);
+    color: var(--H);
+  }
+
+  .room .body {
+    flex: 1;
+    min-width: 0;
+  }
+  .room .row1 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 3px;
+  }
+  .room .name {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--ink);
+  }
+  .room .name .count {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+  }
+  .room .time {
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 8px;
+  }
+  .room .preview {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-right: 28px;
+  }
+  .room .preview b { font-weight: 700; color: var(--ink); }
+  .room.unread .preview { color: var(--ink); font-weight: 600; }
+  .room.unread .preview b { color: var(--gold-deep); font-weight: 800; }
+
+  .room .unread-badge {
+    position: absolute;
+    right: 16px;
+    bottom: 14px;
+    min-width: 16px; height: 16px;
+    padding: 0 5px;
+    background: var(--gold);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* 빈 상태 */
+  .empty {
+    margin: 0 22px;
+    padding: 32px 18px;
+    background: var(--card);
+    border-radius: 18px;
+    border: 1.5px dashed var(--line);
+    text-align: center;
+  }
+  .empty .ic {
+    font-size: 32px;
+    margin-bottom: 8px;
+    opacity: 0.5;
+  }
+  .empty .ttl {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .empty .sub {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 4px;
+    letter-spacing: -0.01em;
+    line-height: 1.5;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="index.html" class="back">←</a>
+    <div class="ttl">채팅<span class="sub-ttl">14매장 + 그룹 채팅</span></div>
+    <a href="chat-create.html" class="more">✏️</a>
+  </header>
+
+  <!-- 검색 -->
+  <div class="chat-search hap">
+    🔍 <span class="ph">실장 / 아가씨 / 채팅방 검색</span>
+  </div>
+
+  <!-- 📌 메인 — 14매장 실장방 (1개만 고정) -->
+  <a href="chat-room.html" class="main-room">
+    <div class="row1">
+      <div class="av">
+        14
+        <span class="live"></span>
+      </div>
+      <div class="info">
+        <div class="name">14매장 실장방</div>
+        <div class="sub">전체 28명 · 12명 접속 중</div>
+      </div>
+      <div class="unread-badge">3</div>
+    </div>
+    <div class="preview">
+      <span><b>박실장</b> 지유 셔츠 02:46 들어갔어요</span>
+      <span class="time">방금</span>
+    </div>
+  </a>
+
+  <!-- + 새 그룹 채팅 만들기 -->
+  <a href="chat-create.html" class="new-group-btn">
+    <div class="ic">✏️</div>
+    <div class="body">
+      <div class="ttl">새 그룹 채팅 만들기</div>
+      <div class="sub">실장 / 아가씨 검색 → 그룹 생성</div>
+    </div>
+    <div class="arrow">→</div>
+  </a>
+
+  <!-- 내가 참여하는 그룹 채팅 -->
+  <div class="my-groups">
+    <div class="head"><span>참여 중인 그룹 채팅</span><span class="num">5</span></div>
+    <div class="room-list">
+
+      <a href="chat-room.html" class="room unread">
+        <div class="avatar mine">M</div>
+        <div class="body">
+          <div class="row1">
+            <div class="name">마블 실장방 <span class="count">5명</span></div>
+            <div class="time">5분</div>
+          </div>
+          <div class="preview"><b>김부장</b>: 오늘 출근 명단 확인 부탁드려요</div>
+        </div>
+        <div class="unread-badge">1</div>
+      </a>
+
+      <a href="chat-room.html" class="room">
+        <div class="avatar family">스</div>
+        <div class="body">
+          <div class="row1">
+            <div class="name">마블 스태프방 <span class="count">12명</span></div>
+            <div class="time">1시간</div>
+          </div>
+          <div class="preview"><b>지유</b>: 오늘 라이브 갑니다~ 늦어요</div>
+        </div>
+      </a>
+
+      <a href="chat-room.html" class="room">
+        <div class="avatar direct">박</div>
+        <div class="body">
+          <div class="row1">
+            <div class="name">박실장 (라이브)</div>
+            <div class="time">12분</div>
+          </div>
+          <div class="preview"><b>나</b>: 지유 보너스 +12 추가됐어요</div>
+        </div>
+      </a>
+
+      <a href="chat-room.html" class="room">
+        <div class="avatar direct">정</div>
+        <div class="body">
+          <div class="row1">
+            <div class="name">정실장 (신세계)</div>
+            <div class="time">23분</div>
+          </div>
+          <div class="preview"><b>정실장</b>: 하늘 셔츠 어땠어요?</div>
+        </div>
+      </a>
+
+      <a href="chat-room.html" class="room">
+        <div class="avatar hostess">지</div>
+        <div class="body">
+          <div class="row1">
+            <div class="name">지유 + 박실장 <span class="count">3명</span></div>
+            <div class="time">1시간</div>
+          </div>
+          <div class="preview"><b>지유</b>: 라이브 도착했어요</div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+
+  <div style="height: 100px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab active"><div class="icon">💬</div><div class="lbl">채팅</div></a>
+    <a href="settle.html" class="tab"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+<script>
+  function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
+  document.querySelectorAll('.room, .hap, .main-room, .new-group-btn').forEach(el => {
+    el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
+  });
+</script>
+
+</body>
+</html>

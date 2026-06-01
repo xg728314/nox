@@ -1,0 +1,58 @@
+{
+  "name": "스태프동기화",
+  "short_name": "스태프동기화",
+  "description": "프리랜서 스태프 관리 + 정산 자동화. 14개 지점 매니저와 스태프 사이의 실시간 동기화.",
+  "lang": "ko",
+  "start_url": "/m/index.html",
+  "scope": "/m/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F8F4ED",
+  "theme_color": "#C49B61",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/m/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/m/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/m/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/m/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "스태프 명단",
+      "url": "/m/staff-list.html",
+      "description": "관리 스태프 한눈에"
+    },
+    {
+      "name": "정산",
+      "url": "/m/settle.html",
+      "description": "오늘 정산 현황"
+    },
+    {
+      "name": "채팅",
+      "url": "/m/chat.html",
+      "description": "매니저 / 14지점"
+    }
+  ],
+  "display_override": ["standalone", "minimal-ui"]
+}

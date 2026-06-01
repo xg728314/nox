@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 빠른 메이드 등록</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sheet-handle { width: 40px; height: 5px; background: rgba(45, 43, 38, 0.2); border-radius: 999px; margin: 12px auto 0; }
+  .sheet-head { padding: 18px 22px 4px; display: flex; align-items: center; justify-content: space-between; }
+  .sheet-head .ttl { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
+  .sheet-head .close {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none; color: var(--sub);
+    font-size: 14px;
+  }
+
+  /* 음성 입력 (메인 hero) */
+  .voice-hero {
+    margin: 14px 22px 18px;
+    padding: 20px;
+    background: linear-gradient(135deg, var(--ink) 0%, #1a1813 100%);
+    border-radius: 22px;
+    display: flex; align-items: center; gap: 14px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(45, 43, 38, 0.25);
+    position: relative;
+    overflow: hidden;
+  }
+  .voice-hero:active { transform: scale(0.98); }
+  .voice-hero::after {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, rgba(196, 155, 97, 0.25), transparent 70%);
+  }
+  .voice-hero .mic {
+    width: 48px; height: 48px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 4px 16px rgba(196, 155, 97, 0.5);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .voice-hero .body { flex: 1; color: #fff; position: relative; z-index: 1; }
+  .voice-hero .body .ttl {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .voice-hero .body .sub {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 600;
+    margin-top: 3px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 검색 */
+  .search-input {
+    margin: 0 22px 18px;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 2px solid var(--gold);
+    border-radius: 16px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 4px 14px rgba(196, 155, 97, 0.18);
+  }
+  .search-input .ic { font-size: 16px; }
+  .search-input input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+    outline: none;
+    letter-spacing: -0.02em;
+  }
+  .search-input input::placeholder { color: var(--sub); font-weight: 500; }
+  .search-input kbd {
+    font-size: 9px;
+    background: var(--bg-soft);
+    padding: 2px 7px;
+    border-radius: 5px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+
+  /* 섹션 헤더 */
+  .lbl-section {
+    padding: 0 22px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .lbl-section .ttl {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .lbl-section .info {
+    font-size: 10px;
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+
+  /* 1탭 카드 (직전 패턴) */
+  .one-tap-card {
+    margin: 0 22px 22px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(196, 155, 97, 0.05));
+    border: 1.5px solid rgba(34, 197, 94, 0.3);
+    border-radius: 18px;
+    cursor: pointer;
+    transition: transform 0.15s;
+    position: relative;
+  }
+  .one-tap-card:active { transform: scale(0.98); }
+  .one-tap-card::before {
+    content: '⚡ 1탭 등록';
+    position: absolute;
+    top: 10px; right: 12px;
+    font-size: 9px;
+    padding: 3px 8px;
+    background: var(--green);
+    color: #fff;
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .one-tap-card .head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+  }
+  .one-tap-card .head .av {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--green), #15803D);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .one-tap-card .head .who {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .one-tap-card .pattern {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.5;
+  }
+  .one-tap-card .pattern .at { color: var(--gold-deep); }
+  .one-tap-card .pattern .type {
+    display: inline-block;
+    padding: 1px 7px;
+    background: var(--P-bg);
+    color: var(--P);
+    border-radius: 999px;
+    font-size: 11px;
+    margin-left: 2px;
+  }
+  .one-tap-card .meta {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(34, 197, 94, 0.3);
+    font-size: 10px;
+    color: #15803D;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* 자주 패턴 가로 스크롤 */
+  .pattern-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0 22px 4px;
+    margin: 0 -22px 22px;
+  }
+  .pattern-row::-webkit-scrollbar { display: none; }
+  .pat-card {
+    flex-shrink: 0;
+    width: 130px;
+    padding: 14px 12px;
+    background: var(--card);
+    border-radius: 16px;
+    cursor: pointer;
+    border: 1.5px solid var(--line);
+    transition: all 0.15s;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+  }
+  .pat-card:active { transform: scale(0.95); }
+  .pat-card .av {
+    width: 36px; height: 36px;
+    margin: 0 auto 6px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .pat-card.S .av { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .pat-card.H .av { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .pat-card.P .av { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+  .pat-card .nm {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .pat-card .at {
+    font-size: 10px;
+    color: var(--gold-deep);
+    font-weight: 700;
+    margin-top: 3px;
+  }
+  .pat-card .type {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .pat-card .cnt {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+    font-size: 9px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .pat-card .cnt b { color: var(--green); font-weight: 800; }
+
+  /* 검색 결과 */
+  .results {
+    padding: 0 22px;
+    margin-bottom: 20px;
+  }
+  .result-row {
+    padding: 12px 14px;
+    background: var(--card);
+    border-radius: 14px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 2px solid transparent;
+    box-shadow: 0 1px 4px rgba(45, 43, 38, 0.04);
+  }
+  .result-row:active { transform: scale(0.98); }
+  .result-row .av {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
+  }
+  .result-row.S .av { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .result-row.H .av { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .result-row.P .av { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+  .result-row.mixed .av { background: linear-gradient(135deg, #DBEAFE, #FEE2E2); color: var(--ink); }
+  .result-row .info { flex: 1; min-width: 0; }
+  .result-row .nm {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .result-row .nm .tag {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(196, 155, 97, 0.15);
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+  .result-row .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .result-row .dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .result-row.selected {
+    border-color: var(--gold);
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.1), var(--card));
+  }
+
+  /* 빠른 매장 + 룸 + 종목 + 시간 (단일 페이지) */
+  .quick-input {
+    margin: 0 22px 0;
+    background: var(--card);
+    border-radius: 22px;
+    padding: 16px;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.05);
+  }
+  .qi-row {
+    margin-bottom: 12px;
+  }
+  .qi-row:last-child { margin-bottom: 0; }
+  .qi-row .lbl {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .qi-pills {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .qi-pills::-webkit-scrollbar { display: none; }
+  .qi-pill {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    background: var(--bg);
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: -0.01em;
+  }
+  .qi-pill:active { transform: scale(0.94); }
+  .qi-pill.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-color: transparent;
+  }
+  .qi-pill.mine { color: var(--gold-deep); border-color: var(--gold); }
+  .qi-pill.mine.selected { color: #fff; }
+
+  .qi-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .qi-grid-3 .qi-pill {
+    text-align: center;
+    padding: 10px 6px;
+  }
+
+  /* 미리보기 */
+  .preview-mini {
+    margin: 18px 22px 0;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border-radius: 16px;
+    border: 1px dashed rgba(196, 155, 97, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .preview-mini .body {
+    flex: 1;
+  }
+  .preview-mini .summary {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .preview-mini .summary b { color: var(--gold-deep); }
+  .preview-mini .price {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--gold-deep);
+    letter-spacing: -0.025em;
+  }
+
+  /* 저장 */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 30;
+    display: flex; gap: 8px;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 18px); }
+  }
+  .bottom-bar .save-btn {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.35);
+    letter-spacing: -0.02em;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 110px;">
+
+  <div class="sheet-handle"></div>
+
+  <div class="sheet-head">
+    <div class="ttl">메이드 등록</div>
+    <a href="index.html" class="close">✕</a>
+  </div>
+
+  <!-- 🎤 음성 입력 (가장 빠른 방법) -->
+  <div class="voice-hero">
+    <div class="mic">🎤</div>
+    <div class="body">
+      <div class="ttl">음성으로 한 번에</div>
+      <div class="sub">"방울 7층 3번방 퍼블 완티 시작" → 자동 인식</div>
+    </div>
+  </div>
+
+  <!-- 검색 -->
+  <div class="search-input">
+    <span class="ic">🔍</span>
+    <input type="text" placeholder="스태프 이름 입력하면 자동 매핑" value="" />
+    <kbd>50명</kbd>
+  </div>
+
+  <!-- ⚡ 직전 패턴 1탭 등록 -->
+  <div class="lbl-section">
+    <div class="ttl">⚡ 어제 같은 시각 패턴</div>
+    <div class="info">1탭 등록</div>
+  </div>
+  <div class="one-tap-card">
+    <div class="head">
+      <div class="av">방</div>
+      <div class="who">방울</div>
+    </div>
+    <div class="pattern">
+      <span class="at">7층 3번방</span> · <span class="type">퍼블릭 완 60분</span>
+    </div>
+    <div class="meta">✓ 어제 22:30 같은 패턴 · 담당 택헌 실장 · 자동 채팅 알림</div>
+  </div>
+
+  <!-- 🔥 자주 패턴 (가로 스크롤) -->
+  <div class="lbl-section">
+    <div class="ttl">🔥 자주 패턴 (이번 주)</div>
+    <div class="info">탭 = 룸만 입력</div>
+  </div>
+  <div class="pattern-row">
+    <div class="pat-card S">
+      <div class="av">지</div>
+      <div class="nm">지유</div>
+      <div class="at">라이브</div>
+      <div class="type">셔츠 완</div>
+      <div class="cnt">이번 주 <b>5회</b></div>
+    </div>
+    <div class="pat-card S">
+      <div class="av">하</div>
+      <div class="nm">하늘</div>
+      <div class="at">신세계</div>
+      <div class="type">셔츠 완</div>
+      <div class="cnt">이번 주 <b>4회</b></div>
+    </div>
+    <div class="pat-card P">
+      <div class="av">겨</div>
+      <div class="nm">겨울</div>
+      <div class="at">마블 파티</div>
+      <div class="type">퍼블 완</div>
+      <div class="cnt">이번 주 <b>7회</b></div>
+    </div>
+    <div class="pat-card S">
+      <div class="av">유</div>
+      <div class="nm">유리</div>
+      <div class="at">라이브</div>
+      <div class="type">셔츠 완</div>
+      <div class="cnt">이번 주 <b>4회</b></div>
+    </div>
+    <div class="pat-card H">
+      <div class="av">유</div>
+      <div class="nm">유나</div>
+      <div class="at">아지트</div>
+      <div class="type">하퍼 완</div>
+      <div class="cnt">이번 주 <b>3회</b></div>
+    </div>
+  </div>
+
+  <!-- 검색 결과 (선택된 상태) -->
+  <div class="lbl-section">
+    <div class="ttl">✓ 선택: 방울</div>
+    <div class="info">7층 · 택헌 스태프</div>
+  </div>
+  <div class="results">
+    <div class="result-row P selected">
+      <div class="av">방</div>
+      <div class="info">
+        <div class="nm">방울 <span class="tag">택헌 스태프</span></div>
+        <div class="sub">7층 자주 · 퍼블릭 4건 진행 중 · 출근 19:00</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+  </div>
+
+  <!-- 빠른 입력 (한 페이지에 모두) -->
+  <div class="quick-input">
+    <div class="qi-row">
+      <div class="lbl">매장 (자동 인식)</div>
+      <div class="qi-pills">
+        <div class="qi-pill mine">마블</div>
+        <div class="qi-pill">5층</div>
+        <div class="qi-pill">6층</div>
+        <div class="qi-pill selected">7층</div>
+        <div class="qi-pill">8층</div>
+        <div class="qi-pill">+</div>
+      </div>
+    </div>
+
+    <div class="qi-row">
+      <div class="lbl">룸 번호</div>
+      <div class="qi-pills">
+        <div class="qi-pill">1</div>
+        <div class="qi-pill">2</div>
+        <div class="qi-pill selected">3</div>
+        <div class="qi-pill">4</div>
+        <div class="qi-pill">5</div>
+        <div class="qi-pill">6</div>
+        <div class="qi-pill">7</div>
+        <div class="qi-pill">8</div>
+        <div class="qi-pill">9</div>
+        <div class="qi-pill">10</div>
+      </div>
+    </div>
+
+    <div class="qi-row">
+      <div class="lbl">종목</div>
+      <div class="qi-grid-3">
+        <div class="qi-pill selected" style="background: linear-gradient(135deg, var(--P), #4B4640); color: #fff;">퍼블릭 ●</div>
+        <div class="qi-pill">셔츠 ★</div>
+        <div class="qi-pill">하퍼 ♥</div>
+      </div>
+    </div>
+
+    <div class="qi-row">
+      <div class="lbl">시간</div>
+      <div class="qi-pills">
+        <div class="qi-pill selected">완 60분</div>
+        <div class="qi-pill">반 30분</div>
+        <div class="qi-pill">차3</div>
+        <div class="qi-pill">반차3</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview-mini">
+    <div class="body">
+      <div class="summary"><b>방울</b> · 7층 3번방 · 퍼블 완</div>
+      <div style="font-size: 10px; color: var(--sub); font-weight: 600; margin-top: 3px;">담당 택헌 · 채팅 알림</div>
+    </div>
+    <div class="price">13만</div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div class="bottom-bar">
+    <button class="save-btn">메이드 등록 — 채팅 자동 알림</button>
+  </div>
+
+</div></div></div>
+
+<script>
+  // qi-pill 그룹 내 선택 토글
+  document.querySelectorAll('.qi-pill').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.parentElement) {
+        el.parentElement.querySelectorAll('.qi-pill').forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected');
+      }
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+
+  // 일반 햅틱 (선택 동작 없음)
+  document.querySelectorAll('.voice-hero, .result-row, .pat-card').forEach(el => {
+    el.addEventListener('click', () => {
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+
+  // 1탭 등록 — 햅틱 패턴 + 페이지 이동
+  const oneTap = document.querySelector('.one-tap-card');
+  if (oneTap) {
+    oneTap.addEventListener('click', () => {
+      if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+      setTimeout(() => location.href = 'index.html', 200);
+    });
+  }
+
+  // 저장
+  const saveBtn = document.querySelector('.save-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+      setTimeout(() => location.href = 'index.html', 200);
+    });
+  }
+</script>
+
+</body>
+</html>

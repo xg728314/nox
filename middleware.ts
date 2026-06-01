@@ -200,6 +200,29 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl
 
   // ─────────────────────────────────────────────────────────────
+  //  Phase 2 (2026-06-01): /m/* 실장 어플 정적 자산.
+  //
+  //  matcher 에 /m/:path* 추가됨 — mock html 페이지는 인증 거침.
+  //  단 PWA 작동 필수 자산 (sw.js, manifest.json, icon-*.svg,
+  //  style.css, utils.js, labels.js) 은 인증 없이 통과.
+  //  실 페이지 (.html) 만 cookie 검사 → 미인증 시 /login.
+  // ─────────────────────────────────────────────────────────────
+  if (pathname.startsWith("/m/")) {
+    const isStaticAsset =
+      pathname.endsWith(".js") ||
+      pathname.endsWith(".css") ||
+      pathname.endsWith(".svg") ||
+      pathname.endsWith(".png") ||
+      pathname.endsWith(".webmanifest") ||
+      pathname.endsWith(".json") ||
+      pathname === "/m/sw.js"
+    if (isStaticAsset) {
+      return NextResponse.next()
+    }
+    // .html 페이지는 아래 페이지 분기 (cookie 검사) 거침
+  }
+
+  // ─────────────────────────────────────────────────────────────
   //  API branch (api-level-enforcement round)
   //
   //  For /api/* paths we do a LIGHT middleware pass:
@@ -556,6 +579,10 @@ export const config = {
     "/finance/:path*",
     // Phase 5: mobile monitor tree.
     "/m/monitor/:path*",
+    // Phase 2 (2026-06-01): 실장 어플 mock 페이지 — 인증 필수.
+    //   /m/sw.js, /m/manifest.json, /m/style.css 등 정적 자산은
+    //   middleware 함수 안에서 통과 분기 처리됨.
+    "/m/:path*",
     // R28-security: 신규 메뉴 + 디버그 페이지를 matcher 에 포함하여
     //   hostess 차단 + 인증 강제 적용.
     "/settlement/:path*",

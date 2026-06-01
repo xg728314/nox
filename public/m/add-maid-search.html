@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 메이드 등록 (검색)</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sheet-handle {
+    width: 40px; height: 5px;
+    background: rgba(45, 43, 38, 0.2);
+    border-radius: 999px;
+    margin: 12px auto 0;
+  }
+  .sheet-head {
+    padding: 24px 22px 4px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sheet-head .ttl {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .sheet-head .ttl .sub {
+    display: block;
+    font-size: 12px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .sheet-head .close {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--sub);
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  /* 진행 단계 */
+  .stepper {
+    margin: 16px 22px 22px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stepper .step {
+    flex: 1;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+  }
+  .stepper .step.done { background: var(--gold-deep); }
+  .stepper .step.active {
+    background: var(--gold);
+    box-shadow: 0 0 0 4px rgba(196, 155, 97, 0.15);
+  }
+
+  /* 큰 단계 라벨 */
+  .step-label {
+    padding: 0 22px;
+    margin-bottom: 16px;
+  }
+  .step-label .num {
+    display: inline-block;
+    width: 24px; height: 24px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 24px;
+    font-size: 12px;
+    font-weight: 800;
+    margin-right: 8px;
+  }
+  .step-label .lbl {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .step-label .lbl b { color: var(--gold-deep); }
+  .step-label .sub {
+    font-size: 12px;
+    color: var(--sub);
+    margin-top: 4px;
+    padding-left: 32px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 매장 그리드 */
+  .store-grid {
+    padding: 0 22px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 22px;
+  }
+  .store-cell {
+    padding: 14px 12px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+    position: relative;
+  }
+  .store-cell:active { transform: scale(0.96); }
+  .store-cell .ic {
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    background: var(--bg-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    margin: 0 auto 6px;
+  }
+  .store-cell .nm {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .store-cell .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .store-cell .tag {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .store-cell.mine .ic { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
+  .store-cell.mine .tag { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
+  .store-cell.together .tag { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .store-cell.solo .tag { background: rgba(196, 155, 97, 0.12); color: var(--gold-deep); }
+  .store-cell.selected {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.1), var(--card));
+    border-color: var(--gold);
+    box-shadow: 0 6px 16px rgba(196, 155, 97, 0.25);
+  }
+
+  /* 실장 선택 */
+  .mgr-grid {
+    padding: 0 22px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 22px;
+  }
+  .mgr-cell {
+    padding: 12px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 14px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+  }
+  .mgr-cell:active { transform: scale(0.96); }
+  .mgr-cell .av {
+    width: 32px; height: 32px;
+    background: var(--bg-soft);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .mgr-cell .body { flex: 1; min-width: 0; }
+  .mgr-cell .nm {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .mgr-cell .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 1px;
+    letter-spacing: -0.01em;
+  }
+  .mgr-cell.me {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.15), rgba(196, 155, 97, 0.05));
+    border-color: rgba(196, 155, 97, 0.3);
+  }
+  .mgr-cell.me .av { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
+  .mgr-cell.selected {
+    border-color: var(--gold-deep);
+    box-shadow: 0 6px 14px rgba(196, 155, 97, 0.3);
+  }
+
+  /* 스태프 검색 */
+  .search-wrap {
+    padding: 0 22px;
+    margin-bottom: 14px;
+  }
+  .search-wrap .input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1.5px solid var(--gold);
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+    outline: none;
+    box-shadow: 0 2px 8px rgba(196, 155, 97, 0.15);
+  }
+  .search-wrap .hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: -0.01em;
+  }
+  .search-wrap .hint b { color: var(--green); font-weight: 800; }
+
+  /* 출근한 아가씨만 */
+  .staff-search-list {
+    padding: 0 22px 22px;
+  }
+  .staff-search-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 16px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+  }
+  .staff-search-row:active { transform: scale(0.98); }
+  .staff-search-row.selected {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.1), var(--card));
+    border-color: var(--gold);
+    box-shadow: 0 6px 14px rgba(196, 155, 97, 0.25);
+  }
+  .staff-search-row .av {
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    flex-shrink: 0;
+    background: var(--bg-soft);
+  }
+  .staff-search-row.S .av { background: linear-gradient(135deg, #DBEAFE, #BFDBFE); color: var(--S); }
+  .staff-search-row.H .av { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: var(--H); }
+  .staff-search-row.P .av { background: linear-gradient(135deg, #EFEBE3, #DDD5C5); color: var(--P); }
+  .staff-search-row .info { flex: 1; min-width: 0; }
+  .staff-search-row .nm {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .staff-search-row .nm .mgr {
+    font-size: 9px;
+    padding: 2px 6px;
+    background: rgba(196, 155, 97, 0.15);
+    color: var(--gold-deep);
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .staff-search-row .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .staff-search-row .dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* 마지막 단계 — 룸 + 시각 + 종목 + 시간 */
+  .last-step {
+    padding: 0 22px;
+  }
+
+  .field-row {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.04);
+  }
+  .field-row .lbl {
+    font-size: 12px;
+    color: var(--sub);
+    font-weight: 700;
+    min-width: 50px;
+    letter-spacing: -0.01em;
+  }
+  .field-row .v {
+    flex: 1;
+    text-align: right;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .field-row .v .small {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-left: 4px;
+  }
+
+  /* 종목 그리드 */
+  .type-grid-mini {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .type-mini {
+    padding: 10px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+  }
+  .type-mini.P { background: linear-gradient(135deg, #F5F2EA, #EFEBE3); }
+  .type-mini.S { background: linear-gradient(135deg, #EFF6FF, #DBEAFE); }
+  .type-mini.H { background: linear-gradient(135deg, #FEF2F2, #FEE2E2); }
+  .type-mini.S.selected { border-color: var(--S); color: var(--S); }
+  .type-mini.H.selected { border-color: var(--H); color: var(--H); }
+  .type-mini.P.selected { border-color: var(--P); color: var(--P); }
+
+  .time-grid-mini {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .time-mini {
+    padding: 10px;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+  }
+  .time-mini.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+  }
+
+  /* 미리보기 */
+  .preview {
+    margin: 0 22px;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border-radius: 18px;
+    border: 1px dashed rgba(196, 155, 97, 0.3);
+  }
+  .preview .lbl {
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .preview .body {
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.4;
+    letter-spacing: -0.02em;
+  }
+  .preview .body b { color: var(--gold-deep); }
+  .preview .body .type {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--S-bg);
+    color: var(--S);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .preview .price {
+    margin-top: 6px;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--gold-deep);
+    letter-spacing: -0.025em;
+  }
+
+  /* 하단 버튼 */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 30;
+    display: flex; gap: 8px;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 18px); }
+  }
+  .bottom-bar .back-btn {
+    padding: 14px 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .bottom-bar .save-btn {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.35);
+    letter-spacing: -0.02em;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 110px;">
+
+  <div class="sheet-handle"></div>
+
+  <div class="sheet-head">
+    <div class="ttl">
+      메이드 등록
+      <span class="sub">매장 → 실장 → 스태프 → 입력</span>
+    </div>
+    <a href="index.html" class="close">✕</a>
+  </div>
+
+  <div class="stepper">
+    <div class="step done"></div>
+    <div class="step done"></div>
+    <div class="step done"></div>
+    <div class="step active"></div>
+  </div>
+
+  <!-- Step 1: 매장 -->
+  <div class="step-label">
+    <div><span class="num">1</span><span class="lbl">매장: <b>7층</b></span></div>
+    <div class="sub">어느 매장에서 일하나요?</div>
+  </div>
+  <div class="store-grid">
+    <div class="store-cell mine">
+      <div class="ic">M</div>
+      <div class="nm">마블</div>
+      <div class="sub">본 매장</div>
+      <div class="tag">우리</div>
+    </div>
+    <div class="store-cell solo selected">
+      <div class="ic">7</div>
+      <div class="nm">7층</div>
+      <div class="sub">실장 4명</div>
+      <div class="tag">개별</div>
+    </div>
+    <div class="store-cell together">
+      <div class="ic">8</div>
+      <div class="nm">8층</div>
+      <div class="sub">실장 3명</div>
+      <div class="tag">같이</div>
+    </div>
+    <div class="store-cell">
+      <div class="ic">+</div>
+      <div class="nm">더 보기</div>
+      <div class="sub">14개 매장</div>
+    </div>
+  </div>
+
+  <!-- Step 2: 실장 -->
+  <div class="step-label">
+    <div><span class="num">2</span><span class="lbl">실장: <b>택헌 실장</b></span></div>
+    <div class="sub">7층 실장 (4명) 중 누구의 스태프?</div>
+  </div>
+  <div class="mgr-grid">
+    <div class="mgr-cell me">
+      <div class="av">조</div>
+      <div class="body">
+        <div class="nm">조준성</div>
+        <div class="sub">나 · 협력 스태프 3명</div>
+      </div>
+    </div>
+    <div class="mgr-cell">
+      <div class="av">박</div>
+      <div class="body">
+        <div class="nm">박실장</div>
+        <div class="sub">7층 소속</div>
+      </div>
+    </div>
+    <div class="mgr-cell">
+      <div class="av">김</div>
+      <div class="body">
+        <div class="nm">김실장</div>
+        <div class="sub">7층 소속</div>
+      </div>
+    </div>
+    <div class="mgr-cell selected">
+      <div class="av">택</div>
+      <div class="body">
+        <div class="nm">택헌 실장</div>
+        <div class="sub">7층 소속 · 출근 5명</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: 스태프 검색 -->
+  <div class="step-label">
+    <div><span class="num">3</span><span class="lbl">스태프: <b>방울</b> 선택됨</span></div>
+    <div class="sub">택헌 실장 스태프 중 출근한 분만 표시 (5명)</div>
+  </div>
+  <div class="search-wrap">
+    <input class="input" type="text" placeholder="스태프 이름 검색..." value="" />
+    <div class="hint"><b>5명</b> 출근 · 매칭 없으면 "+ 스태프로 등록" 가능</div>
+  </div>
+  <div class="staff-search-list">
+
+    <div class="staff-search-row P selected">
+      <div class="av">방</div>
+      <div class="info">
+        <div class="nm">방울 <span class="mgr">택헌 실장</span></div>
+        <div class="sub">퍼블릭 · 4건 진행 · 7층 자주</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="staff-search-row S">
+      <div class="av">수</div>
+      <div class="info">
+        <div class="nm">수아 <span class="mgr">택헌 실장</span></div>
+        <div class="sub">셔츠 · 2건 · 7층</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="staff-search-row P">
+      <div class="av">민</div>
+      <div class="info">
+        <div class="nm">민지 <span class="mgr">택헌 실장</span></div>
+        <div class="sub">퍼블릭 · 대기 중</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="staff-search-row H">
+      <div class="av">하</div>
+      <div class="info">
+        <div class="nm">하나 <span class="mgr">택헌 실장</span></div>
+        <div class="sub">하퍼 · 1건 · 7층</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="staff-search-row S">
+      <div class="av">소</div>
+      <div class="info">
+        <div class="nm">소희 <span class="mgr">택헌 실장</span></div>
+        <div class="sub">셔츠 · 대기 중</div>
+      </div>
+      <div class="dot"></div>
+    </div>
+
+  </div>
+
+  <!-- Step 4: 입력 -->
+  <div class="step-label">
+    <div><span class="num">4</span><span class="lbl">입력</span></div>
+    <div class="sub">룸 · 종목 · 시간 · 시작 시각</div>
+  </div>
+  <div class="last-step">
+
+    <div class="field-row">
+      <div class="lbl">룸</div>
+      <div class="v">3 <span class="small">번방</span></div>
+    </div>
+
+    <div class="type-grid-mini">
+      <div class="type-mini P selected">퍼블릭</div>
+      <div class="type-mini S">셔츠</div>
+      <div class="type-mini H">하퍼</div>
+    </div>
+
+    <div class="time-grid-mini">
+      <div class="time-mini selected">완 60분</div>
+      <div class="time-mini">반 30분</div>
+      <div class="time-mini">차3</div>
+      <div class="time-mini">반차3</div>
+    </div>
+
+    <div class="field-row">
+      <div class="lbl">시작</div>
+      <div class="v">지금 <span class="small">· 22:34</span></div>
+    </div>
+
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview">
+    <div class="lbl">⚡ 미리보기</div>
+    <div class="body">
+      <b>방울</b> 이 <b>7층 3번방</b> 에서<br>
+      <span class="type">퍼블릭 완 60분</span> 시작
+    </div>
+    <div class="price">13만원</div>
+    <div style="font-size: 11px; color: var(--sub); font-weight: 600; margin-top: 4px;">
+      담당: 택헌 실장 · 채팅으로 자동 알림
+    </div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div class="bottom-bar">
+    <a href="index.html" class="back-btn">취소</a>
+    <button class="save-btn">메이드 등록 — 채팅 자동 알림</button>
+  </div>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.store-grid').forEach(g => g.querySelectorAll('.store-cell').forEach(c => {
+    c.addEventListener('click', () => {
+      g.querySelectorAll('.store-cell').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  }));
+  document.querySelectorAll('.mgr-grid').forEach(g => g.querySelectorAll('.mgr-cell').forEach(c => {
+    c.addEventListener('click', () => {
+      g.querySelectorAll('.mgr-cell').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  }));
+  document.querySelectorAll('.staff-search-row').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.staff-search-row').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+  document.querySelectorAll('.type-mini').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.type-mini').forEach(x => x.classList.remove('selected'));
+      t.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.time-mini').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.time-mini').forEach(x => x.classList.remove('selected'));
+      t.classList.add('selected');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelector('.save-btn').addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+    setTimeout(() => location.href = 'index.html', 200);
+  });
+</script>
+
+</body>
+</html>

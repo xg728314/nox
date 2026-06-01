@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 정산</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 기간 탭 */
+  .period-tabs {
+    margin: 0 22px 16px;
+    display: flex;
+    background: var(--bg-soft);
+    border-radius: 14px;
+    padding: 4px;
+  }
+  .period-tab {
+    flex: 1;
+    padding: 10px 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.18s;
+    letter-spacing: -0.01em;
+  }
+  .period-tab.active {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.08);
+  }
+
+  /* 큰 총액 카드 */
+  .total-card {
+    margin: 0 22px 16px;
+    padding: 24px;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.5), rgba(255,255,255,0.95)),
+      linear-gradient(135deg, #FAF5EC 0%, #F0E8D8 100%);
+    border-radius: 26px;
+    box-shadow: 0 6px 24px rgba(45, 43, 38, 0.08);
+    position: relative;
+    overflow: hidden;
+  }
+  .total-card::after {
+    content: '';
+    position: absolute;
+    top: -50px; right: -50px;
+    width: 180px; height: 180px;
+    background: radial-gradient(circle, rgba(196, 155, 97, 0.22), transparent 70%);
+    pointer-events: none;
+  }
+  .total-card .lbl {
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .total-card .num-row {
+    margin-top: 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .total-card .num {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    background: linear-gradient(135deg, var(--ink), var(--gold-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .total-card .unit {
+    font-size: 18px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .total-card .delta {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 700;
+  }
+  .total-card .stats {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .total-card .stat { text-align: center; }
+  .total-card .stat .v {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .total-card .stat .l {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+
+  /* 섹션 헤더 */
+  .sec-head {
+    padding: 0 22px;
+    margin: 22px 0 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .sec-head .ttl {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .sec-head .more {
+    font-size: 11px;
+    color: var(--gold-deep);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  /* 매장 간 정산 (받을 돈 / 줄 돈) */
+  .cross-store {
+    margin: 0 22px 0;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .cs-tabs {
+    display: flex;
+    background: var(--bg-soft);
+    margin: 12px;
+    border-radius: 12px;
+    padding: 3px;
+  }
+  .cs-tab {
+    flex: 1;
+    padding: 8px 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--sub);
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .cs-tab.active {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .cs-tab .v { font-size: 11px; font-weight: 800; margin-top: 1px; }
+  .cs-tab.active .v.in { color: var(--green); }
+  .cs-tab.active .v.out { color: var(--red); }
+  .cs-tab.in .v { color: var(--green); }
+  .cs-tab.out .v { color: var(--red); }
+
+  .cs-list { padding: 0 4px 12px; }
+  .cs-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line);
+  }
+  .cs-row:first-child { border-top: none; }
+  .cs-row.hidden { display: none; }
+  .cs-row .arrow {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    font-weight: 800;
+  }
+  .cs-row.in .arrow {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--green);
+  }
+  .cs-row.out .arrow {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--red);
+  }
+  .cs-row .body { flex: 1; }
+  .cs-row .body .name {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .cs-row .body .sub {
+    font-size: 11px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .cs-row .amt {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .cs-row.in .amt { color: var(--green); }
+  .cs-row.out .amt { color: var(--red); }
+
+  /* 매장별 도넛 미니 */
+  .mini-chart {
+    margin: 0 22px 0;
+    background: var(--card);
+    border-radius: 22px;
+    padding: 18px;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .mini-chart .head {
+    display: flex; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .mini-chart .head .lbl {
+    font-size: 11px; color: var(--sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .mini-chart .head .total {
+    font-size: 11px;
+    color: var(--gold-deep);
+    font-weight: 800;
+  }
+  .bar {
+    display: flex; align-items: center;
+    gap: 8px; padding: 6px 0;
+    font-size: 13px; font-weight: 700;
+  }
+  .bar .nm { width: 56px; flex-shrink: 0; letter-spacing: -0.01em; }
+  .bar.mine .nm { color: var(--gold-deep); }
+  .bar .track { flex: 1; height: 8px; background: var(--bg-soft); border-radius: 999px; overflow: hidden; }
+  .bar .fill { height: 100%; background: linear-gradient(90deg, var(--gold-soft), var(--gold)); border-radius: 999px; }
+  .bar.mine .fill { background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
+  .bar .v { width: 56px; text-align: right; font-size: 13px; font-weight: 800; letter-spacing: -0.02em; }
+
+  /* 스태프별 카드 가로 스크롤 */
+  .family-scroll {
+    display: flex; gap: 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0 22px 4px;
+    margin: 0 -22px;
+  }
+  .family-scroll::-webkit-scrollbar { display: none; }
+  .fam-card {
+    flex-shrink: 0;
+    width: 138px;
+    background: var(--card);
+    border-radius: 18px;
+    padding: 14px;
+    box-shadow: 0 2px 8px rgba(45, 43, 38, 0.05);
+    border-top: 3px solid var(--S);
+  }
+  .fam-card.H { border-top-color: var(--H); }
+  .fam-card.P { border-top-color: var(--P); }
+  .fam-card.mixed {
+    border-top: 3px solid;
+    border-image: linear-gradient(90deg, var(--S), var(--H)) 1;
+  }
+  .fam-card .nm {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .fam-card .sub {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .fam-card .amt {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin-top: 10px;
+    background: linear-gradient(135deg, var(--ink), var(--gold-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .fam-card .pay {
+    font-size: 9px;
+    margin-top: 4px;
+    display: inline-block;
+    padding: 2px 7px;
+    background: var(--bg-soft);
+    border-radius: 999px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .fam-card .pay.account { background: rgba(34, 197, 94, 0.12); color: var(--green); }
+  .fam-card .pay.cash { background: rgba(196, 155, 97, 0.15); color: var(--gold-deep); }
+  .fam-card .take {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--sub);
+    letter-spacing: -0.01em;
+  }
+  .fam-card .take .v { color: var(--ink); font-weight: 800; }
+  .fam-card .take .car {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 5px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #B45309;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+  }
+
+  /* PDF 보내기 큰 버튼 */
+  .send-pdf {
+    margin: 22px 22px 0;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-radius: 22px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.15s;
+    box-shadow: 0 8px 24px rgba(196, 155, 97, 0.35);
+  }
+  .send-pdf:active { transform: scale(0.97); }
+  .send-pdf .ico { font-size: 28px; margin-bottom: 6px; }
+  .send-pdf .ttl {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .send-pdf .sub {
+    font-size: 11px;
+    margin-top: 3px;
+    opacity: 0.85;
+    font-weight: 600;
+  }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="index.html" class="back">←</a>
+    <div class="ttl">정산<span class="sub-ttl">조준성 · 마블</span></div>
+    <a href="javascript:void(0)" class="more" aria-label="달력">📅</a>
+  </header>
+
+  <!-- 기간 -->
+  <div class="period-tabs">
+    <div class="period-tab active">오늘</div>
+    <div class="period-tab">이번 주</div>
+    <div class="period-tab">이번 달</div>
+    <div class="period-tab">전체</div>
+  </div>
+
+  <!-- 큰 총액 -->
+  <div class="total-card">
+    <div class="lbl">오늘 스태프 매출</div>
+    <div class="num-row">
+      <span class="num">521</span>
+      <span class="unit">만원</span>
+    </div>
+    <div class="delta">▲ 어제 대비 +18%</div>
+    <div class="stats">
+      <div class="stat"><div class="v">39</div><div class="l">메이드</div></div>
+      <div class="stat"><div class="v">9</div><div class="l">스태프</div></div>
+      <div class="stat"><div class="v">5</div><div class="l">매장</div></div>
+    </div>
+  </div>
+
+  <!-- 📒 실장 본인 장부 (새로 추가) -->
+  <div style="margin: 16px 22px 0;">
+    <div style="padding: 20px 22px; background: linear-gradient(135deg, var(--ink) 0%, #1a1813 100%); color: #fff; border-radius: 24px; position: relative; overflow: hidden; box-shadow: 0 8px 24px rgba(45, 43, 38, 0.2);">
+      <div style="position: absolute; top: -40px; right: -40px; width: 140px; height: 140px; background: radial-gradient(circle, rgba(196, 155, 97, 0.25), transparent 70%);"></div>
+      <div style="position: relative; z-index: 1;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <div style="font-size: 11px; color: var(--gold-soft); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;">📒 내 장부</div>
+          <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700;">오늘 4월 28일</div>
+        </div>
+
+        <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 16px;">
+          <span style="font-size: 38px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.035em;">+34</span>
+          <span style="font-size: 18px; color: rgba(255,255,255,0.7); font-weight: 700;">만원</span>
+          <span style="margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.5); font-weight: 700;">오늘 순수익</span>
+        </div>
+
+        <div style="padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.15);">
+
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85);">
+            <span>💰 떼는 돈 (메이드 39건)</span>
+            <span style="color: var(--green); font-weight: 800;">+39만</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85);">
+            <span>🚗 차비 지원 (5명)</span>
+            <span style="color: #FCA5A5; font-weight: 800;">-5만</span>
+          </div>
+          <div style="margin-top: 8px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.15); display: flex; justify-content: space-between; font-size: 13px; font-weight: 800;">
+            <span style="color: #fff;">오늘 순수익</span>
+            <span style="color: var(--gold-soft); font-size: 16px;">+34만</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+          <div style="text-align: center;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+280<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
+            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">이번 주</div>
+          </div>
+          <div style="text-align: center; border-left: 1px solid rgba(255,255,255,0.12); border-right: 1px solid rgba(255,255,255,0.12);">
+            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+1,240<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
+            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">이번 달</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">8,520<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
+            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">누적</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 매장 간 정산 -->
+  <div class="sec-head">
+    <div class="ttl">매장 간 정산</div>
+    <div class="more" onclick="location.href='store-settlement.html?store=라이브&dir=in'" style="cursor:pointer;">상세 →</div>
+  </div>
+  <div class="cross-store">
+    <div class="cs-tabs">
+      <div class="cs-tab in active">
+        받을 돈<div class="v">+340만</div>
+      </div>
+      <div class="cs-tab out">
+        줄 돈<div class="v">-80만</div>
+      </div>
+    </div>
+    <div class="cs-list">
+      <div class="cs-row in" onclick="location.href='store-settlement.html?store=라이브&dir=in'" style="cursor:pointer;">
+        <div class="arrow">←</div>
+        <div class="body">
+          <div class="name">라이브</div>
+          <div class="sub">우리 스태프 2명 워킹 · 9건</div>
+        </div>
+        <div class="amt">+140만</div>
+      </div>
+      <div class="cs-row in" onclick="location.href='store-settlement.html?store=신세계&dir=in'" style="cursor:pointer;">
+        <div class="arrow">←</div>
+        <div class="body">
+          <div class="name">신세계</div>
+          <div class="sub">하늘 셔츠 5건</div>
+        </div>
+        <div class="amt">+70만</div>
+      </div>
+      <div class="cs-row in" onclick="location.href='store-settlement.html?store=아지트&dir=in'" style="cursor:pointer;">
+        <div class="arrow">←</div>
+        <div class="body">
+          <div class="name">아지트</div>
+          <div class="sub">유나 단골 5건</div>
+        </div>
+        <div class="amt">+125만</div>
+      </div>
+      <div class="cs-row in" onclick="location.href='store-settlement.html?store=7층&dir=in'" style="cursor:pointer;">
+        <div class="arrow">←</div>
+        <div class="body">
+          <div class="name">7층</div>
+          <div class="sub">방울 4건</div>
+        </div>
+        <div class="amt">+52만</div>
+      </div>
+
+      <!-- 줄 돈 행 (out, 기본 숨김) -->
+      <div class="cs-row out hidden" onclick="location.href='store-settlement.html?store=신세계&dir=out'" style="cursor:pointer;">
+        <div class="arrow">→</div>
+        <div class="body">
+          <div class="name">신세계</div>
+          <div class="sub">미라 셔츠 5건 · 신세계 → 마블 워킹</div>
+        </div>
+        <div class="amt">-80만</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 매장별 분포 -->
+  <div class="sec-head">
+    <div class="ttl">매장별 분포</div>
+  </div>
+  <div class="mini-chart">
+    <div class="head">
+      <div class="lbl">우리 스태프 일한 곳</div>
+      <div class="total">9명 / 39건</div>
+    </div>
+    <div class="bar mine">
+      <div class="nm">마블</div>
+      <div class="track"><div class="fill" style="width:30%"></div></div>
+      <div class="v">124만</div>
+    </div>
+    <div class="bar">
+      <div class="nm">라이브</div>
+      <div class="track"><div class="fill" style="width:35%"></div></div>
+      <div class="v">140만</div>
+    </div>
+    <div class="bar">
+      <div class="nm">아지트</div>
+      <div class="track"><div class="fill" style="width:32%"></div></div>
+      <div class="v">125만</div>
+    </div>
+    <div class="bar">
+      <div class="nm">신세계</div>
+      <div class="track"><div class="fill" style="width:18%"></div></div>
+      <div class="v">70만</div>
+    </div>
+    <div class="bar">
+      <div class="nm">7층</div>
+      <div class="track"><div class="fill" style="width:13%"></div></div>
+      <div class="v">52만</div>
+    </div>
+  </div>
+
+  <!-- 스태프별 -->
+  <div class="sec-head">
+    <div class="ttl">스태프별</div>
+    <div class="more">전체 →</div>
+  </div>
+  <div class="family-scroll">
+    <div class="fam-card S" onclick="location.href='staff-rules.html'">
+      <div class="nm">지유</div>
+      <div class="sub">셔츠 5건 + 보너스</div>
+      <div class="amt">77만</div>
+      <div class="pay account">💳 계좌</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">1.5만</b>/건</span>
+        <span class="v">7.5만<span class="car">차비 1만</span></span>
+      </div>
+    </div>
+    <div class="fam-card mixed" onclick="location.href='staff-rules.html'">
+      <div class="nm">유나</div>
+      <div class="sub">셔츠+하퍼 5건</div>
+      <div class="amt">120만</div>
+      <div class="pay cash">💵 현금</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">1만</b>/건</span>
+        <span class="v">5만<span class="car">차비 1만</span></span>
+      </div>
+    </div>
+    <div class="fam-card P" onclick="location.href='staff-rules.html'">
+      <div class="nm">겨울</div>
+      <div class="sub">퍼블릭 7건</div>
+      <div class="amt">75만</div>
+      <div class="pay account">💳 계좌</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">1만</b>/건</span>
+        <span class="v">7만</span>
+      </div>
+    </div>
+    <div class="fam-card S">
+      <div class="nm">하늘</div>
+      <div class="sub">셔츠 5건</div>
+      <div class="amt">65만</div>
+      <div class="pay account">💳 계좌</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">1만</b>/건</span>
+        <span class="v">5만<span class="car">차비 1만</span></span>
+      </div>
+    </div>
+    <div class="fam-card S">
+      <div class="nm">유리</div>
+      <div class="sub">셔츠 4건 + 단골</div>
+      <div class="amt">132만</div>
+      <div class="pay cash">💵 현금</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">2만</b>/건</span>
+        <span class="v">8만<span class="car">차비 1만</span></span>
+      </div>
+    </div>
+    <div class="fam-card P">
+      <div class="nm">방울</div>
+      <div class="sub">퍼블릭 4건</div>
+      <div class="amt">48만</div>
+      <div class="pay account">💳 계좌</div>
+      <div class="take">
+        <span>떼는 돈 <b style="color: var(--gold-deep);">5천</b>/건</span>
+        <span class="v">2만</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF 카톡 -->
+  <div class="send-pdf">
+    <div class="ico">📄</div>
+    <div class="ttl">정산표 PDF 카톡으로 보내기</div>
+    <div class="sub">매장 간 정산 + 스태프별 정산표 자동 생성</div>
+  </div>
+
+  <div style="height: 30px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab"><div class="icon">💬</div><div class="lbl">채팅</div><div class="badge-dot"></div></a>
+    <a href="settle.html" class="tab active"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.period-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.period-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.cs-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.cs-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      // 받을 돈 / 줄 돈 행 토글
+      const isIn = t.classList.contains('in');
+      document.querySelectorAll('.cs-row.in').forEach(r => r.classList.toggle('hidden', !isIn));
+      document.querySelectorAll('.cs-row.out').forEach(r => r.classList.toggle('hidden', isIn));
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
+  });
+  document.querySelectorAll('.send-pdf, .fam-card, .cs-row').forEach(el => {
+    el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
+  });
+</script>
+
+</body>
+</html>

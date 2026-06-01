@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>NOX Manager — 출근 체크</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 상단 요약 */
+  .att-summary {
+    margin: 0 22px 16px;
+    padding: 22px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border-radius: 26px;
+    box-shadow: 0 6px 24px rgba(45, 43, 38, 0.06);
+  }
+  .att-summary .lbl {
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .att-summary .head {
+    margin-top: 4px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .att-summary .num {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+  }
+  .att-summary .num small {
+    font-size: 18px;
+    color: var(--sub);
+    font-weight: 700;
+  }
+  .att-summary .delta {
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 700;
+  }
+  .att-summary .breakdown {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .att-summary .item { text-align: center; }
+  .att-summary .item .v {
+    font-size: 18px;
+    font-weight: 800;
+  }
+  .att-summary .item .l {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .att-summary .item.in .v { color: var(--green); }
+  .att-summary .item.off .v { color: var(--sub); }
+  .att-summary .item.wait .v { color: var(--gold-deep); }
+
+  /* 빠른 액션 */
+  .quick-row {
+    margin: 16px 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .quick-btn {
+    padding: 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .quick-btn:active { transform: scale(0.96); }
+  .quick-btn.copy-yest {
+    background: linear-gradient(135deg, rgba(196, 155, 97, 0.08), var(--card));
+    border-color: rgba(196, 155, 97, 0.25);
+  }
+  .quick-btn .ic { font-size: 18px; margin-bottom: 4px; }
+  .quick-btn .nm { font-size: 12px; font-weight: 800; letter-spacing: -0.01em; }
+  .quick-btn .sub { font-size: 10px; color: var(--sub); margin-top: 1px; font-weight: 600; }
+  .quick-btn.copy-yest .ic, .quick-btn.copy-yest .nm { color: var(--gold-deep); }
+
+  /* 검색 */
+  .search-bar {
+    margin: 0 22px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--sub);
+  }
+
+  /* 명단 */
+  .att-list {
+    margin: 0 22px;
+    background: var(--card);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(45, 43, 38, 0.04);
+  }
+  .att-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .att-row:first-child { border-top: none; }
+  .att-row:active { background: var(--bg-soft); }
+  .att-row .nm {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .att-row .nm .meta {
+    display: block;
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .att-row .toggle-group {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-soft);
+    padding: 3px;
+    border-radius: 10px;
+  }
+  .att-row .tgl {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--sub);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: -0.01em;
+  }
+  .att-row .tgl.in.active {
+    background: var(--green);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(34, 197, 94, 0.35);
+  }
+  .att-row .tgl.rest.active {
+    background: var(--amber);
+    color: #fff;
+  }
+  .att-row .tgl.off.active {
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  /* 새 스태프 추가 */
+  .add-staff {
+    margin: 16px 22px 0;
+    padding: 16px;
+    background: rgba(196, 155, 97, 0.08);
+    border: 1.5px dashed rgba(196, 155, 97, 0.3);
+    border-radius: 16px;
+    text-align: center;
+    color: var(--gold-deep);
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+  }
+  .add-staff:active { transform: scale(0.98); }
+</style>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' })
+        .catch(err => console.warn('[sw] 등록 실패', err));
+    });
+  }
+</script>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen">
+
+  <header class="page-header">
+    <a href="index.html" class="back">←</a>
+    <div class="ttl">출근 체크<span class="sub-ttl">4월 28일 월요일</span></div>
+    <a href="javascript:void(0)" class="more" aria-label="달력">📅</a>
+  </header>
+
+  <!-- 요약 -->
+  <div class="att-summary">
+    <div class="lbl">오늘 출근 현황</div>
+    <div class="head">
+      <div class="num">9<small>/12</small></div>
+      <div class="delta">▲ 어제 7명</div>
+    </div>
+    <div class="breakdown">
+      <div class="item in"><div class="v">9</div><div class="l">출근</div></div>
+      <div class="item wait"><div class="v">2</div><div class="l">대기 중</div></div>
+      <div class="item off"><div class="v">3</div><div class="l">결근/휴무</div></div>
+    </div>
+  </div>
+
+  <!-- 빠른 액션 -->
+  <div class="quick-row">
+    <div class="quick-btn copy-yest">
+      <div class="ic">📋</div>
+      <div class="nm">어제 명단 복사</div>
+      <div class="sub">10명 자동 출근</div>
+    </div>
+    <div class="quick-btn">
+      <div class="ic">💬</div>
+      <div class="nm">출근 카톡 발송</div>
+      <div class="sub">스태프 그룹방</div>
+    </div>
+  </div>
+
+  <!-- 검색 -->
+  <div class="search-bar">🔍 <span style="flex: 1; font-weight: 600;">이름 검색</span><kbd style="font-size:9px; background:var(--bg-soft); padding: 2px 6px; border-radius:4px; color:var(--sub); font-weight:700;">12명</kbd></div>
+
+  <!-- 명단 -->
+  <div class="att-list">
+
+    <div class="att-row">
+      <div class="nm">지유 <span class="meta">⭐ 셔츠 · 라이브 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">겨울 <span class="meta">● 퍼블릭 · 파티 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">하늘 <span class="meta">⭐ 셔츠 · 신세계 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">유나 <span class="meta">⭐♥ 셔츠+하퍼 · 아지트 단골</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">유리 <span class="meta">⭐ 셔츠 · 라이브 단골</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">방울 <span class="meta">● 퍼블릭 · 7층 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">은서 <span class="meta">● 퍼블릭 · 2T 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">아징 <span class="meta">⭐ 셔츠 · 버닝 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in">출근</div>
+        <div class="tgl rest active">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">아정 <span class="meta">⭐ 셔츠 · 아우라 자주</span></div>
+      <div class="toggle-group">
+        <div class="tgl in active">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">하영 <span class="meta">⭐ 셔츠</span></div>
+      <div class="toggle-group">
+        <div class="tgl in">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off active">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">미음 <span class="meta">● 퍼블릭</span></div>
+      <div class="toggle-group">
+        <div class="tgl in">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off active">결근</div>
+      </div>
+    </div>
+
+    <div class="att-row">
+      <div class="nm">지현 <span class="meta">⭐ 셔츠</span></div>
+      <div class="toggle-group">
+        <div class="tgl in">출근</div>
+        <div class="tgl rest">휴식</div>
+        <div class="tgl off active">결근</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="add-staff">+ 새 스태프 추가</div>
+
+  <div style="height: 30px;"></div>
+
+  <nav class="tabbar">
+    <a href="index.html" class="tab"><div class="icon">🏠</div><div class="lbl">홈</div></a>
+    <a href="staff-list.html" class="tab active"><div class="icon">👥</div><div class="lbl">스태프</div></a>
+    <a href="chat.html" class="tab"><div class="icon">💬</div><div class="lbl">채팅</div><div class="badge-dot"></div></a>
+    <a href="settle.html" class="tab"><div class="icon">📊</div><div class="lbl">정산</div></a>
+    <a href="me.html" class="tab"><div class="icon">⚙️</div><div class="lbl">내정보</div></a>
+  </nav>
+
+</div></div></div>
+
+<script>
+  document.querySelectorAll('.toggle-group').forEach(group => {
+    group.querySelectorAll('.tgl').forEach(t => {
+      t.addEventListener('click', () => {
+        group.querySelectorAll('.tgl').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        if (navigator.vibrate) navigator.vibrate(12);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

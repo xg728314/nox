@@ -101,12 +101,14 @@ export default function LoginPage() {
       localStorage.removeItem("role")
     } catch { /* storage unavailable — safe to ignore */ }
 
-    const dest =
-      data.role === "owner"   ? "/owner" :
-      data.role === "manager" ? "/manager" :
-      data.role === "hostess" ? "/me" :
-      data.role === "counter" ? "/counter" :
-      "/counter"
+    // Phase 2 (2026-06-01): 모든 role 로그인 = 실장 어플 메인.
+    // 기존 role 별 dest 는 보존 (다음 Phase 에 다시 활용).
+    //   data.role === "owner"   ? "/owner" :
+    //   data.role === "manager" ? "/manager" :
+    //   data.role === "hostess" ? "/me" :
+    //   data.role === "counter" ? "/counter" :
+    //   "/counter"
+    const dest = "/m/index.html"
 
     // R25: 백업 코드 사용 시 한번 큰 경고. 1회용임을 인지시키고 잔여 표시.
     if (data.used_backup_code) {
