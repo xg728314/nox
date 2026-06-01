@@ -7,13 +7,34 @@ import { cached } from "@/lib/cache/inMemoryTtl"
 //   key 는 token — 토큰 변경 (재로그인 / 재발급) 시 자동으로 다른 cache.
 const MEMBERSHIPS_TTL_MS = 60_000
 
+// R-mobile (2026-06-01): HttpOnly cookie (nox_access_token) 우선, Bearer fallback.
+//   기존 호출자(Bearer)는 그대로 동작. 모바일 앱 PWA 는 cookie 기반.
+function extractToken(request: Request): string {
+  const cookieHeader = request.headers.get("cookie") ?? ""
+  for (const pair of cookieHeader.split(";")) {
+    const trimmed = pair.trim()
+    if (trimmed.startsWith("nox_access_token=")) {
+      const raw = trimmed.slice("nox_access_token=".length)
+      try {
+        return decodeURIComponent(raw).trim()
+      } catch {
+        return raw.trim()
+      }
+    }
+  }
+  const authHeader = request.headers.get("authorization")
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim()
+  }
+  return ""
+}
+
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = extractToken(request)
+    if (!token) {
       return NextResponse.json({ error: "AUTH_MISSING" }, { status: 401 })
     }
-    const token = authHeader.slice(7).trim()
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
