@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#F8F4ED" />
+<title>스태프동기화 — 세션 등록</title>
+<link rel="manifest" href="/m/manifest.json" />
+<link rel="apple-touch-icon" href="/m/icon-192.svg" />
+<link rel="icon" type="image/svg+xml" href="/m/icon-192.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="스태프동기화" />
+<meta name="application-name" content="스태프동기화" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="/m/labels.js" defer></script>
+<script src="/m/utils.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' }).catch(() => {});
+    });
+  }
+</script>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* 헤더 카드 (대기 스태프) */
+  .who-hero {
+    margin: 0 22px 16px;
+    padding: 18px 22px;
+    background: linear-gradient(135deg, var(--card), #FAF5EC);
+    border: 1px solid rgba(196, 155, 97, 0.25);
+    border-radius: 22px;
+    box-shadow: 0 4px 18px rgba(196, 155, 97, 0.1);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .who-hero .av {
+    width: 50px; height: 50px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 800; letter-spacing: -0.03em;
+    background: linear-gradient(135deg, rgba(196,155,97,0.18), rgba(196,155,97,0.08));
+    color: var(--gold-deep);
+  }
+  .who-hero .info { flex: 1; }
+  .who-hero .nm {
+    font-size: 20px; font-weight: 800; letter-spacing: -0.025em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .who-hero .nm .badge {
+    font-size: 10px; padding: 2px 8px;
+    background: rgba(196, 155, 97, 0.18);
+    color: var(--gold-deep);
+    border-radius: 999px; font-weight: 800;
+  }
+  .who-hero .sub {
+    font-size: 11px; color: var(--sub); font-weight: 600;
+    margin-top: 2px; letter-spacing: -0.01em;
+  }
+  .who-hero .time {
+    text-align: right;
+  }
+  .who-hero .time .lbl {
+    font-size: 9px; color: var(--sub); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .who-hero .time .v {
+    font-size: 17px; font-weight: 800; color: var(--ink);
+    letter-spacing: -0.025em; margin-top: 2px;
+  }
+
+  /* 단계 헤더 */
+  .step {
+    padding: 0 22px;
+    margin-bottom: 14px;
+  }
+  .step .h {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .step .h .num {
+    width: 22px; height: 22px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800;
+  }
+  .step .h .lbl {
+    font-size: 14px; font-weight: 800; letter-spacing: -0.02em;
+  }
+  .step .h .lbl b { color: var(--gold-deep); }
+
+  /* 층 선택 그리드 */
+  .floor-grid, .store-grid, .type-grid, .time-grid {
+    display: grid;
+    gap: 8px;
+  }
+  .floor-grid { grid-template-columns: repeat(4, 1fr); }
+  .store-grid { grid-template-columns: repeat(2, 1fr); }
+  .type-grid  { grid-template-columns: repeat(3, 1fr); }
+  .time-grid  { grid-template-columns: repeat(4, 1fr); }
+
+  .opt {
+    padding: 14px 8px;
+    background: var(--card);
+    border: 2px solid var(--line);
+    border-radius: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    user-select: none;
+  }
+  .opt:active { transform: scale(0.95); }
+  .opt.selected {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 16px rgba(196, 155, 97, 0.35);
+  }
+  .opt .ic { font-size: 16px; line-height: 1; margin-bottom: 3px; }
+  .opt .nm {
+    font-size: 13px; font-weight: 800; letter-spacing: -0.01em;
+  }
+  .opt .sub-lbl {
+    font-size: 9px; color: var(--sub); font-weight: 700;
+    margin-top: 2px; letter-spacing: -0.01em;
+  }
+  .opt.selected .sub-lbl { color: rgba(255,255,255,0.85); }
+
+  /* 종목별 색 (선택 전) */
+  .opt.S { background: linear-gradient(135deg, #EFF6FF, #DBEAFE); }
+  .opt.P { background: linear-gradient(135deg, #F5F2EA, #EFEBE3); }
+  .opt.H { background: linear-gradient(135deg, #FEF2F2, #FEE2E2); }
+  .opt.S.selected { background: linear-gradient(135deg, var(--S), #3B82F6); }
+  .opt.P.selected { background: linear-gradient(135deg, #6B6560, #4B4640); }
+  .opt.H.selected { background: linear-gradient(135deg, var(--H), #DC2626); }
+
+  .opt.disabled {
+    opacity: 0.35; cursor: not-allowed; pointer-events: none;
+  }
+
+  /* 가게 영역 — 비어있을 때 안내 */
+  .stores-area {
+    min-height: 60px;
+  }
+  .stores-area .placeholder {
+    padding: 18px;
+    background: var(--bg-soft);
+    border: 1.5px dashed var(--line);
+    border-radius: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--sub);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* 룸 번호 */
+  .room-wrap {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .room-wrap input {
+    flex: 1;
+    padding: 14px 18px;
+    background: var(--card);
+    border: 2px solid var(--line);
+    border-radius: 14px;
+    font-family: inherit;
+    font-size: 16px; font-weight: 800;
+    color: var(--ink);
+    outline: none;
+    letter-spacing: -0.02em;
+    text-align: center;
+  }
+  .room-wrap input:focus {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 4px rgba(196, 155, 97, 0.15);
+  }
+
+  /* 미리보기 카드 */
+  .preview {
+    margin: 22px 22px 0;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, var(--ink), #1a1813);
+    color: #fff;
+    border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(45, 43, 38, 0.25);
+    position: relative; overflow: hidden;
+  }
+  .preview::after {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 140px; height: 140px;
+    background: radial-gradient(circle, rgba(196, 155, 97, 0.25), transparent 70%);
+    pointer-events: none;
+  }
+  .preview .lbl {
+    position: relative; z-index: 1;
+    font-size: 11px; color: var(--gold-soft);
+    font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .preview .body {
+    position: relative; z-index: 1;
+    font-size: 16px; font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.5;
+  }
+  .preview .body b { color: var(--gold-soft); }
+  .preview .body em {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 999px;
+    font-size: 13px; font-style: normal;
+    margin: 0 2px;
+  }
+  .preview .at {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    font-size: 11px; color: rgba(255,255,255,0.6);
+    font-weight: 600;
+    display: flex; justify-content: space-between;
+    position: relative; z-index: 1;
+  }
+  .preview .at .v { color: #fff; font-weight: 800; }
+
+  /* 저장 버튼 */
+  .bottom-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 28px;
+    background: linear-gradient(180deg, transparent, var(--bg) 40%);
+    z-index: 60;
+    display: flex; gap: 8px;
+  }
+  @media (max-width: 500px) {
+    .bottom-bar { padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 14px); }
+  }
+  .bottom-bar .cancel {
+    padding: 14px 22px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 16px;
+    font-size: 14px; font-weight: 800;
+    text-decoration: none; text-align: center;
+  }
+  .bottom-bar .save-btn {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    color: #fff; border: none;
+    border-radius: 16px;
+    font-size: 14px; font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(196, 155, 97, 0.35);
+    letter-spacing: -0.02em;
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  .bottom-bar .save-btn:active { transform: scale(0.97); }
+  .bottom-bar .save-btn:disabled {
+    background: var(--bg-soft);
+    color: var(--sub);
+    box-shadow: none; cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+
+<div class="phone-frame"><div class="phone-screen"><div class="screen" style="padding-bottom: 140px;">
+
+  <header class="page-header">
+    <a href="index.html" class="back">←</a>
+    <div class="ttl" id="page-title">세션 등록</div>
+    <a href="javascript:void(0)" class="more" aria-label="더보기">⋯</a>
+  </header>
+
+  <!-- 스태프 헤더 -->
+  <div class="who-hero">
+    <div class="av" id="hero-av">방</div>
+    <div class="info">
+      <div class="nm" id="hero-nm">방울 <span class="badge">대기 중</span></div>
+      <div class="sub" id="hero-sub">어디 들어가요?</div>
+    </div>
+    <div class="time">
+      <div class="lbl">지금</div>
+      <div class="v" id="hero-time">--:--</div>
+    </div>
+  </div>
+
+  <!-- Step 1: 층 -->
+  <div class="step">
+    <div class="h"><div class="num">1</div><div class="lbl">층 선택</div></div>
+    <div class="floor-grid" id="floor-grid">
+      <div class="opt" data-floor="5"><div class="ic">🏢</div><div class="nm">5층</div><div class="sub-lbl">매장 2</div></div>
+      <div class="opt" data-floor="6"><div class="ic">🏢</div><div class="nm">6층</div><div class="sub-lbl">매장 4</div></div>
+      <div class="opt" data-floor="7"><div class="ic">🏢</div><div class="nm">7층</div><div class="sub-lbl">매장 2</div></div>
+      <div class="opt" data-floor="8"><div class="ic">🏢</div><div class="nm">8층</div><div class="sub-lbl">매장 6</div></div>
+    </div>
+  </div>
+
+  <!-- Step 2: 매장 -->
+  <div class="step">
+    <div class="h"><div class="num">2</div><div class="lbl">매장</div></div>
+    <div class="stores-area" id="stores-area">
+      <div class="placeholder">먼저 층을 선택하세요</div>
+    </div>
+  </div>
+
+  <!-- Step 3: 종목 -->
+  <div class="step">
+    <div class="h"><div class="num">3</div><div class="lbl">종목</div></div>
+    <div class="type-grid" id="type-grid">
+      <div class="opt P" data-type="P"><div class="ic">●</div><div class="nm">P 타입</div><div class="sub-lbl">13만</div></div>
+      <div class="opt S" data-type="S"><div class="ic">★</div><div class="nm">S 타입</div><div class="sub-lbl">14만</div></div>
+      <div class="opt H" data-type="H"><div class="ic">♥</div><div class="nm">H 타입</div><div class="sub-lbl">12만</div></div>
+    </div>
+  </div>
+
+  <!-- Step 4: 시간 -->
+  <div class="step">
+    <div class="h"><div class="num">4</div><div class="lbl">시간</div></div>
+    <div class="time-grid" id="time-grid">
+      <div class="opt" data-dur="60"><div class="ic">⏱</div><div class="nm">풀</div><div class="sub-lbl">60분</div></div>
+      <div class="opt" data-dur="30"><div class="ic">⏱</div><div class="nm">하프</div><div class="sub-lbl">30분</div></div>
+      <div class="opt" data-dur="15"><div class="ic">⏱</div><div class="nm">추가</div><div class="sub-lbl">15분</div></div>
+      <div class="opt" data-dur="45"><div class="ic">⏱</div><div class="nm">하프+추가</div><div class="sub-lbl">45분</div></div>
+    </div>
+  </div>
+
+  <!-- Step 5: 룸 번호 (선택) -->
+  <div class="step">
+    <div class="h"><div class="num">5</div><div class="lbl">룸 (선택)</div></div>
+    <div class="room-wrap">
+      <input type="text" id="room-input" inputmode="numeric" placeholder="3" autocomplete="off" maxlength="3" />
+    </div>
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview" id="preview" style="display: none;">
+    <div class="lbl">⚡ 등록 미리보기</div>
+    <div class="body" id="preview-body"></div>
+    <div class="at">
+      <span>시작 시각</span>
+      <span class="v" id="preview-time"></span>
+    </div>
+  </div>
+
+  <div style="height: 100px;"></div>
+
+  <div class="bottom-bar">
+    <a href="index.html" class="cancel">취소</a>
+    <button class="save-btn" id="save-btn" disabled>세션 등록</button>
+  </div>
+
+</div></div></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ─── 층별 매장 매핑 ───
+  // 실제 NOX 의 stores.floor_no 기반. mock 은 일반화된 이름.
+  const FLOORS = {
+    5: ['본 매장', '지점 A'],
+    6: ['지점 B', '지점 C', '지점 G', '지점 H'],
+    7: ['지점 D', '지점 I'],
+    8: ['지점 E', '지점 F', '지점 J', '지점 K', '지점 L', '지점 M']
+  };
+
+  const TYPE_PRICE = { P: 13, S: 14, H: 12 };
+  const TYPE_NAME  = { P: 'P 타입', S: 'S 타입', H: 'H 타입' };
+  const DUR_NAME   = { 60: '풀 (60분)', 30: '하프 (30분)', 15: '추가 (15분)', 45: '하프+추가 (45분)' };
+
+  const params = new URLSearchParams(location.search);
+  const staffRaw = params.get('staff') || '방울';
+  const STAFF_WHITELIST = ['방울', '은서', '미음', '아징', '하영', '지현',
+                           '지유', '겨울', '하늘', '유나', '유리', '아정'];
+  const staffName = STAFF_WHITELIST.includes(staffRaw) ? staffRaw : '방울';
+
+  const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
+              (s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
+  // 헤더 채우기
+  document.getElementById('hero-nm').firstChild.textContent = staffName + ' ';
+  document.getElementById('hero-av').textContent = staffName.charAt(0);
+  document.getElementById('page-title').textContent = staffName + ' 세션 등록';
+
+  // 시각 자동
+  function now() {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function refreshTime() {
+    const t = now();
+    document.getElementById('hero-time').textContent = t;
+    document.getElementById('preview-time').textContent = t;
+  }
+  refreshTime();
+  setInterval(refreshTime, 30 * 1000); // 30초마다 갱신
+
+  // 상태
+  const state = { floor: null, store: null, type: null, dur: null, room: '' };
+
+  const $stores   = document.getElementById('stores-area');
+  const $preview  = document.getElementById('preview');
+  const $previewBody = document.getElementById('preview-body');
+  const $save     = document.getElementById('save-btn');
+  const $room     = document.getElementById('room-input');
+
+  function haptic(d) { if (navigator.vibrate) navigator.vibrate(d || 8); }
+
+  function renderStores() {
+    if (!state.floor) {
+      $stores.innerHTML = '<div class="placeholder">먼저 층을 선택하세요</div>';
+      return;
+    }
+    const list = FLOORS[state.floor] || [];
+    if (list.length === 0) {
+      $stores.innerHTML = '<div class="placeholder">이 층에 등록된 매장이 없습니다</div>';
+      return;
+    }
+    $stores.innerHTML = '<div class="store-grid">' +
+      list.map(s => `<div class="opt" data-store="${esc(s)}"><div class="ic">🏪</div><div class="nm">${esc(s)}</div></div>`).join('') +
+      '</div>';
+    $stores.querySelectorAll('.opt').forEach(o => {
+      o.addEventListener('click', () => {
+        $stores.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
+        o.classList.add('selected');
+        state.store = o.dataset.store;
+        haptic(10);
+        updatePreview();
+      });
+    });
+  }
+
+  function pickOne(groupId, key) {
+    const $group = document.getElementById(groupId);
+    if (!$group) return;
+    $group.querySelectorAll('.opt').forEach(o => {
+      o.addEventListener('click', () => {
+        $group.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
+        o.classList.add('selected');
+        state[key] = o.dataset[key];
+        haptic(10);
+        if (key === 'floor') {
+          // 층 변경 시 매장 초기화
+          state.store = null;
+          renderStores();
+        }
+        updatePreview();
+      });
+    });
+  }
+  pickOne('floor-grid', 'floor');
+  pickOne('type-grid', 'type');
+  pickOne('time-grid', 'dur');
+
+  $room.addEventListener('input', () => {
+    state.room = $room.value.replace(/[^0-9]/g, '').slice(0, 3);
+    $room.value = state.room;
+    updatePreview();
+  });
+
+  function updatePreview() {
+    const ready = state.floor && state.store && state.type && state.dur;
+    if (!ready) {
+      $preview.style.display = 'none';
+      $save.disabled = true;
+      return;
+    }
+    $preview.style.display = '';
+    $save.disabled = false;
+
+    const price = TYPE_PRICE[state.type] || 13;
+    const typeName = TYPE_NAME[state.type];
+    const durName = DUR_NAME[state.dur] || (state.dur + '분');
+    const roomTxt = state.room ? `${esc(state.room)}번방` : '룸 미지정';
+
+    $previewBody.innerHTML =
+      `<b>${esc(staffName)}</b> 가 ` +
+      `<b>${esc(state.store)}</b> ` +
+      `<em>${esc(roomTxt)}</em> 에서<br>` +
+      `<em>${esc(typeName)} · ${esc(durName)}</em> 시작<br>` +
+      `<span style="font-size:13px; color: rgba(255,255,255,0.6); font-weight:600;">단가 ${price}만원</span>`;
+  }
+
+  // 저장
+  $save.addEventListener('click', () => {
+    if ($save.disabled) return;
+    haptic([10, 50, 10]);
+    const msg = `${staffName} → ${state.store} ${TYPE_NAME[state.type]} 등록됨`;
+    if (window.NoxUI && window.NoxUI.toast) {
+      window.NoxUI.toast(msg, { type: 'success' });
+    } else {
+      alert(msg);
+    }
+    setTimeout(() => { location.href = 'index.html'; }, 900);
+  });
+})();
+</script>
+
+</body>
+</html>
