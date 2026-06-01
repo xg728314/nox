@@ -1012,6 +1012,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <script src="/m/labels.js" defer></script>
 <script src="/m/utils.js" defer></script>
+<script src="/m/nox-api.js" defer></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -1030,7 +1031,12 @@
       <!-- 상단: 날짜만 + 알림 (이름/매장 통째 숨김 — 공간 절약) -->
       <div class="top-bar">
         <div class="greet">
-          <div class="date">4월 28일 월요일</div>
+          <div class="date" id="today-date"></div>
+          <div class="name" id="me-info" style="font-size: 13px; color: var(--sub); font-weight: 600; margin-top: 2px; letter-spacing: -0.01em; display: none;">
+            <span id="me-name">…</span>
+            <span style="color: var(--gold); margin: 0 4px;">·</span>
+            <span id="me-store" style="color: var(--gold-deep); font-weight: 800;">…</span>
+          </div>
         </div>
         <div class="actions">
           <div class="icon-btn" onclick="location.href='chat.html'">🔔<div class="dot"></div></div>
@@ -1522,6 +1528,60 @@
   document.querySelectorAll('.card, .chat-card, .soon-card').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
   });
+
+  // ─── Day 1: NOX 본체 연결 — 본인 정보 + 식구 자동 ───
+  (async function loadFromNox() {
+    // 오늘 날짜
+    try {
+      const today = new Date();
+      const weekday = ['일','월','화','수','목','금','토'][today.getDay()];
+      document.getElementById('today-date').textContent =
+        (today.getMonth()+1) + '월 ' + today.getDate() + '일 ' + weekday + '요일';
+    } catch {}
+
+    if (!window.NoxAPI) return;
+    try {
+      const me = await window.NoxAPI.me();
+      if (me && me.name) {
+        document.getElementById('me-name').textContent = me.name;
+        document.getElementById('me-store').textContent =
+          (me.store_name || '') + (me.store_floor ? ' · ' + me.store_floor + '층' : '');
+        document.getElementById('me-info').style.display = 'block';
+      }
+
+      // owner / manager 만 식구 자동. 그 외 role 은 mock 그대로.
+      if (me && (me.role === 'owner' || me.role === 'manager')) {
+        const data = await window.NoxAPI.hostesses().catch(() => null);
+        if (data && Array.isArray(data.hostesses)) {
+          // 카드 그리드 자동 렌더 — 첫 매장 섹션의 grid 에 본인 식구만 표시
+          const firstSection = document.querySelector('.family .section.mine .grid')
+                            || document.querySelector('.family .section .grid');
+          if (firstSection && data.hostesses.length > 0) {
+            firstSection.innerHTML = data.hostesses.slice(0, 8).map(h => {
+              const initial = (h.nickname || h.name || '?').charAt(0);
+              const cat = (h.category || '').toUpperCase().charAt(0);
+              const klass = cat === 'S' || cat === 'H' || cat === 'P' ? cat : 'P';
+              const nameSafe = (window.SecUtils && window.SecUtils.escapeHtml || (s => s))(h.nickname || h.name || '');
+              const initialSafe = (window.SecUtils && window.SecUtils.escapeHtml || (s => s))(initial);
+              return '<div class="card ' + klass + '" onclick="location.href=\'staff.html\'">' +
+                '<div class="top"><div class="status-dot"></div>' +
+                '<div class="where mine">본 매장</div>' +
+                '<div class="nm">' + nameSafe + '</div>' +
+                '<div class="nm-sub">' + (h.category || '미설정') + '</div>' +
+                '<div class="marks"></div></div>' +
+                '<div class="bottom"><div class="row">' +
+                '<div class="amt">실 데이터</div><div class="cnt">0건</div>' +
+                '</div><div class="sub-info">전화 ' + (h.phone || '미등록') + '</div></div>' +
+                '</div>';
+            }).join('');
+          }
+        }
+      }
+    } catch (err) {
+      // 인증 실패 → NoxAPI 안에서 /login redirect 처리됨
+      // 그 외 에러는 mock 데이터 그대로 유지
+    }
+  })();
 
   // 정렬 드롭다운 (mock — 시각 토글만)
   (function () {
