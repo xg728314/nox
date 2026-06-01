@@ -498,6 +498,107 @@
 </div></div></div>
 
 <script>
+  // ─── NOX API: me + memberships + hostesses 자동 채움 ───
+  (function loadMe() {
+    if (!window.NoxAPI) return;
+
+    const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
+                (s => String(s == null ? '' : s)
+                  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
+    const ROLE_KO = {
+      owner: '사장',
+      manager: '실장',
+      hostess: '스태프',
+      waiter: '웨이터',
+      staff: '직원',
+    };
+
+    Promise.all([
+      window.NoxAPI.me().catch(() => null),
+      window.NoxAPI.memberships().catch(() => null),
+      window.NoxAPI.hostesses().catch(() => null),
+    ]).then(([me, memRes, hostRes]) => {
+      // 프로필 (역할 / 이름 / 매장)
+      if (me) {
+        const $role = document.querySelector('.profile .role');
+        const $name = document.querySelector('.profile .name');
+        const $store = document.querySelector('.profile .store');
+        const $avatar = document.querySelector('.profile .avatar');
+
+        if ($role) $role.textContent = ROLE_KO[me.role] || me.role || '';
+        // /api/auth/me 응답은 user_name 을 직접 안 줘서 store_name + role 만 채움.
+        // 멤버십 매장 이름 표시
+        if ($store && me.store_name) {
+          $store.textContent = me.store_name;
+        }
+        // 이름이 me 응답에 없으므로 자리만 (mock 유지)
+        // avatar 는 매장명 첫 글자로 보조
+        if ($avatar && me.store_name) {
+          $avatar.textContent = me.store_name.charAt(0);
+        }
+      }
+
+      // 관리 스태프 카운트
+      if (hostRes && Array.isArray(hostRes.hostesses)) {
+        const count = hostRes.hostesses.length;
+        const $statV = document.querySelector('.profile .stats .stat:first-child .v');
+        if ($statV) $statV.textContent = String(count);
+        const $addSub = document.querySelector('.quick-action.add .sub');
+        if ($addSub) $addSub.textContent = count + '명 등록됨';
+      }
+
+      // 소속 매장 — memberships 응답으로 교체
+      if (memRes && Array.isArray(memRes.memberships) && memRes.memberships.length > 0) {
+        const $ss = document.querySelector('.stores-switch');
+        if ($ss) {
+          const head = $ss.querySelector('.ss-head');
+          const itemsHTML = memRes.memberships.map(m => {
+            const isActive = me && m.store_uuid === me.store_uuid;
+            const initial = (m.store_name || '?').charAt(0);
+            const roleKo = ROLE_KO[m.role] || m.role || '';
+            const tag = m.is_primary ? '본 매장' : (isActive ? '현재' : '협력');
+            return `
+              <div class="store-item${isActive ? ' active' : ''}" data-store-uuid="${esc(m.store_uuid)}">
+                <div class="ico">${esc(initial)}</div>
+                <div class="body">
+                  <div class="name">${esc(m.store_name || '(이름 없음)')}</div>
+                  <div class="sub">${esc(roleKo)} · ${esc(tag)}</div>
+                </div>
+                <div class="check">✓</div>
+              </div>`;
+          }).join('');
+          $ss.innerHTML = (head ? head.outerHTML : '') + itemsHTML;
+
+          // 새로 만든 store-item 에 클릭 핸들러 (시각 토글만)
+          $ss.querySelectorAll('.store-item').forEach(item => {
+            item.addEventListener('click', () => {
+              $ss.querySelectorAll('.store-item').forEach(x => x.classList.remove('active'));
+              item.classList.add('active');
+              const name = (item.querySelector('.name')?.textContent || '').trim();
+              if (window.NoxUI) {
+                window.NoxUI.haptic(10);
+                window.NoxUI.toast(`${name} 매장으로 전환`);
+              }
+            });
+          });
+          // 헤더의 + 다른 매장 추가 핸들러 재바인딩
+          const $addStore = $ss.querySelector('.ss-head .new');
+          if ($addStore) {
+            $addStore.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (window.NoxUI) {
+                window.NoxUI.haptic(8);
+                window.NoxUI.toast('매장 추가 (준비 중)');
+              }
+            });
+          }
+        }
+      }
+    }).catch(() => { /* 실패 시 mock 유지 */ });
+  })();
+
   document.querySelectorAll('.toggle').forEach(t => {
     t.addEventListener('click', () => {
       t.classList.toggle('on');
@@ -524,13 +625,19 @@
     });
   }
 
-  // 로그아웃 mock
+  // 로그아웃 — NoxAPI 사용 (성공 시 자동 /login redirect)
   const $logout = document.getElementById('logout-btn');
   if ($logout) {
     $logout.addEventListener('click', () => {
       if (window.NoxUI) {
         window.NoxUI.haptic([10, 30, 10]);
-        window.NoxUI.toast('로그아웃 됨', { type: 'success' });
+        window.NoxUI.toast('로그아웃 중...', { type: 'success' });
+      }
+      if (window.NoxAPI && window.NoxAPI.logout) {
+        window.NoxAPI.logout();
+      } else {
+        // fallback (mock 환경)
+        setTimeout(() => { location.href = '/login'; }, 600);
       }
     });
   }

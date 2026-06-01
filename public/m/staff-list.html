@@ -406,36 +406,91 @@
 
 <script>
 (function () {
-  // 검색 — 실시간 필터링
-  const $search = document.getElementById('staff-search');
-  const rows = Array.from(document.querySelectorAll('.staff-row'));
-  if ($search) {
-    $search.addEventListener('input', () => {
-      const q = $search.value.trim().toLowerCase();
-      let visible = 0;
-      let present = 0;
-      rows.forEach(row => {
-        const name = (row.querySelector('.name')?.textContent || '').toLowerCase();
-        const meta = (row.querySelector('.meta')?.textContent || '').toLowerCase();
-        const match = !q || name.includes(q) || meta.includes(q);
-        row.style.display = match ? '' : 'none';
-        if (match) {
-          visible++;
-          if (!row.classList.contains('off')) present++;
-        }
-      });
-      const ttlNum = document.querySelector('.list-head .ttl b');
-      const presentEl = document.getElementById('present-count');
-      if (ttlNum) ttlNum.textContent = String(visible);
-      if (presentEl) presentEl.textContent = String(present);
-    });
+  'use strict';
+
+  const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
+              (s => String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
+  const $list       = document.querySelector('.staff-list');
+  const $ttlNum     = document.querySelector('.list-head .ttl b');
+  const $presentEl  = document.getElementById('present-count');
+  const $addSub     = document.querySelector('.quick-action.add .sub');
+  const $headerSub  = document.querySelector('.page-header .sub-ttl');
+  const $search     = document.getElementById('staff-search');
+  const $sortMode   = document.getElementById('sort-mode');
+  const $sortToggle = document.getElementById('sort-toggle');
+
+  // 상태 (현재 렌더된 row 들 — mock 또는 API 응답)
+  let rows = Array.from(document.querySelectorAll('.staff-row'));
+
+  // ─── 카드 1개 HTML ──────────────────────────────────
+  // category: 'S' | 'P' | 'H' | 'mixed' | 'off'
+  function cardHTML(h, category) {
+    const display = h.nickname || h.name || '?';
+    const initial = display.charAt(0) || '?';
+    const id = h.membership_id || h.hostess_id || '';
+    const href = id ? `staff.html?id=${encodeURIComponent(id)}` : 'staff.html';
+    const phoneTail = h.phone ? esc(String(h.phone).slice(-4)) : '';
+    const metaBits = [];
+    if (h.role && h.role !== 'hostess') metaBits.push(esc(h.role));
+    if (h.status === 'pending') metaBits.push('승인 대기');
+    if (phoneTail) metaBits.push('···' + phoneTail);
+    if (!metaBits.length) metaBits.push('등록됨');
+    const meta = metaBits.join(' <span class="dot">·</span>');
+
+    return `
+      <a href="${esc(href)}" class="staff-row ${esc(category)}">
+        <div class="nm-circle">${esc(initial)}</div>
+        <div class="body">
+          <div class="name">${esc(display)}</div>
+          <div class="meta">${meta}</div>
+        </div>
+        <div class="right">
+          <div class="amt">—</div>
+          <div class="pay">📋 등록</div>
+        </div>
+      </a>`;
   }
+
+  // category 추측 — API 응답에 종목 정보가 없으면 'P' 기본
+  function inferCategory(h) {
+    const c = (h.category || h.primary_type || '').toString().toUpperCase();
+    if (c === 'S' || c === 'P' || c === 'H' || c === 'MIXED') return c.toLowerCase() === 'mixed' ? 'mixed' : c;
+    if (h.status && h.status !== 'approved') return 'off P';
+    return 'P';
+  }
+
+  // ─── 검색 / 카운트 재계산 ───────────────────────────
+  function refreshCount() {
+    let visible = 0;
+    let present = 0;
+    rows.forEach(row => {
+      if (row.style.display === 'none') return;
+      visible++;
+      if (!row.classList.contains('off')) present++;
+    });
+    if ($ttlNum) $ttlNum.textContent = String(visible);
+    if ($presentEl) $presentEl.textContent = String(present);
+  }
+
+  function applySearch() {
+    const q = ($search?.value || '').trim().toLowerCase();
+    rows.forEach(row => {
+      const name = (row.querySelector('.name')?.textContent || '').toLowerCase();
+      const meta = (row.querySelector('.meta')?.textContent || '').toLowerCase();
+      const match = !q || name.includes(q) || meta.includes(q);
+      row.style.display = match ? '' : 'none';
+    });
+    refreshCount();
+  }
+
+  if ($search) $search.addEventListener('input', applySearch);
 
   // 정렬 토글 (mock — 시각 라벨만)
   const sortModes = ['정산순', '이름순', '출근순', '메이드순'];
   let sortIdx = 0;
-  const $sortMode = document.getElementById('sort-mode');
-  const $sortToggle = document.getElementById('sort-toggle');
   function nextSort() {
     sortIdx = (sortIdx + 1) % sortModes.length;
     if ($sortMode) $sortMode.textContent = sortModes[sortIdx] + ' ▾';
@@ -446,6 +501,48 @@
   }
   if ($sortMode) $sortMode.addEventListener('click', nextSort);
   if ($sortToggle) $sortToggle.addEventListener('click', nextSort);
+
+  // ─── NOX API 연동 ─────────────────────────────────
+  async function loadFromAPI() {
+    if (!window.NoxAPI || !window.NoxAPI.hostesses) return;
+    try {
+      const [meRes, hostRes] = await Promise.all([
+        window.NoxAPI.me().catch(() => null),
+        window.NoxAPI.hostesses(),
+      ]);
+      const list = Array.isArray(hostRes?.hostesses) ? hostRes.hostesses : [];
+
+      // 헤더 sub-title (조준성 · 마블 -> 실제 사용자/매장)
+      if ($headerSub && meRes) {
+        const storeName = meRes.store_name || '매장';
+        $headerSub.textContent = storeName;
+      }
+
+      if (list.length === 0) {
+        // 빈 응답 — mock 유지하지 않고 빈 상태로 표시
+        $list.innerHTML = `
+          <div style="padding: 40px 22px; text-align: center; color: var(--sub); font-size: 13px; font-weight: 600;">
+            등록된 스태프가 없습니다
+          </div>`;
+        rows = [];
+        if ($ttlNum) $ttlNum.textContent = '0';
+        if ($presentEl) $presentEl.textContent = '0';
+        if ($addSub) $addSub.textContent = '0명 등록됨';
+        return;
+      }
+
+      // 카드 동적 렌더
+      $list.innerHTML = list.map(h => cardHTML(h, inferCategory(h))).join('');
+      rows = Array.from(document.querySelectorAll('.staff-row'));
+      if ($addSub) $addSub.textContent = list.length + '명 등록됨';
+      applySearch();
+    } catch (err) {
+      // 실패 시 mock 유지 (fallback)
+      console.warn('[staff-list] API 실패, mock 유지:', err?.message || err);
+    }
+  }
+
+  loadFromAPI();
 })();
 </script>
 

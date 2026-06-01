@@ -306,9 +306,9 @@
     </div>
   </div>
 
-  <!-- Step 2: 매장 -->
+  <!-- Step 2: 룸 -->
   <div class="step">
-    <div class="h"><div class="num">2</div><div class="lbl">매장</div></div>
+    <div class="h"><div class="num">2</div><div class="lbl">룸</div></div>
     <div class="stores-area" id="stores-area">
       <div class="placeholder">먼저 층을 선택하세요</div>
     </div>
@@ -366,111 +366,250 @@
 (function () {
   'use strict';
 
-  // ─── 층별 매장 매핑 ───
-  // 실제 NOX 의 stores.floor_no 기반. mock 은 일반화된 이름.
-  const FLOORS = {
-    5: ['본 매장', '지점 A'],
-    6: ['지점 B', '지점 C', '지점 G', '지점 H'],
-    7: ['지점 D', '지점 I'],
-    8: ['지점 E', '지점 F', '지점 J', '지점 K', '지점 L', '지점 M']
+  // ─── Mock fallback (API 실패 시) ───────────────────
+  const MOCK_FLOORS = {
+    5: [{ id: null, room_no: '본 매장', floor_no: 5 }],
+    6: [{ id: null, room_no: '지점 B', floor_no: 6 }],
+    7: [{ id: null, room_no: '지점 D', floor_no: 7 }],
+    8: [{ id: null, room_no: '지점 E', floor_no: 8 }],
+  };
+  // Mock 종목/시간 (NOX 비즈니스 규칙 기반)
+  const MOCK_TYPES = {
+    P: { name: '퍼블릭', durations: { 90: 130000, 45: 70000, 15: 30000 } },
+    S: { name: '셔츠',   durations: { 60: 140000, 30: 70000, 15: 30000 } },
+    H: { name: '하퍼',   durations: { 60: 120000, 30: 60000, 15: 30000 } },
   };
 
-  const TYPE_PRICE = { P: 13, S: 14, H: 12 };
-  const TYPE_NAME  = { P: 'P 타입', S: 'S 타입', H: 'H 타입' };
-  const DUR_NAME   = { 60: '풀 (60분)', 30: '하프 (30분)', 15: '추가 (15분)', 45: '하프+추가 (45분)' };
+  const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
+              (s => String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
 
   const params = new URLSearchParams(location.search);
-  const staffRaw = params.get('staff') || '방울';
-  const STAFF_WHITELIST = ['방울', '은서', '미음', '아징', '하영', '지현',
-                           '지유', '겨울', '하늘', '유나', '유리', '아정'];
-  const staffName = STAFF_WHITELIST.includes(staffRaw) ? staffRaw : '방울';
+  const staffParam = params.get('staff') || '';
+  // staffParam 는 membership_id 또는 이름. API 응답에서 둘 다 매칭.
 
-  const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
-              (s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+  // ─── 상태 / DOM ─────────────────────────────────
+  // state.floor: 숫자, state.room: 선택된 룸 row, state.type: 'P'|'S'|'H'
+  // state.dur: { time_minutes, time_type, price, manager_deduction }
+  const state = {
+    floor: null,
+    room: null,        // 선택된 room row (id, room_no, ...)
+    roomManual: '',    // 수동 입력 룸 번호 (룸 목록 없을 때)
+    type: null,
+    dur: null,
+  };
 
-  // 헤더 채우기
-  document.getElementById('hero-nm').firstChild.textContent = staffName + ' ';
-  document.getElementById('hero-av').textContent = staffName.charAt(0);
-  document.getElementById('page-title').textContent = staffName + ' 세션 등록';
+  let ME = null;              // /api/auth/me 응답
+  let STAFF = null;           // 매칭된 hostess { membership_id, name, ... }
+  let FLOORS = MOCK_FLOORS;   // {5: [room, ...], 6: [...]}
+  let TYPES_BY_CAT = null;    // {P: {name, durations: {time_minutes: {price, time_type, manager_deduction}}}}
+  let usingMock = true;       // API 실패 → mock 모드
 
-  // 시각 자동
+  // 헤더 초기 값
+  const $heroNm   = document.getElementById('hero-nm');
+  const $heroAv   = document.getElementById('hero-av');
+  const $heroSub  = document.getElementById('hero-sub');
+  const $pageTtl  = document.getElementById('page-title');
+  const $heroTime = document.getElementById('hero-time');
+  const $stores   = document.getElementById('stores-area');
+  const $typeGrid = document.getElementById('type-grid');
+  const $timeGrid = document.getElementById('time-grid');
+  const $preview  = document.getElementById('preview');
+  const $previewBody = document.getElementById('preview-body');
+  const $previewTime = document.getElementById('preview-time');
+  const $save     = document.getElementById('save-btn');
+  const $room     = document.getElementById('room-input');
+  const $floorGrid = document.getElementById('floor-grid');
+
+  function haptic(d) { if (navigator.vibrate) navigator.vibrate(d || 8); }
+  function toast(msg, opt) {
+    if (window.NoxUI && window.NoxUI.toast) window.NoxUI.toast(msg, opt);
+    else if (opt && opt.type === 'error') console.warn(msg);
+  }
   function now() {
     const d = new Date();
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
   function refreshTime() {
     const t = now();
-    document.getElementById('hero-time').textContent = t;
-    document.getElementById('preview-time').textContent = t;
+    if ($heroTime) $heroTime.textContent = t;
+    if ($previewTime) $previewTime.textContent = t;
   }
   refreshTime();
-  setInterval(refreshTime, 30 * 1000); // 30초마다 갱신
+  setInterval(refreshTime, 30 * 1000);
 
-  // 상태
-  const state = { floor: null, store: null, type: null, dur: null, room: '' };
+  // ─── 헤더 채우기 (staffParam 매칭) ─────────────────
+  function setStaffHeader(staff) {
+    const display = (staff && (staff.nickname || staff.name || staff.hostess_name)) || staffParam || '?';
+    if ($heroNm) {
+      $heroNm.firstChild.textContent = display + ' ';
+    }
+    if ($heroAv) $heroAv.textContent = (display.charAt(0) || '?');
+    if ($pageTtl) $pageTtl.textContent = display + ' 세션 등록';
+  }
+  setStaffHeader(null);
 
-  const $stores   = document.getElementById('stores-area');
-  const $preview  = document.getElementById('preview');
-  const $previewBody = document.getElementById('preview-body');
-  const $save     = document.getElementById('save-btn');
-  const $room     = document.getElementById('room-input');
+  // ─── 종목/시간 렌더 ─────────────────────────────
+  // service-types 응답을 카테고리(P/S/H)별로 정규화
+  function normalizeServiceTypes(raw) {
+    // raw.service_types: [{service_type:'퍼블릭', time_type:'기본', time_minutes:90, price:130000, manager_deduction, has_greeting_check, sort_order}]
+    const TYPE_KO_TO_KEY = { '퍼블릭': 'P', '셔츠': 'S', '하퍼': 'H' };
+    const out = { P: { name: '퍼블릭', durations: {} },
+                  S: { name: '셔츠',   durations: {} },
+                  H: { name: '하퍼',   durations: {} } };
+    const list = Array.isArray(raw?.service_types) ? raw.service_types : [];
+    list.forEach(t => {
+      const key = TYPE_KO_TO_KEY[t.service_type];
+      if (!key) return;
+      const mins = Number(t.time_minutes) || 0;
+      if (mins <= 0) return;
+      out[key].durations[mins] = {
+        price: Number(t.price) || 0,
+        time_type: t.time_type || '기본',
+        manager_deduction: Number(t.manager_deduction) || 0,
+        has_greeting_check: !!t.has_greeting_check,
+      };
+    });
+    return out;
+  }
 
-  function haptic(d) { if (navigator.vibrate) navigator.vibrate(d || 8); }
+  function renderTypeGrid() {
+    if (!TYPES_BY_CAT) return;
+    const cats = ['P', 'S', 'H'];
+    $typeGrid.innerHTML = cats.map(c => {
+      const t = TYPES_BY_CAT[c];
+      const dKeys = Object.keys(t.durations);
+      const minPrice = dKeys.length
+        ? Math.min(...dKeys.map(k => t.durations[k].price))
+        : 0;
+      const priceLbl = minPrice ? Math.round(minPrice / 10000) + '만~' : '—';
+      const ic = c === 'P' ? '●' : c === 'S' ? '★' : '♥';
+      return `<div class="opt ${c}" data-type="${c}">
+        <div class="ic">${ic}</div>
+        <div class="nm">${esc(t.name)}</div>
+        <div class="sub-lbl">${esc(priceLbl)}</div>
+      </div>`;
+    }).join('');
+    bindGroup($typeGrid, 'type', (val) => {
+      state.type = val;
+      state.dur = null;
+      renderTimeGrid();
+    });
+  }
 
-  function renderStores() {
+  function renderTimeGrid() {
+    if (!state.type || !TYPES_BY_CAT) {
+      $timeGrid.innerHTML = '<div class="placeholder" style="grid-column: 1 / -1;">먼저 종목을 선택하세요</div>';
+      return;
+    }
+    const t = TYPES_BY_CAT[state.type];
+    const durs = t.durations;
+    const sortedMins = Object.keys(durs).map(Number).sort((a, b) => b - a);
+    if (sortedMins.length === 0) {
+      $timeGrid.innerHTML = '<div class="placeholder" style="grid-column: 1 / -1;">설정된 시간 단가가 없습니다</div>';
+      return;
+    }
+    $timeGrid.innerHTML = sortedMins.map(mins => {
+      const d = durs[mins];
+      const priceLbl = Math.round(d.price / 10000) + '만';
+      // 시간 라벨: '기본' '반티' '차3'
+      const tLbl = d.time_type || (mins + '분');
+      return `<div class="opt" data-dur="${mins}">
+        <div class="ic">⏱</div>
+        <div class="nm">${esc(tLbl)}</div>
+        <div class="sub-lbl">${mins}분 · ${priceLbl}</div>
+      </div>`;
+    }).join('');
+    bindGroup($timeGrid, 'dur', (val) => {
+      const mins = Number(val);
+      const d = durs[mins];
+      state.dur = {
+        time_minutes: mins,
+        time_type: d.time_type,
+        price: d.price,
+        manager_deduction: d.manager_deduction,
+      };
+    });
+  }
+
+  function bindGroup($group, key, onChange) {
+    $group.querySelectorAll('.opt').forEach(o => {
+      o.addEventListener('click', () => {
+        $group.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
+        o.classList.add('selected');
+        haptic(10);
+        onChange(o.dataset[key]);
+        updatePreview();
+      });
+    });
+  }
+
+  // ─── 룸 렌더 ─────────────────────────────────
+  function renderRooms() {
     if (!state.floor) {
       $stores.innerHTML = '<div class="placeholder">먼저 층을 선택하세요</div>';
       return;
     }
     const list = FLOORS[state.floor] || [];
     if (list.length === 0) {
-      $stores.innerHTML = '<div class="placeholder">이 층에 등록된 매장이 없습니다</div>';
+      $stores.innerHTML = '<div class="placeholder">이 층에 등록된 룸이 없습니다</div>';
       return;
     }
     $stores.innerHTML = '<div class="store-grid">' +
-      list.map(s => `<div class="opt" data-store="${esc(s)}"><div class="ic">🏪</div><div class="nm">${esc(s)}</div></div>`).join('') +
+      list.map((r, i) => {
+        const label = r.room_name || ('Room ' + (r.room_no ?? '?'));
+        return `<div class="opt" data-room-idx="${i}">
+          <div class="ic">🚪</div>
+          <div class="nm">${esc(label)}</div>
+        </div>`;
+      }).join('') +
       '</div>';
     $stores.querySelectorAll('.opt').forEach(o => {
       o.addEventListener('click', () => {
         $stores.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
         o.classList.add('selected');
-        state.store = o.dataset.store;
+        const idx = Number(o.dataset.roomIdx);
+        state.room = list[idx];
         haptic(10);
         updatePreview();
       });
     });
   }
 
-  function pickOne(groupId, key) {
-    const $group = document.getElementById(groupId);
-    if (!$group) return;
-    $group.querySelectorAll('.opt').forEach(o => {
+  // ─── 층 선택 ─────────────────────────────────
+  function bindFloors() {
+    // 층 목록은 정적 (5~8). FLOORS map 에 데이터 있는 층만 활성
+    $floorGrid.querySelectorAll('.opt').forEach(o => {
+      const floor = Number(o.dataset.floor);
+      const count = (FLOORS[floor] || []).length;
+      const $sub = o.querySelector('.sub-lbl');
+      if ($sub) $sub.textContent = count ? '룸 ' + count : '없음';
+      if (count === 0) o.classList.add('disabled');
+      else o.classList.remove('disabled');
+
       o.addEventListener('click', () => {
-        $group.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
+        if (o.classList.contains('disabled')) return;
+        $floorGrid.querySelectorAll('.opt').forEach(x => x.classList.remove('selected'));
         o.classList.add('selected');
-        state[key] = o.dataset[key];
+        state.floor = floor;
+        state.room = null;
         haptic(10);
-        if (key === 'floor') {
-          // 층 변경 시 매장 초기화
-          state.store = null;
-          renderStores();
-        }
+        renderRooms();
         updatePreview();
       });
     });
   }
-  pickOne('floor-grid', 'floor');
-  pickOne('type-grid', 'type');
-  pickOne('time-grid', 'dur');
 
+  // 룸 번호 수동 입력 (백업) — 룸 목록에 ID 가 없는 mock 모드에서만 의미
   $room.addEventListener('input', () => {
-    state.room = $room.value.replace(/[^0-9]/g, '').slice(0, 3);
-    $room.value = state.room;
+    state.roomManual = $room.value.replace(/[^0-9]/g, '').slice(0, 3);
+    $room.value = state.roomManual;
     updatePreview();
   });
 
   function updatePreview() {
-    const ready = state.floor && state.store && state.type && state.dur;
+    const ready = state.floor && state.room && state.type && state.dur;
     if (!ready) {
       $preview.style.display = 'none';
       $save.disabled = true;
@@ -479,31 +618,131 @@
     $preview.style.display = '';
     $save.disabled = false;
 
-    const price = TYPE_PRICE[state.type] || 13;
-    const typeName = TYPE_NAME[state.type];
-    const durName = DUR_NAME[state.dur] || (state.dur + '분');
-    const roomTxt = state.room ? `${esc(state.room)}번방` : '룸 미지정';
+    const t = TYPES_BY_CAT[state.type];
+    const priceLbl = Math.round(state.dur.price / 10000) + '만원';
+    const roomLbl = state.room.room_name || ('Room ' + state.room.room_no);
+    const storeLbl = ME?.store_name || '본 매장';
+    const staffName = (STAFF && (STAFF.nickname || STAFF.name || STAFF.hostess_name)) || staffParam || '스태프';
 
     $previewBody.innerHTML =
       `<b>${esc(staffName)}</b> 가 ` +
-      `<b>${esc(state.store)}</b> ` +
-      `<em>${esc(roomTxt)}</em> 에서<br>` +
-      `<em>${esc(typeName)} · ${esc(durName)}</em> 시작<br>` +
-      `<span style="font-size:13px; color: rgba(255,255,255,0.6); font-weight:600;">단가 ${price}만원</span>`;
+      `<b>${esc(storeLbl)}</b> ` +
+      `<em>${esc(roomLbl)}</em> 에서<br>` +
+      `<em>${esc(t.name)} · ${esc(state.dur.time_type)} ${state.dur.time_minutes}분</em><br>` +
+      `<span style="font-size:13px; color: rgba(255,255,255,0.6); font-weight:600;">단가 ${priceLbl}</span>`;
   }
 
-  // 저장
-  $save.addEventListener('click', () => {
+  // ─── 저장: 체크인 + 참여자 추가 ───────────────────
+  async function doSave() {
     if ($save.disabled) return;
     haptic([10, 50, 10]);
-    const msg = `${staffName} → ${state.store} ${TYPE_NAME[state.type]} 등록됨`;
-    if (window.NoxUI && window.NoxUI.toast) {
-      window.NoxUI.toast(msg, { type: 'success' });
-    } else {
-      alert(msg);
+
+    // mock 모드 (API 실패) → 토스트만
+    if (usingMock || !state.room?.id || !ME?.membership_id || !STAFF?.membership_id) {
+      const t = TYPES_BY_CAT[state.type];
+      const staffName = (STAFF && (STAFF.nickname || STAFF.name)) || staffParam || '스태프';
+      toast(`${staffName} → ${t.name} 등록됨 (mock)`, { type: 'success' });
+      setTimeout(() => { location.href = 'index.html'; }, 900);
+      return;
     }
-    setTimeout(() => { location.href = 'index.html'; }, 900);
-  });
+
+    $save.disabled = true;
+    const originalLabel = $save.textContent;
+    $save.textContent = '등록 중...';
+    try {
+      // 1) 체크인 → session_id
+      const checkin = await window.NoxAPI.checkin(
+        state.room.id,
+        ME.membership_id,
+        { manager_name: ME.full_name || ME.store_name || '' }
+      );
+      const sessionId = checkin?.session_id || checkin?.session?.session_id || checkin?.session?.id;
+      if (!sessionId) throw new Error('session_id 응답 없음');
+
+      // 2) 참여자 추가
+      await window.NoxAPI.addParticipant(sessionId, {
+        membership_id: STAFF.membership_id,
+        category: state.type,
+        time_minutes: state.dur.time_minutes,
+        time_type: state.dur.time_type,
+        manager_deduction: state.dur.manager_deduction,
+      });
+
+      toast('세션 등록 완료', { type: 'success' });
+      setTimeout(() => { location.href = 'holes.html'; }, 700);
+    } catch (err) {
+      const msg = err?.message || String(err);
+      toast('등록 실패: ' + msg, { type: 'error' });
+      $save.disabled = false;
+      $save.textContent = originalLabel;
+    }
+  }
+  $save.addEventListener('click', doSave);
+
+  // ─── 초기화: API 로드 ────────────────────────────
+  async function init() {
+    bindFloors();
+    renderTypeGrid();
+    renderTimeGrid();
+
+    if (!window.NoxAPI) {
+      // API 없음 → mock 모드
+      return;
+    }
+    try {
+      const [meRes, hostRes, roomsRes, typesRes] = await Promise.all([
+        window.NoxAPI.me(),
+        window.NoxAPI.hostesses(),
+        window.NoxAPI.rooms(),
+        window.NoxAPI.serviceTypes(),
+      ]);
+
+      ME = meRes || null;
+
+      // staffParam 매칭 (membership_id 우선, 이름 fallback)
+      const list = Array.isArray(hostRes?.hostesses) ? hostRes.hostesses : [];
+      STAFF = list.find(h => {
+        const id = h.membership_id || h.hostess_id;
+        return id === staffParam;
+      }) || list.find(h => (h.nickname === staffParam || h.name === staffParam || h.hostess_name === staffParam)) || null;
+      setStaffHeader(STAFF);
+      if ($heroSub) $heroSub.textContent = STAFF ? '어디 들어가요?' : '스태프 미선택 (mock)';
+
+      // 룸 → 층별 그룹핑
+      const rooms = Array.isArray(roomsRes?.rooms) ? roomsRes.rooms : [];
+      if (rooms.length > 0) {
+        const grouped = {};
+        rooms.forEach(r => {
+          const f = Number(r.floor_no);
+          if (!Number.isFinite(f)) return;
+          (grouped[f] = grouped[f] || []).push(r);
+        });
+        // 룸 번호로 정렬
+        Object.keys(grouped).forEach(f => {
+          grouped[f].sort((a, b) => Number(a.room_no || 0) - Number(b.room_no || 0));
+        });
+        FLOORS = grouped;
+      }
+
+      // 종목 / 시간
+      if (Array.isArray(typesRes?.service_types) && typesRes.service_types.length > 0) {
+        TYPES_BY_CAT = normalizeServiceTypes(typesRes);
+      }
+
+      usingMock = false;
+      // 다시 렌더
+      bindFloors();
+      renderTypeGrid();
+      renderTimeGrid();
+    } catch (err) {
+      console.warn('[assign-session] API 실패, mock 유지:', err?.message || err);
+      // FLOORS / TYPES_BY_CAT 가 null/mock 인 상태로 유지
+    }
+    // TYPES_BY_CAT 가 아직 없으면 mock 사용
+    if (!TYPES_BY_CAT) TYPES_BY_CAT = MOCK_TYPES;
+    renderTypeGrid();
+  }
+  init();
 })();
 </script>
 

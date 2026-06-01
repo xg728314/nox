@@ -1029,6 +1029,56 @@
 <script>
   function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
 
+  // ─── URL ?id=<membership_id> 기반 자동 채우기 ─────────
+  (function fillFromAPI() {
+    if (!window.NoxAPI || !window.NoxAPI.hostesses) return;
+    const params = new URLSearchParams(location.search);
+    const requestedId = params.get('id');
+    if (!requestedId) return; // mock 유지
+
+    const esc = (window.SecUtils && window.SecUtils.escapeHtml) ||
+                (s => String(s == null ? '' : s)
+                  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+
+    Promise.all([
+      window.NoxAPI.me().catch(() => null),
+      window.NoxAPI.hostesses(),
+    ]).then(([me, hostRes]) => {
+      const list = Array.isArray(hostRes?.hostesses) ? hostRes.hostesses : [];
+      // 화이트리스트 매칭 (응답에 있는 id 만 허용)
+      const match = list.find(h => {
+        const id = h.membership_id || h.hostess_id;
+        return id === requestedId;
+      });
+      if (!match) {
+        // 매칭 없음 — mock 그대로
+        return;
+      }
+
+      const display = match.nickname || match.name || match.hostess_name || '?';
+
+      // 헤더 이름 갱신
+      const $nm = document.querySelector('.hero .nm');
+      if ($nm) $nm.textContent = display;
+      const $title = document.querySelector('title');
+      if ($title) $title.textContent = 'NOX Manager — ' + display + ' 상세';
+
+      // 종목 / 메타 — API 에서 안 오면 mock 유지
+      const $meta = document.querySelector('.hero .meta');
+      if ($meta && match.category) {
+        $meta.innerHTML = `<b>${esc(match.category)}</b>`;
+      }
+
+      // 매장 이름 (정보 영역 자주 가는 매장은 mock 유지)
+      const storeName = me?.store_name;
+      if (storeName) {
+        // info-row 의 "자주 가는 매장" 우선 갱신은 데이터 부재로 패스
+        // 다만 hero meta 에 보조 표시 가능
+      }
+    }).catch(() => { /* 실패 시 mock 유지 */ });
+  })();
+
   document.querySelectorAll('.tab-btn').forEach(t => {
     t.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
