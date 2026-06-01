@@ -650,26 +650,52 @@
     const originalLabel = $save.textContent;
     $save.textContent = '등록 중...';
     try {
-      // 1) 체크인 → session_id
-      const checkin = await window.NoxAPI.checkin(
-        state.room.id,
-        ME.membership_id,
-        { manager_name: ME.full_name || ME.store_name || '' }
-      );
-      const sessionId = checkin?.session_id || checkin?.session?.session_id || checkin?.session?.id;
+      // 1) session_id 확보 — 이미 활성 세션이 있으면 재사용 (동일 룸에 두 번째 스태프 추가 케이스)
+      let sessionId = (state.room.session && (state.room.session.id || state.room.session.session_id)) || null;
+      if (!sessionId) {
+        try {
+          const checkin = await window.NoxAPI.checkin(
+            state.room.id,
+            ME.membership_id,
+            { manager_name: ME.full_name || '' }
+          );
+          sessionId = checkin?.session_id || checkin?.session?.id || null;
+        } catch (e) {
+          // race: 다른 사용자가 동시에 checkin → 409. rooms 재조회로 sessionId 회수.
+          const msg = e?.message || '';
+          if (/SESSION_CONFLICT|HTTP 409/.test(msg)) {
+            window.NoxAPI.invalidate('rooms');
+            const refreshed = await window.NoxAPI.rooms();
+            const r = (refreshed?.rooms || []).find(rr => rr.id === state.room.id);
+            sessionId = (r && r.session && (r.session.id || r.session.session_id)) || null;
+          } else {
+            throw e;
+          }
+        }
+      }
       if (!sessionId) throw new Error('session_id 응답 없음');
 
-      // 2) 참여자 추가
-      await window.NoxAPI.addParticipant(sessionId, {
+      // 2) 참여자 추가 — cross-store 지원 + 셔츠 자동 인사확인
+      const params = {
         membership_id: STAFF.membership_id,
         category: state.type,
         time_minutes: state.dur.time_minutes,
         time_type: state.dur.time_type,
         manager_deduction: state.dur.manager_deduction,
-      });
+      };
+      // cross-store: 백엔드가 origin_store_uuid 로 cross_store_work_records 조회.
+      //   STAFF.origin_store_uuid 가 현재 매장과 다르면 cross-store 흐름 트리거.
+      if (STAFF.origin_store_uuid && STAFF.origin_store_uuid !== ME.store_uuid) {
+        params.origin_store_uuid = STAFF.origin_store_uuid;
+      }
+      // 셔츠 (S 타입) 는 has_greeting_check 설정 시 인사확인 필수. 모바일은 UI 분기 없이 자동 confirm.
+      if (state.type === '셔츠') {
+        params.greeting_confirmed = true;
+      }
+      await window.NoxAPI.addParticipant(sessionId, params);
 
       toast('세션 등록 완료', { type: 'success' });
-      setTimeout(() => { location.href = 'holes.html'; }, 700);
+      setTimeout(() => { location.href = 'index.html'; }, 700);
     } catch (err) {
       const msg = err?.message || String(err);
       toast('등록 실패: ' + msg, { type: 'error' });
