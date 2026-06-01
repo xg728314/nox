@@ -285,6 +285,14 @@
   .maid-card .confirm-status .dot.no {
     background: linear-gradient(135deg, #EF4444, #B91C1C);
   }
+  /* cross-store 등록 — 타 매장 출근 표식 */
+  .maid-card.cross-store {
+    border-left: 4px solid #3B82F6;
+  }
+  .maid-card.cross-store .head {
+    color: #1D4ED8;
+  }
+
   /* 양쪽 확인 → 등록 완료 */
   .maid-card.both-ok {
     background: linear-gradient(135deg, rgba(34, 197, 94, 0.06), var(--card)) !important;
@@ -437,6 +445,144 @@
   .maid-sheet .btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* 필드 라벨 우측 메타 */
+  .maid-sheet .field-lbl {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .maid-sheet .lbl-meta {
+    font-size: 10px; font-weight: 800;
+    color: var(--gold-deep);
+    background: rgba(196, 155, 97, 0.12);
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  /* 필터 탭 (내 식구 / 전체) */
+  .maid-sheet .filter-tabs {
+    display: flex; gap: 4px;
+    background: rgba(45, 43, 38, 0.05);
+    padding: 3px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .maid-sheet .ftab {
+    flex: 1;
+    padding: 8px;
+    text-align: center;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--sub);
+    cursor: pointer;
+    transition: all 0.16s;
+    user-select: none;
+  }
+  .maid-sheet .ftab.selected {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  }
+  /* hostess list */
+  .maid-sheet .hostess-list {
+    margin-top: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+  }
+  .maid-sheet .hostess-list .empty {
+    padding: 22px;
+    text-align: center;
+    font-size: 12px; color: var(--sub); font-weight: 600;
+  }
+  .maid-sheet .h-row {
+    display: flex; gap: 10px; align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .maid-sheet .h-row:last-child { border-bottom: none; }
+  .maid-sheet .h-row:active { background: rgba(196, 155, 97, 0.06); }
+  .maid-sheet .h-row.selected {
+    background: rgba(196, 155, 97, 0.1);
+  }
+  .maid-sheet .h-row .cbox {
+    width: 20px; height: 20px;
+    border: 2px solid var(--line);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    background: var(--card);
+    transition: all 0.12s;
+  }
+  .maid-sheet .h-row.selected .cbox {
+    background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+    border-color: transparent;
+  }
+  .maid-sheet .h-row.selected .cbox::after {
+    content: '✓';
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .maid-sheet .h-row .av {
+    width: 32px; height: 32px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(196,155,97,0.18), rgba(196,155,97,0.08));
+    color: var(--gold-deep);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800;
+    flex-shrink: 0;
+  }
+  .maid-sheet .h-row .info {
+    flex: 1; min-width: 0;
+  }
+  .maid-sheet .h-row .nm {
+    font-size: 14px; font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .maid-sheet .h-row .sub {
+    font-size: 11px; color: var(--sub); font-weight: 600;
+    margin-top: 1px;
+    display: flex; gap: 6px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .maid-sheet .h-row .badge {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+  .maid-sheet .h-row .badge.mine {
+    background: rgba(196, 155, 97, 0.15);
+    color: var(--gold-deep);
+  }
+  .maid-sheet .h-row .badge.other {
+    background: rgba(59, 130, 246, 0.12);
+    color: #1D4ED8;
+  }
+  /* 매장 select */
+  .maid-sheet select.sel {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 14px; font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1L6 6L11 1' stroke='%23999' stroke-width='2' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
   }
 
   /* 입력창 */
@@ -745,29 +891,45 @@
   <div class="maid-sheet" id="maidSheet" role="dialog" aria-label="메이드 등록">
     <div class="grab"></div>
     <h3>메이드 등록</h3>
-    <div class="desc">아가씨 · 종목 · 시간 선택 → 양쪽 확인 후 등록 확정</div>
+    <div class="desc">아가씨 선택 → 매장/종목/시간 → 양쪽 확인 후 등록 확정</div>
 
-    <div class="field">
-      <div class="field-lbl">아가씨</div>
-      <input type="text" id="maidHostess" placeholder="이름 입력" />
+    <!-- 1단계: 스태프 선택 (검색 + 필터 + 체크박스 멀티) -->
+    <div class="field" id="maidStaffField">
+      <div class="field-lbl">
+        <span>스태프 선택</span>
+        <span class="lbl-meta"><span id="maidPickCount">0</span>명 선택</span>
+      </div>
+      <div class="filter-tabs" id="maidFilterTabs">
+        <div class="ftab selected" data-scope="mine">내 식구</div>
+        <div class="ftab" data-scope="all">전체 (5–8F)</div>
+      </div>
+      <input type="text" id="maidSearch" placeholder="이름 검색 (동명이인은 담당 실장으로 구분)" />
+      <div class="hostess-list" id="maidHostessList">
+        <div class="empty">로딩 중...</div>
+      </div>
     </div>
 
-    <div class="field">
-      <div class="field-lbl">담당 실장 (선택)</div>
-      <input type="text" id="maidManager" placeholder="비워두면 본인" />
+    <!-- 2단계: 목적지 매장 (cross-store 지원) -->
+    <div class="field" id="maidStoreField">
+      <div class="field-lbl">어느 매장에서?</div>
+      <select id="maidStoreSelect" class="sel">
+        <option value="">본 매장 (기본)</option>
+      </select>
     </div>
 
+    <!-- 3단계: 종목 -->
     <div class="field">
       <div class="field-lbl">종목</div>
       <div class="pick-grid" id="maidCatGrid"></div>
     </div>
 
+    <!-- 4단계: 시간 -->
     <div class="field">
       <div class="field-lbl">시간</div>
       <div class="pick-grid" id="maidTimeGrid"></div>
     </div>
 
-    <div class="preview empty" id="maidPreview">아래 항목을 모두 선택하면 미리보기가 표시됩니다</div>
+    <div class="preview empty" id="maidPreview">스태프 선택 후 종목/시간을 고르면 미리보기가 표시됩니다</div>
 
     <div class="actions-row">
       <button type="button" class="btn cancel" id="maidCancel">닫기</button>
@@ -910,11 +1072,16 @@
       const won = parsed.priceWon ? (Math.round(parsed.priceWon / 10000) + '만원') : '';
       const mins = parsed.timeMinutes ? (parsed.timeMinutes + '분') : '';
       const detail = [parsed.category, parsed.timeType, mins, won].filter(Boolean).join(' · ');
+      // cross-store: head 에 "타 매장 출근 · 매장명" 표시 → 어느 매장 실장이 확인해야 하는지 명확.
+      const headLbl = parsed.destStoreName
+        ? `타 매장 출근 · ${parsed.destStoreName} · 양쪽 확인 필요`
+        : '메이드 등록 요청 · 양쪽 확인 필요';
+      const cardClasses = parsed.destStoreName ? 'maid-card pending cross-store' : 'maid-card pending';
       const html = `
         <div class="msg-row mine">
           <div class="msg-body">
-            <div class="maid-card pending" data-card-id="${id}">
-              <div class="head"><span class="live-dot"></span>메이드 등록 요청 · 양쪽 확인 필요</div>
+            <div class="${cardClasses}" data-card-id="${id}">
+              <div class="head"><span class="live-dot"></span>${esc(headLbl)}</div>
               <div class="row">
                 <div class="who">${esc(parsed.hostess)} <small>${esc(parsed.manager)} 담당</small></div>
                 <div class="time">${now()}</div>
@@ -998,24 +1165,155 @@
       bindCardActions(card);
     });
 
-    // ── + 버튼: 메이드 등록 시트 ─────────────────────
+    // ── + 버튼: 메이드 등록 시트 (검색 + 멀티 선택 + 매장 destination) ──
     const $addBtn = document.getElementById('addBtn');
     const $sheet = document.getElementById('maidSheet');
     const $backdrop = document.getElementById('maidBackdrop');
     const $cancel = document.getElementById('maidCancel');
     const $submit = document.getElementById('maidSubmit');
-    const $hostess = document.getElementById('maidHostess');
-    const $manager = document.getElementById('maidManager');
+    const $search = document.getElementById('maidSearch');
+    const $hostessList = document.getElementById('maidHostessList');
+    const $pickCount = document.getElementById('maidPickCount');
+    const $filterTabs = document.getElementById('maidFilterTabs');
+    const $storeSelect = document.getElementById('maidStoreSelect');
     const $catGrid = document.getElementById('maidCatGrid');
     const $timeGrid = document.getElementById('maidTimeGrid');
     const $preview = document.getElementById('maidPreview');
 
-    const sheetState = { cat: null, time: null };
+    // sheetState: 멀티 선택 + 필터 + cat/time + 목적지
+    const sheetState = {
+      scope: 'mine',           // 'mine' | 'all'
+      query: '',
+      selectedIds: new Set(),  // hostess.membership_id 집합
+      cat: null,
+      time: null,
+      storeUuid: '',           // '' = 본인 매장
+    };
+
+    // 캐시: API 결과 (시트 첫 open 시 1회 fetch)
+    let ALL_HOSTESSES = null; // [{ membership_id, hostess_name, manager_membership_id, manager_name, store_uuid, store_name, floor, origin_store_uuid, origin_store_name }]
+    let BUILDING_STORES = null;  // [{ store_uuid, store_name, floor }]
+    let ME = null;            // /api/auth/me 결과
+
+    async function loadIfNeeded() {
+      if (!window.NoxAPI) return;
+      const tasks = [];
+      if (!ME) tasks.push(window.NoxAPI.me().then(v => { ME = v; }).catch(() => {}));
+      if (!ALL_HOSTESSES) tasks.push(
+        window.NoxAPI.buildingHostesses().then(r => {
+          ALL_HOSTESSES = Array.isArray(r?.hostesses) ? r.hostesses : [];
+        }).catch(() => {
+          // mock fallback — 백엔드 미배포 / 인증 미통과 시
+          ALL_HOSTESSES = [
+            { membership_id: 'mock-1', hostess_name: '채아', manager_name: '임실장', store_name: '본 매장', floor: 5 },
+            { membership_id: 'mock-2', hostess_name: '지유', manager_name: '박실장', store_name: '지점 A', floor: 5 },
+            { membership_id: 'mock-3', hostess_name: '하늘', manager_name: '정실장', store_name: '지점 B', floor: 6 },
+            { membership_id: 'mock-4', hostess_name: '지연', manager_name: '임실장', store_name: '본 매장', floor: 5 },
+            { membership_id: 'mock-5', hostess_name: '지연', manager_name: '박실장', store_name: '지점 A', floor: 5 },
+            { membership_id: 'mock-6', hostess_name: '미라', manager_name: '김실장', store_name: '지점 C', floor: 7 },
+          ];
+        }),
+      );
+      if (!BUILDING_STORES) tasks.push(
+        window.NoxAPI.buildingStores().then(r => {
+          BUILDING_STORES = Array.isArray(r?.stores) ? r.stores : [];
+        }).catch(() => {
+          BUILDING_STORES = [
+            { store_uuid: '', store_name: '본 매장', floor: 5 },
+            { store_uuid: 'mock-a', store_name: '지점 A', floor: 5 },
+            { store_uuid: 'mock-b', store_name: '지점 B', floor: 6 },
+            { store_uuid: 'mock-c', store_name: '지점 C', floor: 7 },
+          ];
+        }),
+      );
+      await Promise.all(tasks);
+    }
+
+    function isMyHostess(h) {
+      // 내 식구 = 본인이 담당실장 인 hostess. ME.membership_id 가 manager_membership_id 와 매칭.
+      if (!ME) return false;
+      return h.manager_membership_id && h.manager_membership_id === ME.membership_id;
+    }
+
+    function filteredHostesses() {
+      if (!ALL_HOSTESSES) return [];
+      const q = (sheetState.query || '').trim().toLowerCase();
+      let list = ALL_HOSTESSES;
+      if (sheetState.scope === 'mine') {
+        const mine = list.filter(isMyHostess);
+        list = mine.length > 0 ? mine : list; // 내 식구 0명이면 전체로 fallback (로그인 미통과 시 보임)
+      }
+      if (q) {
+        list = list.filter(h => (h.hostess_name || '').toLowerCase().includes(q));
+      }
+      return list;
+    }
+
+    function renderHostessList() {
+      if (!$hostessList) return;
+      const list = filteredHostesses();
+      if (list.length === 0) {
+        $hostessList.innerHTML = `<div class="empty">${sheetState.query ? '검색 결과 없음' : '스태프가 없습니다'}</div>`;
+        updateSheetPreview();
+        return;
+      }
+      $hostessList.innerHTML = list.map(h => {
+        const mid = h.membership_id || h.hostess_id || '';
+        const selected = sheetState.selectedIds.has(mid) ? ' selected' : '';
+        const name = h.hostess_name || '이름없음';
+        const initial = name.charAt(0);
+        const isMine = isMyHostess(h);
+        const badge = isMine
+          ? '<span class="badge mine">내 식구</span>'
+          : `<span class="badge other">${esc(h.manager_name || '타 실장')}</span>`;
+        const storeBit = h.store_name
+          ? `<span>${esc(h.store_name)}${h.floor ? ' · ' + h.floor + 'F' : ''}</span>`
+          : '';
+        return `<div class="h-row${selected}" data-mid="${esc(mid)}">
+          <div class="cbox"></div>
+          <div class="av">${esc(initial)}</div>
+          <div class="info">
+            <div class="nm">${esc(name)}</div>
+            <div class="sub">${badge}${storeBit}</div>
+          </div>
+        </div>`;
+      }).join('');
+      $hostessList.querySelectorAll('.h-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const mid = row.dataset.mid;
+          if (sheetState.selectedIds.has(mid)) {
+            sheetState.selectedIds.delete(mid);
+            row.classList.remove('selected');
+          } else {
+            sheetState.selectedIds.add(mid);
+            row.classList.add('selected');
+          }
+          if (window.NoxUI) window.NoxUI.haptic(8);
+          updateSheetPreview();
+        });
+      });
+    }
+
+    function renderStoreSelect() {
+      if (!$storeSelect || !BUILDING_STORES) return;
+      const myStoreUuid = ME?.store_uuid || '';
+      // 본인 매장 우선 + 나머지 floor 순
+      const mine = BUILDING_STORES.find(s => s.store_uuid === myStoreUuid);
+      const others = BUILDING_STORES.filter(s => s.store_uuid !== myStoreUuid);
+      const opts = [];
+      const myLbl = mine ? `${mine.store_name} (본 매장${mine.floor ? ' · ' + mine.floor + 'F' : ''})` : '본 매장 (기본)';
+      opts.push(`<option value="${esc(myStoreUuid)}">${esc(myLbl)}</option>`);
+      for (const s of others) {
+        opts.push(`<option value="${esc(s.store_uuid)}">${esc(s.store_name)}${s.floor ? ' · ' + s.floor + 'F' : ''}</option>`);
+      }
+      $storeSelect.innerHTML = opts.join('');
+      $storeSelect.value = sheetState.storeUuid || myStoreUuid;
+    }
 
     function renderCatGrid() {
       if (!$catGrid) return;
       $catGrid.innerHTML = CAT_LIST.map(c => `
-        <div class="pick" data-cat="${esc(c)}">
+        <div class="pick${sheetState.cat === c ? ' selected' : ''}" data-cat="${esc(c)}">
           <div class="nm">${esc(c)}</div>
           <div class="sub">${PRICE_PREVIEW[c]?.기본 ? Math.round(PRICE_PREVIEW[c].기본.won/10000) + '만' : ''}</div>
         </div>`).join('');
@@ -1037,16 +1335,11 @@
       $timeGrid.innerHTML = TIME_LIST.map(t => {
         const p = map?.[t];
         const sub = p ? `${p.mins}분 · ${Math.round(p.won/10000)}만` : '';
-        return `<div class="pick" data-time="${esc(t)}">
+        return `<div class="pick${sheetState.time === t ? ' selected' : ''}" data-time="${esc(t)}">
           <div class="nm">${esc(t)}</div>
           <div class="sub">${esc(sub)}</div>
         </div>`;
       }).join('');
-      // 이전 선택 유지
-      if (sheetState.time) {
-        const prev = $timeGrid.querySelector(`[data-time="${sheetState.time}"]`);
-        if (prev) prev.classList.add('selected');
-      }
       $timeGrid.querySelectorAll('.pick').forEach(p => {
         p.addEventListener('click', () => {
           $timeGrid.querySelectorAll('.pick').forEach(x => x.classList.remove('selected'));
@@ -1059,37 +1352,63 @@
     }
 
     function updateSheetPreview() {
-      const name = ($hostess?.value || '').trim();
-      const mgr = ($manager?.value || '').trim();
-      const ready = name && sheetState.cat && sheetState.time;
-      if ($submit) $submit.disabled = !ready;
+      const count = sheetState.selectedIds.size;
+      if ($pickCount) $pickCount.textContent = String(count);
+      const ready = count > 0 && sheetState.cat && sheetState.time;
+      if ($submit) {
+        $submit.disabled = !ready;
+        $submit.textContent = ready ? `${count}명 등록` : '등록';
+      }
       if (!$preview) return;
-      if (!ready) {
+      if (count === 0) {
         $preview.className = 'preview empty';
-        $preview.textContent = '아래 항목을 모두 선택하면 미리보기가 표시됩니다';
+        $preview.textContent = '스태프 선택 후 종목/시간을 고르면 미리보기가 표시됩니다';
         return;
       }
-      const p = PRICE_PREVIEW[sheetState.cat]?.[sheetState.time];
+      // 이름 목록
+      const names = (ALL_HOSTESSES || [])
+        .filter(h => sheetState.selectedIds.has(h.membership_id))
+        .map(h => h.hostess_name)
+        .filter(Boolean);
+      const namesLbl = names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}명` : '');
+      const catLbl = sheetState.cat || '종목?';
+      const timeLbl = sheetState.time || '시간?';
+      const p = sheetState.cat && sheetState.time ? PRICE_PREVIEW[sheetState.cat]?.[sheetState.time] : null;
       const detail = p ? `${p.mins}분 · ${Math.round(p.won/10000)}만원` : '';
-      $preview.className = 'preview';
+      // 목적지 매장
+      const dest = (BUILDING_STORES || []).find(s => s.store_uuid === sheetState.storeUuid);
+      const destLbl = dest ? `${dest.store_name}${dest.floor ? ' · ' + dest.floor + 'F' : ''}` : '본 매장';
+      $preview.className = ready ? 'preview' : 'preview empty';
       $preview.innerHTML =
-        `<b>${esc(name)}</b> · <b>${esc(sheetState.cat)}</b> · <b>${esc(sheetState.time)}</b>` +
-        (detail ? ` <span style="font-weight:600; color:var(--sub);">(${esc(detail)})</span>` : '') +
-        (mgr ? `<br><span style="font-size:11px; color:var(--sub); font-weight:600;">담당: ${esc(mgr)}</span>` : '');
+        `<b>${esc(namesLbl)}</b> → <b>${esc(destLbl)}</b><br>` +
+        `<b>${esc(catLbl)}</b> · <b>${esc(timeLbl)}</b>` +
+        (detail ? ` <span style="font-weight:600; color:var(--sub);">(${esc(detail)})</span>` : '');
     }
 
     function openSheet() {
       sheetState.cat = null;
       sheetState.time = null;
-      if ($hostess) $hostess.value = '';
-      if ($manager) $manager.value = '';
-      renderCatGrid();
-      renderTimeGrid();
-      updateSheetPreview();
+      sheetState.selectedIds = new Set();
+      sheetState.query = '';
+      sheetState.scope = 'mine';
+      if ($search) $search.value = '';
+      if ($filterTabs) {
+        $filterTabs.querySelectorAll('.ftab').forEach(t => {
+          t.classList.toggle('selected', t.dataset.scope === 'mine');
+        });
+      }
       if ($sheet) $sheet.classList.add('open');
       if ($backdrop) $backdrop.classList.add('open');
-      setTimeout(() => $hostess?.focus(), 200);
+      loadIfNeeded().then(() => {
+        sheetState.storeUuid = ME?.store_uuid || '';
+        renderStoreSelect();
+        renderHostessList();
+        renderCatGrid();
+        renderTimeGrid();
+        updateSheetPreview();
+      });
     }
+
     function closeSheet() {
       if ($sheet) $sheet.classList.remove('open');
       if ($backdrop) $backdrop.classList.remove('open');
@@ -1101,24 +1420,55 @@
     });
     if ($cancel) $cancel.addEventListener('click', closeSheet);
     if ($backdrop) $backdrop.addEventListener('click', closeSheet);
-    if ($hostess) $hostess.addEventListener('input', updateSheetPreview);
-    if ($manager) $manager.addEventListener('input', updateSheetPreview);
+    if ($search) $search.addEventListener('input', () => {
+      sheetState.query = $search.value;
+      renderHostessList();
+    });
+    if ($filterTabs) {
+      $filterTabs.querySelectorAll('.ftab').forEach(t => {
+        t.addEventListener('click', () => {
+          sheetState.scope = t.dataset.scope || 'mine';
+          $filterTabs.querySelectorAll('.ftab').forEach(x => x.classList.remove('selected'));
+          t.classList.add('selected');
+          if (window.NoxUI) window.NoxUI.haptic(6);
+          renderHostessList();
+        });
+      });
+    }
+    if ($storeSelect) $storeSelect.addEventListener('change', () => {
+      sheetState.storeUuid = $storeSelect.value || '';
+      updateSheetPreview();
+    });
 
     if ($submit) $submit.addEventListener('click', () => {
-      const name = ($hostess?.value || '').trim();
-      if (!name || !sheetState.cat || !sheetState.time) return;
-      const mgr = ($manager?.value || '').trim() || '나';
+      const ids = Array.from(sheetState.selectedIds);
+      if (ids.length === 0 || !sheetState.cat || !sheetState.time) return;
       const p = PRICE_PREVIEW[sheetState.cat]?.[sheetState.time] || {};
-      appendMaidCard({
-        manager: mgr,
-        hostess: name,
-        category: sheetState.cat,
-        timeType: sheetState.time,
-        timeMinutes: p.mins ?? null,
-        priceWon: p.won ?? null,
-      });
+      const dest = (BUILDING_STORES || []).find(s => s.store_uuid === sheetState.storeUuid);
+      const myStoreUuid = ME?.store_uuid || '';
+      const isCrossStore = sheetState.storeUuid && sheetState.storeUuid !== myStoreUuid;
+
+      // 선택된 hostess 별로 카드 1장씩 추가
+      for (const mid of ids) {
+        const h = (ALL_HOSTESSES || []).find(x => x.membership_id === mid);
+        if (!h) continue;
+        appendMaidCard({
+          manager: h.manager_name || '나',
+          hostess: h.hostess_name || '이름없음',
+          category: sheetState.cat,
+          timeType: sheetState.time,
+          timeMinutes: p.mins ?? null,
+          priceWon: p.won ?? null,
+          membership_id: mid,
+          destStoreName: isCrossStore ? (dest?.store_name || '') : '',
+          destStoreUuid: isCrossStore ? sheetState.storeUuid : '',
+        });
+      }
       closeSheet();
-      if (window.NoxUI) window.NoxUI.haptic([10, 30, 10]);
+      if (window.NoxUI) {
+        window.NoxUI.haptic([10, 30, 10]);
+        window.NoxUI.toast(`${ids.length}명 등록 요청 — 양쪽 확인 대기`, { type: 'success' });
+      }
     });
   })();
 

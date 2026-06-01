@@ -97,6 +97,17 @@
         safeFetch('/api/store/service-types'));
     },
 
+    // 건물 전체 (5~8F) — 모바일 + 버튼 시트 picker 용
+    buildingHostesses() {
+      return cached('building-hostesses', CACHE_TTL_MS * 3, () =>
+        safeFetch('/api/building/hostesses'));
+    },
+
+    buildingStores() {
+      return cached('building-stores', CACHE_TTL_MS * 60, () =>
+        safeFetch('/api/building/stores'));
+    },
+
     // 세션
     checkin(roomUuid, managerMembershipId, opts) {
       invalidate('rooms');
