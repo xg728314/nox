@@ -558,7 +558,7 @@
     });
   }
 
-  // ─── 채팅 전송 (mock: 본인 메시지 즉시 추가 + 자동 답장 1회) ───
+  // ─── 채팅 전송 (mock: 본인 메시지만 즉시 추가, 자동 답장 X) ───
   (function () {
     const $input = document.getElementById('chatInput');
     const $send  = document.getElementById('sendBtn');
@@ -593,20 +593,6 @@
       scrollBottom();
     }
 
-    function appendOther(name, store, avClass, text) {
-      const html = `
-        <div class="msg-row">
-          <div class="avatar ${avClass}">${esc(name.slice(0, 1))}</div>
-          <div class="msg-body">
-            <div class="sender">${esc(name)} <span class="store">${esc(store)}</span></div>
-            <div class="bubble">${esc(text)}</div>
-            <div class="msg-time">${now()}</div>
-          </div>
-        </div>`;
-      $msgs.insertAdjacentHTML('beforeend', html);
-      scrollBottom();
-    }
-
     function send() {
       const v = ($input.value || '').trim();
       if (!v) return;
@@ -617,18 +603,6 @@
       appendMine(v);
       $input.value = '';
       if (navigator.vibrate) navigator.vibrate(10);
-
-      // mock: 0~3% 확률로 자동 답장
-      const replies = [
-        { name: '박실장', store: '지점 A', cls: 'live', text: '확인했습니다!' },
-        { name: '정실장', store: '지점 B', cls: 'shin', text: 'OK 알겠습니다' },
-        { name: '최실장', store: '지점 I', cls: 'ara', text: '감사합니다 ✨' }
-      ];
-      setTimeout(() => {
-        const r = replies[Math.floor(Math.random() * replies.length)];
-        appendOther(r.name, r.store, r.cls, r.text);
-        if (navigator.vibrate) navigator.vibrate([6, 30, 6]);
-      }, 800 + Math.random() * 1200);
     }
 
     $send.addEventListener('click', send);
