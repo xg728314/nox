@@ -618,7 +618,62 @@
 
   document.querySelector('.save-btn').addEventListener('click', () => {
     if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
-    setTimeout(() => location.href = 'staff.html', 200);
+    if (window.NoxUI) window.NoxUI.toast('정산 규칙 저장됨', { type: 'success' });
+    setTimeout(() => location.href = 'staff.html', 600);
+  });
+
+  // 차비 토글 (on/off — 시각만)
+  document.querySelectorAll('.car-toggle .toggle').forEach(t => {
+    let on = true;
+    t.addEventListener('click', () => {
+      on = !on;
+      t.style.background = on ? 'var(--amber)' : 'var(--bg-soft)';
+      const thumb = t;
+      // ::after 는 JS 로 직접 못바꿈 — class 토글로 처리
+      t.classList.toggle('off', !on);
+      if (window.NoxUI) {
+        window.NoxUI.haptic(10);
+        window.NoxUI.toast(on ? '차비 지원 켜짐' : '차비 지원 꺼짐');
+      }
+    });
+  });
+  // 차비 off 상태 시 thumb 왼쪽 (CSS 보강)
+  const carOffStyle = document.createElement('style');
+  carOffStyle.textContent = '.car-toggle .toggle.off::after { right: auto; left: 2px; }';
+  document.head.appendChild(carOffStyle);
+
+  // 보너스 카드 삭제 (×)
+  document.querySelectorAll('.bonus-card .del').forEach(d => {
+    d.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = d.closest('.bonus-card');
+      if (!card) return;
+      card.style.transition = 'opacity 0.2s, transform 0.2s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.95)';
+      setTimeout(() => card.remove(), 200);
+      if (window.NoxUI) {
+        window.NoxUI.haptic([8, 30, 8]);
+        window.NoxUI.toast('보너스 조건 삭제됨');
+      }
+    });
+  });
+
+  // + 보너스 추가
+  const $addBonus = document.querySelector('.add-bonus');
+  if ($addBonus) $addBonus.addEventListener('click', () => {
+    if (window.NoxUI) {
+      window.NoxUI.haptic(10);
+      window.NoxUI.toast('새 보너스 조건 추가 (mock)');
+    }
+  });
+
+  // 직접 입력 필드 — 입력 시 4 옵션 해제
+  const $custom = document.querySelector('.custom-input input');
+  if ($custom) $custom.addEventListener('input', () => {
+    if ($custom.value.trim()) {
+      document.querySelectorAll('.take-opt').forEach(x => x.classList.remove('selected'));
+    }
   });
 </script>
 

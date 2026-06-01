@@ -467,9 +467,9 @@
 
   <!-- 시작 시각 -->
   <div class="time-input">
-    <div class="field">
+    <div class="field" id="time-field" role="button" tabindex="0" style="cursor:pointer;">
       <span class="label">시작 시각</span>
-      <span class="value">지금<small>· 02:48</small></span>
+      <span class="value" id="time-value">지금<small id="time-now">· --:--</small></span>
     </div>
   </div>
 
@@ -524,8 +524,29 @@
   });
   document.querySelector('.save-btn').addEventListener('click', () => {
     if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
-    setTimeout(() => location.href = 'index.html', 200);
+    if (window.NoxUI) window.NoxUI.toast('메이드 등록 완료 — 채팅 알림 전송', { type: 'success' });
+    setTimeout(() => location.href = 'index.html', 600);
   });
+
+  // 시작 시각 — 현재 시간 표시 + 클릭 시 토스트
+  (function () {
+    const $now = document.getElementById('time-now');
+    if ($now) {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      $now.textContent = '· ' + hh + ':' + mm;
+    }
+    const $field = document.getElementById('time-field');
+    if ($field) {
+      $field.addEventListener('click', () => {
+        if (window.NoxUI) {
+          window.NoxUI.haptic(8);
+          window.NoxUI.toast('시각 선택 (준비 중)');
+        }
+      });
+    }
+  })();
 </script>
 
 </body>

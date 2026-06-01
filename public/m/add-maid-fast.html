@@ -638,6 +638,39 @@
     });
   });
 
+  // 음성 입력 mock
+  const $voice = document.querySelector('.voice-hero');
+  if ($voice) {
+    $voice.addEventListener('click', () => {
+      if (window.NoxUI) {
+        window.NoxUI.haptic([10, 80, 10]);
+        window.NoxUI.toast('🎤 듣는 중... (mock)');
+      }
+    });
+  }
+
+  // 검색 입력 — 패턴 카드 필터링
+  const $search = document.querySelector('.search-input input');
+  if ($search) {
+    $search.addEventListener('input', () => {
+      const q = $search.value.trim().toLowerCase();
+      document.querySelectorAll('.pat-card').forEach(c => {
+        const name = (c.querySelector('.nm')?.textContent || '').toLowerCase();
+        c.style.display = !q || name.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // pat-card 클릭 — 페이지 이동 (mock)
+  document.querySelectorAll('.pat-card').forEach(c => {
+    c.addEventListener('click', () => {
+      if (window.NoxUI) {
+        window.NoxUI.haptic(10);
+        window.NoxUI.toast('패턴 적용 — 룸만 입력하세요');
+      }
+    });
+  });
+
   // 1탭 등록 — 햅틱 패턴 + 페이지 이동
   const oneTap = document.querySelector('.one-tap-card');
   if (oneTap) {

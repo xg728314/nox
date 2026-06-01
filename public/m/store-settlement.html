@@ -630,14 +630,27 @@ if (!data) {
       </div>
     </div>
     <div class="actions">
-      <a href="chat-room.html" class="btn chat">💬 ${data.name} 실장 채팅</a>
-      <a href="javascript:void(0)" class="btn pdf">📄 정산표 PDF</a>
+      <a href="chat-room.html" class="btn chat">💬 ${esc(data.name)} 실장 채팅</a>
+      <a href="#" class="btn pdf" id="pdf-btn">📄 정산표 PDF</a>
     </div>
     <div class="footer-tip">
-      💡 정산은 영업일 마감 후 자동 집계. <b>${data.name} 실장</b> 과 채팅으로 수정 / 보너스 협의 가능.<br>
+      💡 정산은 영업일 마감 후 자동 집계. <b>${esc(data.name)} 실장</b> 과 채팅으로 수정 / 보너스 협의 가능.<br>
       스태프 카드 탭 시 본인 정산 규칙 (떼는 돈 / 차비) 확인.
     </div>
   `;
+
+  // PDF 버튼 — render 이후에만 존재
+  const $pdf = document.getElementById('pdf-btn');
+  if ($pdf) {
+    $pdf.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.NoxUI) {
+        window.NoxUI.haptic([10, 50, 10]);
+        // data.name 은 화이트리스트 검증 통과한 키 — 토스트는 textContent 안전
+        window.NoxUI.toast(data.name + ' 정산표 발송 (mock)', { type: 'success' });
+      }
+    });
+  }
 }
 </script>
 

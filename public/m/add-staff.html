@@ -290,10 +290,10 @@
       <div class="lbl">연락처</div>
       <input class="input" type="tel" placeholder="010-XXXX-XXXX" />
     </div>
-    <div class="field">
+    <div class="field" id="store-pick" role="button" tabindex="0" style="cursor:pointer;">
       <div class="ic">🏪</div>
       <div class="lbl">소속</div>
-      <span class="input filled">마블</span>
+      <span class="input filled" id="store-pick-label">마블</span>
       <span class="arrow">▾</span>
     </div>
   </div>
@@ -434,8 +434,24 @@
   });
   document.querySelector('.save-btn').addEventListener('click', () => {
     if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
-    setTimeout(() => location.href = 'staff-list.html', 200);
+    const nameEl = document.querySelector('.field .input[type="text"]');
+    const name = nameEl && nameEl.value ? nameEl.value : '스태프';
+    if (window.NoxUI) window.NoxUI.toast(name + ' 등록 완료', { type: 'success' });
+    setTimeout(() => location.href = 'staff-list.html', 600);
   });
+
+  // 소속 매장 토글 (mock)
+  const STORES = ['마블', '라이브', '신세계', '아지트', '7층', '8층'];
+  let storeIdx = 0;
+  const $sp = document.getElementById('store-pick');
+  const $spLbl = document.getElementById('store-pick-label');
+  if ($sp && $spLbl) {
+    $sp.addEventListener('click', () => {
+      storeIdx = (storeIdx + 1) % STORES.length;
+      $spLbl.textContent = STORES[storeIdx];
+      if (window.NoxUI) window.NoxUI.haptic(8);
+    });
+  }
 
   // 차비 토글 (on/off)
   document.querySelectorAll('.toggle').forEach(t => {

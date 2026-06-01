@@ -291,7 +291,7 @@
   <header class="page-header">
     <a href="index.html" class="back">←</a>
     <div class="ttl">내 정보</div>
-    <a href="javascript:void(0)" class="more" aria-label="더보기">⋯</a>
+    <a href="#" id="more-btn" class="more" aria-label="더보기">⋯</a>
   </header>
 
   <!-- 프로필 -->
@@ -480,7 +480,7 @@
   </div>
 
   <!-- 로그아웃 -->
-  <div class="logout">로그아웃</div>
+  <div class="logout" id="logout-btn" role="button" tabindex="0">로그아웃</div>
 
   <div class="version">NOX Manager v0.1.0 — beta</div>
 
@@ -500,9 +500,80 @@
   document.querySelectorAll('.toggle').forEach(t => {
     t.addEventListener('click', () => {
       t.classList.toggle('on');
-      if (navigator.vibrate) navigator.vibrate(10);
+      const on = t.classList.contains('on');
+      if (window.NoxUI) {
+        window.NoxUI.haptic(on ? 12 : 8);
+        // 가장 가까운 menu-item 의 name 추출
+        const item = t.closest('.menu-item');
+        const name = item ? (item.querySelector('.name')?.firstChild?.textContent || '').trim() : '';
+        if (name) window.NoxUI.toast(`${name} ${on ? '켜짐' : '꺼짐'}`);
+      }
     });
   });
+
+  // ⋯ 더보기 버튼
+  const $more = document.getElementById('more-btn');
+  if ($more) {
+    $more.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast('계정 옵션 (준비 중)');
+      }
+    });
+  }
+
+  // 로그아웃 mock
+  const $logout = document.getElementById('logout-btn');
+  if ($logout) {
+    $logout.addEventListener('click', () => {
+      if (window.NoxUI) {
+        window.NoxUI.haptic([10, 30, 10]);
+        window.NoxUI.toast('로그아웃 됨', { type: 'success' });
+      }
+    });
+  }
+
+  // 메뉴 항목 클릭 (arrow ▸ 있는 것 = 화면 이동 자리, mock 토스트)
+  document.querySelectorAll('.menu-item').forEach(item => {
+    if (item.hasAttribute('onclick')) return;  // 이미 핸들러 있음
+    item.addEventListener('click', (e) => {
+      // 토글 클릭은 부모로 전파 안됨 (위 핸들러에서 처리)
+      if (e.target.classList.contains('toggle')) return;
+      // 화살표 있는 항목만 mock 이동
+      if (!item.querySelector('.arrow')) return;
+      const name = (item.querySelector('.name')?.firstChild?.textContent || '').trim();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast(`${name} (준비 중)`);
+      }
+    });
+  });
+
+  // 매장 전환 (현재 매장 / 다른 매장)
+  document.querySelectorAll('.store-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.store-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+      const name = (item.querySelector('.name')?.textContent || '').trim();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(10);
+        window.NoxUI.toast(`${name} 매장으로 전환`);
+      }
+    });
+  });
+
+  // + 다른 매장 추가
+  const $addStore = document.querySelector('.ss-head .new');
+  if ($addStore) {
+    $addStore.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast('매장 추가 (준비 중)');
+      }
+    });
+  }
 </script>
 
 </body>

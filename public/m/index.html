@@ -1248,8 +1248,8 @@
       <!-- 정렬 / 필터 -->
       <div class="controls">
         <div class="title">내 스태프</div>
-        <div class="sort-btn">
-          <span>매장별</span><span class="arrow">▾</span>
+        <div class="sort-btn" id="sort-btn" role="button" tabindex="0">
+          <span id="sort-label">매장별</span><span class="arrow">▾</span>
         </div>
       </div>
 
@@ -1522,6 +1522,23 @@
   document.querySelectorAll('.card, .chat-card, .soon-card').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
   });
+
+  // 정렬 드롭다운 (mock — 시각 토글만)
+  (function () {
+    const sortBtn = document.getElementById('sort-btn');
+    const sortLabel = document.getElementById('sort-label');
+    if (!sortBtn || !sortLabel) return;
+    const options = ['매장별', '정산순', '이름순', '메이드순'];
+    let idx = 0;
+    sortBtn.addEventListener('click', () => {
+      idx = (idx + 1) % options.length;
+      sortLabel.textContent = options[idx];
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast(options[idx] + '로 정렬');
+      }
+    });
+  })();
 </script>
 
 </body>

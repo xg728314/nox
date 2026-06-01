@@ -379,7 +379,7 @@
   <header class="page-header">
     <a href="index.html" class="back">←</a>
     <div class="ttl">정산<span class="sub-ttl">조준성 · 마블</span></div>
-    <a href="javascript:void(0)" class="more" aria-label="달력">📅</a>
+    <a href="#" id="calendar-btn" class="more" aria-label="달력">📅</a>
   </header>
 
   <!-- 기간 -->
@@ -554,7 +554,7 @@
   <!-- 스태프별 -->
   <div class="sec-head">
     <div class="ttl">스태프별</div>
-    <div class="more">전체 →</div>
+    <a class="more" href="staff-list.html" style="text-decoration:none;color:var(--gold-deep);">전체 →</a>
   </div>
   <div class="family-scroll">
     <div class="fam-card S" onclick="location.href='staff-rules.html'">
@@ -620,7 +620,7 @@
   </div>
 
   <!-- PDF 카톡 -->
-  <div class="send-pdf">
+  <div class="send-pdf" id="send-pdf-btn" role="button" tabindex="0">
     <div class="ico">📄</div>
     <div class="ttl">정산표 PDF 카톡으로 보내기</div>
     <div class="sub">매장 간 정산 + 스태프별 정산표 자동 생성</div>
@@ -660,6 +660,30 @@
   document.querySelectorAll('.send-pdf, .fam-card, .cs-row').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
   });
+
+  // PDF 보내기 mock
+  const $pdf = document.getElementById('send-pdf-btn');
+  if ($pdf) {
+    $pdf.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.NoxUI) {
+        window.NoxUI.haptic([10, 50, 10]);
+        window.NoxUI.toast('정산표 카톡 발송 (mock)', { type: 'success' });
+      }
+    });
+  }
+
+  // 달력 버튼 mock
+  const $cal = document.getElementById('calendar-btn');
+  if ($cal) {
+    $cal.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast('달력 선택 (준비 중)');
+      }
+    });
+  }
 </script>
 
 </body>

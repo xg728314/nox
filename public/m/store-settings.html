@@ -485,7 +485,7 @@
   </div>
 
   <!-- + 매장 추가 -->
-  <div class="add-store">+ 다른 매장 추가 / 협력 신청</div>
+  <div class="add-store" id="add-store-btn" role="button" tabindex="0">+ 다른 매장 추가 / 협력 신청</div>
 
   <!-- 🌐 라벨 모드 (iOS 심사 / 본 용어) -->
   <div style="margin: 22px 22px 0; padding: 18px; background: linear-gradient(135deg, rgba(196, 155, 97, 0.08), var(--card)); border: 1px solid rgba(196, 155, 97, 0.25); border-radius: 18px;">
@@ -573,9 +573,45 @@
         group.querySelectorAll('.opt').forEach(x => x.classList.remove('active'));
         o.classList.add('active');
         if (navigator.vibrate) navigator.vibrate(12);
+        const label = (o.querySelector('.nm')?.textContent || '').trim();
+        if (window.NoxUI && label) window.NoxUI.toast(label + '로 변경됨');
       });
     });
   });
+
+  // + 매장 추가
+  const $add = document.getElementById('add-store-btn');
+  if ($add) $add.addEventListener('click', () => {
+    if (window.NoxUI) {
+      window.NoxUI.haptic(10);
+      window.NoxUI.toast('매장 추가 / 협력 신청 (준비 중)');
+    }
+  });
+
+  // + 초대 버튼
+  document.querySelectorAll('.members .label .cnt').forEach(el => {
+    if (el.textContent.includes('초대')) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => {
+        if (window.NoxUI) {
+          window.NoxUI.haptic(8);
+          window.NoxUI.toast('멤버 초대 (준비 중)');
+        }
+      });
+    }
+  });
+
+  // 헤더 ⋯ 버튼
+  const $more = document.querySelector('header.page-header .more');
+  if ($more) {
+    $more.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast('매장 옵션 (준비 중)');
+      }
+    });
+  }
 </script>
 
 </body>

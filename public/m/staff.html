@@ -704,7 +704,7 @@
       <div class="hero">
         <div class="hero-top">
           <a href="index.html" class="icon-btn" onclick="haptic()">←</a>
-          <div class="icon-btn" onclick="haptic()">⋯</div>
+          <div class="icon-btn" id="more-btn" role="button" tabindex="0" aria-label="더보기">⋯</div>
         </div>
         <div class="hero-body">
           <div class="hero-status">
@@ -763,22 +763,22 @@
 
       <!-- 빠른 액션 4개 -->
       <div class="quick-actions">
-        <div class="qa maid" onclick="haptic()">
+        <a class="qa maid" href="add-maid.html" style="text-decoration:none;color:inherit;">
           <div class="ico">+</div>
           <div class="lbl">메이드</div>
           <div class="sub">새로 추가</div>
-        </div>
-        <div class="qa tip" onclick="haptic()">
+        </a>
+        <div class="qa tip" data-qa="tip">
           <div class="ico">💰</div>
           <div class="lbl">팁</div>
           <div class="sub">담당 맡김</div>
         </div>
-        <div class="qa incentive" onclick="haptic()">
+        <div class="qa incentive" data-qa="incentive">
           <div class="ico">🌟</div>
           <div class="lbl">인센</div>
           <div class="sub">추가 지급</div>
         </div>
-        <div class="qa memo" onclick="haptic()">
+        <div class="qa memo" data-qa="memo">
           <div class="ico">📝</div>
           <div class="lbl">메모</div>
           <div class="sub">특이사항</div>
@@ -856,7 +856,7 @@
         </div>
 
         <!-- 인센 자리 (아직 X) -->
-        <div class="add-line" onclick="haptic()">
+        <div class="add-line" data-add="incentive">
           + 인센 추가
         </div>
       </div>
@@ -1048,6 +1048,61 @@
 
   document.querySelectorAll('.maid-item, .extra-item, .qa, .add-line, .icon-btn, .big-btn').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(8));
+  });
+
+  // ── 빠른 액션 mock 핸들러 ─────────────────────────
+  function toast(msg) {
+    if (window.NoxUI) window.NoxUI.toast(msg);
+  }
+
+  document.querySelectorAll('[data-qa]').forEach(el => {
+    el.addEventListener('click', () => {
+      const kind = el.getAttribute('data-qa');
+      if (kind === 'tip') toast('팁 입력창 (준비 중)');
+      else if (kind === 'incentive') toast('인센 입력창 (준비 중)');
+      else if (kind === 'memo') toast('메모 작성 (준비 중)');
+    });
+  });
+
+  const addIncentive = document.querySelector('[data-add="incentive"]');
+  if (addIncentive) addIncentive.addEventListener('click', () => toast('인센 추가 (준비 중)'));
+
+  const moreBtn = document.getElementById('more-btn');
+  if (moreBtn) moreBtn.addEventListener('click', () => toast('스태프 옵션 (준비 중)'));
+
+  // 카드 복사 버튼 (계좌 정보)
+  document.querySelectorAll('#account-card [onclick*="haptic"]').forEach(el => {
+    el.removeAttribute('onclick');
+    el.addEventListener('click', () => {
+      if (window.NoxUI) window.NoxUI.haptic(10);
+      const text = el.textContent.trim();
+      if (text.includes('복사')) {
+        // mock: 클립보드 시도 (실패해도 토스트는 표시)
+        try {
+          if (navigator.clipboard) navigator.clipboard.writeText('국민 123-***-***1234');
+        } catch {}
+        toast('계좌번호 복사됨');
+      } else if (text.includes('수정')) {
+        toast('계좌 수정 모드 (준비 중)');
+      }
+    });
+  });
+
+  // 정산 규칙 카드 — onclick 으로 staff-rules 이동 이미 됨
+
+  // 탭 4개 — 오늘/이번 주/이번 달/정보 (정보 클릭 시 인포 섹션으로 스크롤)
+  document.querySelectorAll('.tab-btn').forEach((t, i) => {
+    t.addEventListener('click', () => {
+      const label = t.textContent.trim();
+      if (label === '정보') {
+        const info = document.querySelector('.info-block');
+        if (info) info.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (label === '이번 주') {
+        toast('이번 주 데이터 (mock)');
+      } else if (label === '이번 달') {
+        toast('이번 달 데이터 (mock)');
+      }
+    });
   });
 </script>
 

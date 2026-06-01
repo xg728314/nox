@@ -212,7 +212,7 @@
   <header class="page-header">
     <a href="index.html" class="back">←</a>
     <div class="ttl">내 스태프<span class="sub-ttl">조준성 · 마블</span></div>
-    <a href="javascript:void(0)" class="more" aria-label="설정">⚙️</a>
+    <a href="store-settings.html" class="more" aria-label="설정">⚙️</a>
   </header>
 
   <!-- 빠른 액션 -->
@@ -231,16 +231,18 @@
 
   <!-- 검색 -->
   <div class="filter-bar">
-    <div class="search">
-      🔍 <span class="ph">이름 검색</span>
-    </div>
-    <div class="sort-btn">⇅</div>
+    <label class="search" style="cursor:text;">
+      🔍 <input id="staff-search" type="text" placeholder="이름 검색"
+                autocomplete="off" autocapitalize="off" autocorrect="off"
+                style="flex:1;border:none;background:transparent;outline:none;font:inherit;color:var(--ink);font-weight:600;letter-spacing:-0.01em;min-width:0;" />
+    </label>
+    <div class="sort-btn" id="sort-toggle" role="button" tabindex="0" aria-label="정렬 변경">⇅</div>
   </div>
 
   <!-- 헤더 -->
   <div class="list-head">
-    <div class="ttl"><b>12</b>명 스태프 · 9명 출근</div>
-    <div class="sort">정산순 ▾</div>
+    <div class="ttl"><b>12</b>명 스태프 · <span id="present-count">9</span>명 출근</div>
+    <div class="sort" id="sort-mode" role="button" tabindex="0">정산순 ▾</div>
   </div>
 
   <!-- 스태프 리스트 -->
@@ -400,6 +402,51 @@
   </nav>
 
 </div></div></div>
+
+<script>
+(function () {
+  // 검색 — 실시간 필터링
+  const $search = document.getElementById('staff-search');
+  const rows = Array.from(document.querySelectorAll('.staff-row'));
+  if ($search) {
+    $search.addEventListener('input', () => {
+      const q = $search.value.trim().toLowerCase();
+      let visible = 0;
+      let present = 0;
+      rows.forEach(row => {
+        const name = (row.querySelector('.name')?.textContent || '').toLowerCase();
+        const meta = (row.querySelector('.meta')?.textContent || '').toLowerCase();
+        const match = !q || name.includes(q) || meta.includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) {
+          visible++;
+          if (!row.classList.contains('off')) present++;
+        }
+      });
+      const ttlNum = document.querySelector('.list-head .ttl b');
+      const presentEl = document.getElementById('present-count');
+      if (ttlNum) ttlNum.textContent = String(visible);
+      if (presentEl) presentEl.textContent = String(present);
+    });
+  }
+
+  // 정렬 토글 (mock — 시각 라벨만)
+  const sortModes = ['정산순', '이름순', '출근순', '메이드순'];
+  let sortIdx = 0;
+  const $sortMode = document.getElementById('sort-mode');
+  const $sortToggle = document.getElementById('sort-toggle');
+  function nextSort() {
+    sortIdx = (sortIdx + 1) % sortModes.length;
+    if ($sortMode) $sortMode.textContent = sortModes[sortIdx] + ' ▾';
+    if (window.NoxUI) {
+      window.NoxUI.haptic(8);
+      window.NoxUI.toast(sortModes[sortIdx] + '로 정렬');
+    }
+  }
+  if ($sortMode) $sortMode.addEventListener('click', nextSort);
+  if ($sortToggle) $sortToggle.addEventListener('click', nextSort);
+})();
+</script>
 
 </body>
 </html>

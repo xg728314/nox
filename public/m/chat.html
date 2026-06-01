@@ -354,9 +354,11 @@
   </header>
 
   <!-- 검색 -->
-  <div class="chat-search hap">
-    🔍 <span class="ph">실장 / 아가씨 / 채팅방 검색</span>
-  </div>
+  <label class="chat-search hap" style="cursor:text;">
+    🔍 <input id="chat-search-input" type="text" placeholder="실장 / 아가씨 / 채팅방 검색"
+              autocomplete="off" autocapitalize="off" autocorrect="off"
+              style="flex:1;border:none;background:transparent;outline:none;font:inherit;color:var(--ink);font-weight:600;letter-spacing:-0.01em;min-width:0;" />
+  </label>
 
   <!-- 📌 메인 — 14매장 실장방 (1개만 고정) -->
   <a href="chat-room.html" class="main-room">
@@ -468,6 +470,27 @@
   document.querySelectorAll('.room, .hap, .main-room, .new-group-btn').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
   });
+
+  // 채팅방 실시간 검색
+  (function () {
+    const $input = document.getElementById('chat-search-input');
+    if (!$input) return;
+    const rooms = Array.from(document.querySelectorAll('.room-list .room'));
+    $input.addEventListener('input', () => {
+      const q = $input.value.trim().toLowerCase();
+      let hits = 0;
+      rooms.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        const ok = !q || text.includes(q);
+        r.style.display = ok ? '' : 'none';
+        if (ok) hits++;
+      });
+      const numEl = document.querySelector('.my-groups .head .num');
+      if (numEl) numEl.textContent = String(hits);
+    });
+    // 클릭 시 input focus 안되는 경우 보조
+    $input.addEventListener('touchstart', () => $input.focus(), { passive: true });
+  })();
 </script>
 
 </body>

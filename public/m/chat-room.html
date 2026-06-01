@@ -326,7 +326,7 @@
       <div class="nm">14매장 실장방</div>
       <div class="sub"><span class="dot"></span>28명 · 12명 접속 중</div>
     </div>
-    <div class="menu" role="button" aria-label="채팅 설정" tabindex="0">⋯</div>
+    <div class="menu" id="chat-menu-btn" role="button" aria-label="채팅 설정" tabindex="0">⋯</div>
   </header>
 
   <!-- 자동 인식 안내 (사용자가 처음 들어왔을 때만 표시) -->
@@ -647,6 +647,65 @@
   requestAnimationFrame(() => {
     const screen = document.querySelector('.screen');
     if (screen) screen.scrollTop = screen.scrollHeight;
+  });
+
+  // ⋯ 채팅 설정 메뉴
+  const $menuBtn = document.getElementById('chat-menu-btn');
+  if ($menuBtn) {
+    $menuBtn.addEventListener('click', () => {
+      if (window.NoxUI) {
+        window.NoxUI.haptic(8);
+        window.NoxUI.toast('채팅 설정 (준비 중)');
+      }
+    });
+  }
+
+  // 메이드 카드 액션 (취소/수정/등록 유지/확인됨/이상해요)
+  document.querySelectorAll('.act-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const label = btn.textContent.trim();
+      if (!window.NoxUI) return;
+      window.NoxUI.haptic(10);
+      if (label.includes('취소')) {
+        const card = btn.closest('.msg-row');
+        if (card) {
+          card.style.transition = 'opacity 0.25s';
+          card.style.opacity = '0';
+          setTimeout(() => card.remove(), 250);
+        }
+        window.NoxUI.toast('메이드 등록 취소됨');
+      } else if (label.includes('수정')) {
+        window.NoxUI.toast('수정 모드 (준비 중)');
+      } else if (label.includes('확인') || label.includes('등록 유지') || label.includes('완티 등록')) {
+        // 버튼 시각 잠금
+        btn.style.opacity = '0.6';
+        btn.style.pointerEvents = 'none';
+        window.NoxUI.toast('확정됨', { type: 'success' });
+      } else if (label.includes('이상')) {
+        window.NoxUI.toast('이상 보고 — 실장 채팅으로 전송');
+      } else if (label.includes('반티로')) {
+        window.NoxUI.toast('반티 30분으로 수정됨');
+      }
+    });
+  });
+
+  // AI 자동 인식 설정 ▸
+  const $aiBanner = document.querySelector('[style*="AI 자동 인식 활성"]');
+  // 위 셀렉터는 안 잡힐 수 있음 — 더 안전하게:
+  Array.from(document.querySelectorAll('.messages > div')).slice(0, 3).forEach(div => {
+    if (div.textContent.includes('AI 자동 인식')) {
+      const setting = div.querySelector('[style*="설정 ▸"]');
+      if (setting) {
+        setting.style.cursor = 'pointer';
+        setting.addEventListener('click', () => {
+          if (window.NoxUI) {
+            window.NoxUI.haptic(8);
+            window.NoxUI.toast('AI 인식 설정 (준비 중)');
+          }
+        });
+      }
+    }
   });
 </script>
 

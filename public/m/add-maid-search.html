@@ -718,8 +718,28 @@
   });
   document.querySelector('.save-btn').addEventListener('click', () => {
     if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
-    setTimeout(() => location.href = 'index.html', 200);
+    if (window.NoxUI) window.NoxUI.toast('메이드 등록 완료 — 채팅 알림 전송', { type: 'success' });
+    setTimeout(() => location.href = 'index.html', 600);
   });
+
+  // 스태프 검색 — 실시간 필터
+  (function () {
+    const $input = document.querySelector('.search-wrap .input');
+    if (!$input) return;
+    const rows = Array.from(document.querySelectorAll('.staff-search-row'));
+    $input.addEventListener('input', () => {
+      const q = $input.value.trim().toLowerCase();
+      let hits = 0;
+      rows.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        const ok = !q || text.includes(q);
+        r.style.display = ok ? '' : 'none';
+        if (ok) hits++;
+      });
+      const $hint = document.querySelector('.search-wrap .hint b');
+      if ($hint) $hint.textContent = hits + '명';
+    });
+  })();
 </script>
 
 </body>

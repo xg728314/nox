@@ -213,7 +213,7 @@
   <header class="page-header">
     <a href="index.html" class="back">←</a>
     <div class="ttl">출근 체크<span class="sub-ttl">4월 28일 월요일</span></div>
-    <a href="javascript:void(0)" class="more" aria-label="달력">📅</a>
+    <a href="#" id="att-calendar" class="more" aria-label="달력">📅</a>
   </header>
 
   <!-- 요약 -->
@@ -232,12 +232,12 @@
 
   <!-- 빠른 액션 -->
   <div class="quick-row">
-    <div class="quick-btn copy-yest">
+    <div class="quick-btn copy-yest" id="copy-yest" role="button" tabindex="0">
       <div class="ic">📋</div>
       <div class="nm">어제 명단 복사</div>
       <div class="sub">10명 자동 출근</div>
     </div>
-    <div class="quick-btn">
+    <div class="quick-btn" id="send-kakao" role="button" tabindex="0">
       <div class="ic">💬</div>
       <div class="nm">출근 카톡 발송</div>
       <div class="sub">스태프 그룹방</div>
@@ -245,7 +245,12 @@
   </div>
 
   <!-- 검색 -->
-  <div class="search-bar">🔍 <span style="flex: 1; font-weight: 600;">이름 검색</span><kbd style="font-size:9px; background:var(--bg-soft); padding: 2px 6px; border-radius:4px; color:var(--sub); font-weight:700;">12명</kbd></div>
+  <label class="search-bar" style="cursor:text;">🔍
+    <input id="att-search" type="text" placeholder="이름 검색"
+           autocomplete="off" autocapitalize="off" autocorrect="off"
+           style="flex:1;border:none;background:transparent;outline:none;font:inherit;color:var(--ink);font-weight:600;letter-spacing:-0.01em;min-width:0;" />
+    <kbd id="att-count" style="font-size:9px; background:var(--bg-soft); padding: 2px 6px; border-radius:4px; color:var(--sub); font-weight:700;">12명</kbd>
+  </label>
 
   <!-- 명단 -->
   <div class="att-list">
@@ -360,7 +365,7 @@
 
   </div>
 
-  <div class="add-staff">+ 새 스태프 추가</div>
+  <a class="add-staff" href="add-staff.html" style="text-decoration:none;display:block;">+ 새 스태프 추가</a>
 
   <div style="height: 30px;"></div>
 
@@ -375,14 +380,87 @@
 </div></div></div>
 
 <script>
+  // 출근 토글 그룹 + 카운트 자동 업데이트
+  function refreshCounts() {
+    let inN = 0, restN = 0, offN = 0;
+    document.querySelectorAll('.toggle-group').forEach(group => {
+      const active = group.querySelector('.tgl.active');
+      if (!active) return;
+      if (active.classList.contains('in')) inN++;
+      else if (active.classList.contains('rest')) restN++;
+      else if (active.classList.contains('off')) offN++;
+    });
+    const num = document.querySelector('.att-summary .num');
+    if (num) num.innerHTML = `${inN}<small>/${inN + restN + offN}</small>`;
+    const inEl = document.querySelector('.item.in .v');
+    const waitEl = document.querySelector('.item.wait .v');
+    const offEl = document.querySelector('.item.off .v');
+    if (inEl) inEl.textContent = inN;
+    if (waitEl) waitEl.textContent = restN;
+    if (offEl) offEl.textContent = offN;
+  }
+
   document.querySelectorAll('.toggle-group').forEach(group => {
     group.querySelectorAll('.tgl').forEach(t => {
       t.addEventListener('click', () => {
         group.querySelectorAll('.tgl').forEach(x => x.classList.remove('active'));
         t.classList.add('active');
         if (navigator.vibrate) navigator.vibrate(12);
+        refreshCounts();
       });
     });
+  });
+
+  // 어제 명단 복사
+  const $copy = document.getElementById('copy-yest');
+  if ($copy) $copy.addEventListener('click', () => {
+    document.querySelectorAll('.att-row').forEach(row => {
+      const group = row.querySelector('.toggle-group');
+      if (!group) return;
+      group.querySelectorAll('.tgl').forEach(x => x.classList.remove('active'));
+      const inTgl = group.querySelector('.tgl.in');
+      if (inTgl) inTgl.classList.add('active');
+    });
+    refreshCounts();
+    if (window.NoxUI) {
+      window.NoxUI.haptic([10, 40, 10]);
+      window.NoxUI.toast('어제 명단 복사 완료', { type: 'success' });
+    }
+  });
+
+  // 출근 카톡 발송
+  const $kakao = document.getElementById('send-kakao');
+  if ($kakao) $kakao.addEventListener('click', () => {
+    if (window.NoxUI) {
+      window.NoxUI.haptic([10, 50, 10]);
+      window.NoxUI.toast('스태프 그룹방으로 발송됨', { type: 'success' });
+    }
+  });
+
+  // 검색 (이름)
+  const $search = document.getElementById('att-search');
+  if ($search) $search.addEventListener('input', () => {
+    const q = $search.value.trim().toLowerCase();
+    let hits = 0;
+    document.querySelectorAll('.att-row').forEach(row => {
+      const name = (row.querySelector('.nm')?.firstChild?.textContent || '').toLowerCase();
+      const meta = (row.querySelector('.meta')?.textContent || '').toLowerCase();
+      const ok = !q || name.includes(q) || meta.includes(q);
+      row.style.display = ok ? '' : 'none';
+      if (ok) hits++;
+    });
+    const $cnt = document.getElementById('att-count');
+    if ($cnt) $cnt.textContent = hits + '명';
+  });
+
+  // 달력 버튼
+  const $cal = document.getElementById('att-calendar');
+  if ($cal) $cal.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window.NoxUI) {
+      window.NoxUI.haptic(8);
+      window.NoxUI.toast('날짜 선택 (준비 중)');
+    }
   });
 </script>
 
