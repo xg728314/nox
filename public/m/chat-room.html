@@ -248,6 +248,68 @@
     color: #fff;
     border: none;
   }
+  .maid-card .act-btn.danger {
+    background: rgba(239, 68, 68, 0.08);
+    color: #B91C1C;
+    border-color: rgba(239, 68, 68, 0.25);
+  }
+  .maid-card .act-btn[disabled],
+  .maid-card .act-btn.locked {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: not-allowed;
+  }
+  /* 상호 확인 진행 표시 */
+  .maid-card .confirm-status {
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: rgba(196, 155, 97, 0.08);
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--sub);
+    display: flex; align-items: center; justify-content: space-between;
+    letter-spacing: -0.01em;
+  }
+  .maid-card .confirm-status .progress { display: flex; gap: 6px; }
+  .maid-card .confirm-status .dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: rgba(45, 43, 38, 0.12);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 8px; color: #fff; font-weight: 800;
+  }
+  .maid-card .confirm-status .dot.ok {
+    background: linear-gradient(135deg, var(--green), #15803D);
+  }
+  .maid-card .confirm-status .dot.no {
+    background: linear-gradient(135deg, #EF4444, #B91C1C);
+  }
+  /* 양쪽 확인 → 등록 완료 */
+  .maid-card.both-ok {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.06), var(--card)) !important;
+    border-color: rgba(34, 197, 94, 0.35) !important;
+    border-left: 4px solid var(--green);
+  }
+  .maid-card.both-ok .head { color: var(--green); }
+  .maid-card.both-ok .actions { display: none; }
+  .maid-card.both-ok .confirm-status {
+    background: rgba(34, 197, 94, 0.12);
+    color: #15803D;
+  }
+  /* 이상 보고 → 거절 */
+  .maid-card.rejected {
+    background: rgba(239, 68, 68, 0.04) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    border-left: 4px solid #EF4444;
+    opacity: 0.85;
+  }
+  .maid-card.rejected .head { color: #B91C1C; }
+  .maid-card.rejected .actions { display: none; }
+  .maid-card.rejected .confirm-status {
+    background: rgba(239, 68, 68, 0.1);
+    color: #B91C1C;
+  }
 
   /* 입력창 */
   .composer {
@@ -559,7 +621,11 @@
     });
   }
 
-  // ─── 채팅 전송 (mock: 본인 메시지만 즉시 추가, 자동 답장 X) ───
+  // ─── 채팅 전송 + 메이드 자동 인식 + 상호 확인 ───
+  // 1) 사용자 텍스트 → 종목/시간 keyword 감지 → maid 패턴이면 카드로 렌더
+  // 2) 카드에는 "이상해요 / ✓ 확인됨" 버튼. 본인 + 상대 양쪽 확인해야 등록 확정.
+  // 3) mock 모드라 상대 확인은 자동 시뮬레이션. 실 서버에서는 Supabase Realtime
+  //    broadcast 로 상대편 상태 push.
   (function () {
     const $input = document.getElementById('chatInput');
     const $send  = document.getElementById('sendBtn');
@@ -582,6 +648,184 @@
       });
     }
 
+    // ── 메이드 패턴 파서 ─────────────────────────────
+    // 키워드는 길이 긴 것 우선 매칭 ("P타입" > "P", "셔츠" > "S")
+    const CAT_KEYS = [
+      ['퍼블릭','P 타입'], ['P타입','P 타입'], ['p타입','P 타입'], ['P 타입','P 타입'],
+      ['셔츠','S 타입'], ['S타입','S 타입'], ['s타입','S 타입'], ['S 타입','S 타입'], ['★','S 타입'],
+      ['하퍼','H 타입'], ['H타입','H 타입'], ['h타입','H 타입'], ['H 타입','H 타입'], ['하트','H 타입'],
+    ];
+    const TIME_KEYS = [
+      ['완티','기본'], ['풀세션','기본'], ['풀 세션','기본'], ['기본','기본'], ['풀','기본'],
+      ['반티','반티'], ['반세션','반티'],
+      ['차쓰리','차3'], ['차3','차3'],
+    ];
+    // 종목 단가 (DB-fetch 가 없는 mock 한정 — 백엔드 호출 시점에는 서버가 다시 계산)
+    const PRICE_PREVIEW = {
+      'P 타입': { 기본: { mins: 90, won: 130000 }, 반티: { mins: 45, won: 70000 }, 차3: { mins: 15, won: 30000 } },
+      'S 타입': { 기본: { mins: 60, won: 140000 }, 반티: { mins: 30, won: 70000 }, 차3: { mins: 15, won: 30000 } },
+      'H 타입': { 기본: { mins: 60, won: 120000 }, 반티: { mins: 30, won: 60000 }, 차3: { mins: 15, won: 30000 } },
+    };
+
+    function matchKeyword(text, table) {
+      for (const [k, v] of table) {
+        if (text.includes(k)) return { hit: k, norm: v };
+      }
+      return null;
+    }
+
+    function parseMaidPattern(text) {
+      const t = String(text || '').trim();
+      if (t.length < 4) return null;
+      const cat = matchKeyword(t, CAT_KEYS);
+      const time = matchKeyword(t, TIME_KEYS);
+      if (!cat || !time) return null;
+
+      // 이름 추출 — 키워드/소음어 제거 후 남은 토큰 사용
+      let remain = t;
+      [cat.hit, time.hit].forEach(k => { remain = remain.split(k).join(' '); });
+      const tokens = remain.split(/[\s,·.]+/).filter(Boolean);
+      const NOISE_RE = /^(소속|매장|담당|손님|단골|예약|확인|등록|네|네!|예|예!|있|없|왔|들어가|보낼|가능|불가|중|중\?|\?|!|및|와|과|의|에|도|도\?|에서|에서\?)$/;
+      const MGR_HINT = /(실장|대표|점주|사장|매니저)$/;
+      const cleaned = tokens.filter(x => !NOISE_RE.test(x) && x.length >= 1 && x.length <= 10);
+
+      // 실장 후보 = 실장 hint 포함된 토큰 (예: "임대표", "김실장")
+      let manager = cleaned.find(t => MGR_HINT.test(t)) || null;
+      // hostess 후보 = 실장이 아닌 첫 번째 한글 단어 (1~5자)
+      let hostess = cleaned.find(t => t !== manager && /[가-힣]/.test(t) && t.length >= 1 && t.length <= 5) || null;
+
+      if (!hostess) return null;
+
+      const preview = PRICE_PREVIEW[cat.norm]?.[time.norm] || null;
+      return {
+        manager: manager || '실장',
+        hostess: hostess,
+        category: cat.norm,
+        timeType: time.norm,
+        timeMinutes: preview?.mins ?? null,
+        priceWon: preview?.won ?? null,
+      };
+    }
+
+    // ── 카드 렌더 + 상호 확인 state ─────────────
+    // state machine: pending → mine-ok / other-ok → both-ok (확정) | rejected (이상)
+    let cardSeq = 0;
+    const cardState = new Map(); // id → { mine: bool|null, other: bool|null, locked: bool }
+
+    function renderStatus(card, st) {
+      const $status = card.querySelector('.confirm-status');
+      if (!$status) return;
+      const mine = st.mine === true ? 'ok' : st.mine === false ? 'no' : '';
+      const other = st.other === true ? 'ok' : st.other === false ? 'no' : '';
+      const mineLbl = st.mine === true ? '확인' : st.mine === false ? '이의' : '대기';
+      const otherLbl = st.other === true ? '확인' : st.other === false ? '이의' : '대기';
+      let msg;
+      if (st.mine === false || st.other === false) msg = '이의 제기 — 등록 보류';
+      else if (st.mine === true && st.other === true) msg = '✅ 양쪽 확인 — 등록 완료';
+      else if (st.mine === true) msg = '내 확인 ✓ · 상대 대기 중...';
+      else if (st.other === true) msg = '상대 확인 ✓ · 내 확인 필요';
+      else msg = '양쪽 확인 대기';
+      $status.innerHTML = `
+        <span>${esc(msg)}</span>
+        <span class="progress">
+          <span class="dot ${mine}" title="내 ${mineLbl}">${st.mine === true ? '✓' : st.mine === false ? '×' : ''}</span>
+          <span class="dot ${other}" title="상대 ${otherLbl}">${st.other === true ? '✓' : st.other === false ? '×' : ''}</span>
+        </span>`;
+    }
+
+    function applyCardState(card, st) {
+      cardState.set(card.dataset.cardId, st);
+      card.classList.remove('both-ok', 'rejected');
+      if (st.mine === false || st.other === false) card.classList.add('rejected');
+      else if (st.mine === true && st.other === true) card.classList.add('both-ok');
+
+      // 본인 확인 후 본인 버튼만 잠금. 양쪽 종결 시 모두 잠금.
+      const $confirm = card.querySelector('.act-btn.confirm');
+      const $danger = card.querySelector('.act-btn.danger');
+      const ended = (st.mine === true && st.other === true) || st.mine === false || st.other === false;
+      const mineDone = st.mine !== null;
+      if ($confirm) $confirm.classList.toggle('locked', ended || mineDone);
+      if ($danger) $danger.classList.toggle('locked', ended || mineDone);
+      renderStatus(card, st);
+    }
+
+    function mockOtherConfirm(card) {
+      // mock 모드: 상대편이 1~3초 후 확인 클릭한 것으로 시뮬레이션.
+      //   실 서버에서는 Supabase Realtime broadcast 로 상대 상태 push.
+      const id = card.dataset.cardId;
+      const delay = 1200 + Math.random() * 1800;
+      setTimeout(() => {
+        const st = cardState.get(id);
+        if (!st || st.other !== null) return; // 이미 결정됨
+        applyCardState(card, { ...st, other: true });
+        if (window.NoxUI) window.NoxUI.toast('상대편 확인됨', { type: 'success' });
+      }, delay);
+    }
+
+    function bindCardActions(card) {
+      const $confirm = card.querySelector('.act-btn.confirm');
+      const $danger = card.querySelector('.act-btn.danger');
+      if ($confirm) {
+        $confirm.addEventListener('click', () => {
+          const id = card.dataset.cardId;
+          const st = cardState.get(id) || { mine: null, other: null };
+          if (st.mine !== null) return;
+          applyCardState(card, { ...st, mine: true });
+          if (window.NoxUI) {
+            window.NoxUI.haptic(10);
+            window.NoxUI.toast('내 확인 ✓');
+          }
+        });
+      }
+      if ($danger) {
+        $danger.addEventListener('click', () => {
+          const id = card.dataset.cardId;
+          const st = cardState.get(id) || { mine: null, other: null };
+          if (st.mine !== null) return;
+          applyCardState(card, { ...st, mine: false });
+          if (window.NoxUI) {
+            window.NoxUI.haptic([10, 30, 10]);
+            window.NoxUI.toast('이상 보고 — 등록 보류');
+          }
+        });
+      }
+    }
+
+    function appendMaidCard(text, parsed) {
+      const id = 'mc-' + (++cardSeq);
+      const won = parsed.priceWon ? (Math.round(parsed.priceWon / 10000) + '만원') : '';
+      const mins = parsed.timeMinutes ? (parsed.timeMinutes + '분') : '';
+      const detail = [parsed.category, parsed.timeType, mins, won].filter(Boolean).join(' · ');
+      const html = `
+        <div class="msg-row mine">
+          <div class="msg-body">
+            <div class="bubble">${esc(text)}</div>
+            <div class="maid-card pending" data-card-id="${id}">
+              <div class="head"><span class="live-dot"></span>스태프 자동 인식 · 양쪽 확인 필요</div>
+              <div class="row">
+                <div class="who">${esc(parsed.hostess)} <small>${esc(parsed.manager)} 담당</small></div>
+                <div class="time">${now()}</div>
+              </div>
+              <div class="detail">${esc(detail)}</div>
+              <div class="confirm-status"></div>
+              <div class="actions">
+                <div class="act-btn danger">이상해요</div>
+                <div class="act-btn confirm">✓ 확인됨</div>
+              </div>
+            </div>
+            <div class="msg-time"><span class="read">읽음</span> · ${now()}</div>
+          </div>
+        </div>`;
+      $msgs.insertAdjacentHTML('beforeend', html);
+      const card = $msgs.querySelector(`[data-card-id="${id}"]`);
+      if (card) {
+        applyCardState(card, { mine: null, other: null });
+        bindCardActions(card);
+        mockOtherConfirm(card);
+      }
+      scrollBottom();
+    }
+
     function appendMine(text) {
       const html = `
         <div class="msg-row mine">
@@ -601,7 +845,12 @@
         alert('한 번에 500자까지 입력 가능합니다.');
         return;
       }
-      appendMine(v);
+      const parsed = parseMaidPattern(v);
+      if (parsed) {
+        appendMaidCard(v, parsed);
+      } else {
+        appendMine(v);
+      }
       $input.value = '';
       if (navigator.vibrate) navigator.vibrate(10);
     }
@@ -616,6 +865,29 @@
 
     // 입력창 클릭 시 키보드 띄우기 보조 (iOS Safari)
     $input.addEventListener('touchstart', () => $input.focus(), { passive: true });
+
+    // ── 기존 static 데모 카드 — 동일 상태머신으로 흡수 ──
+    document.querySelectorAll('.maid-card').forEach(card => {
+      if (card.dataset.cardId) return; // 이미 신규 카드
+      const id = 'mc-static-' + (++cardSeq);
+      card.dataset.cardId = id;
+      // 기존 actions div 의 자식들에 .confirm / .danger 클래스 보강 + status row 삽입
+      const $actions = card.querySelector('.actions');
+      if ($actions) {
+        $actions.querySelectorAll('.act-btn').forEach(btn => {
+          const txt = btn.textContent.trim();
+          if (/이상/.test(txt)) btn.classList.add('danger');
+          else if (/확인|등록 유지|완티 등록/.test(txt)) btn.classList.add('confirm');
+        });
+        if (!card.querySelector('.confirm-status')) {
+          const status = document.createElement('div');
+          status.className = 'confirm-status';
+          card.insertBefore(status, $actions);
+        }
+      }
+      applyCardState(card, { mine: null, other: null });
+      bindCardActions(card);
+    });
   })();
 
   // 메시지 위치 스크롤 맨 아래로 (layout 이후)
@@ -635,35 +907,8 @@
     });
   }
 
-  // 메이드 카드 액션 (취소/수정/등록 유지/확인됨/이상해요)
-  document.querySelectorAll('.act-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const label = btn.textContent.trim();
-      if (!window.NoxUI) return;
-      window.NoxUI.haptic(10);
-      if (label.includes('취소')) {
-        const card = btn.closest('.msg-row');
-        if (card) {
-          card.style.transition = 'opacity 0.25s';
-          card.style.opacity = '0';
-          setTimeout(() => card.remove(), 250);
-        }
-        window.NoxUI.toast('메이드 등록 취소됨');
-      } else if (label.includes('수정')) {
-        window.NoxUI.toast('수정 모드 (준비 중)');
-      } else if (label.includes('확인') || label.includes('등록 유지') || label.includes('완티 등록')) {
-        // 버튼 시각 잠금
-        btn.style.opacity = '0.6';
-        btn.style.pointerEvents = 'none';
-        window.NoxUI.toast('확정됨', { type: 'success' });
-      } else if (label.includes('이상')) {
-        window.NoxUI.toast('이상 보고 — 실장 채팅으로 전송');
-      } else if (label.includes('반티로')) {
-        window.NoxUI.toast('반티 30분으로 수정됨');
-      }
-    });
-  });
+  // (메이드 카드 액션은 위 IIFE 의 bindCardActions / mockOtherConfirm 에서 처리.
+  //  이 자리에 있던 단일-버튼 토스트 핸들러는 상호 확인 state 머신으로 흡수됨.)
 
   // AI 자동 인식 설정 ▸
   const $aiBanner = document.querySelector('[style*="AI 자동 인식 활성"]');
