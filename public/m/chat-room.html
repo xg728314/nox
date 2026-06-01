@@ -274,7 +274,7 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .composer .input {
+  .composer input.input {
     flex: 1;
     background: var(--card);
     border: 1px solid var(--line);
@@ -542,9 +542,11 @@
   </div>
 
   <div class="composer">
-    <div class="add-btn">+</div>
-    <div class="input">"임대표 채아 퍼블 완 메이드"</div>
-    <button class="send-btn">↑</button>
+    <button type="button" class="add-btn" id="addBtn" aria-label="추가">+</button>
+    <input type="text" class="input" id="chatInput"
+           placeholder='"임대표 채아 P 타입 풀 세션"'
+           autocomplete="off" autocapitalize="off" autocorrect="off" />
+    <button type="button" class="send-btn" id="sendBtn" aria-label="보내기">↑</button>
   </div>
 
 </div></div></div>
@@ -555,6 +557,91 @@
       el.addEventListener('click', () => navigator.vibrate(8));
     });
   }
+
+  // ─── 채팅 전송 (mock: 본인 메시지 즉시 추가 + 자동 답장 1회) ───
+  (function () {
+    const $input = document.getElementById('chatInput');
+    const $send  = document.getElementById('sendBtn');
+    const $msgs  = document.querySelector('.messages');
+    const $screen= document.querySelector('.screen');
+    if (!$input || !$send || !$msgs) return;
+
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    function now() {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+
+    function scrollBottom() {
+      requestAnimationFrame(() => {
+        if ($screen) $screen.scrollTop = $screen.scrollHeight;
+      });
+    }
+
+    function appendMine(text) {
+      const html = `
+        <div class="msg-row mine">
+          <div class="msg-body">
+            <div class="bubble">${esc(text)}</div>
+            <div class="msg-time"><span class="read">읽음</span> · ${now()}</div>
+          </div>
+        </div>`;
+      $msgs.insertAdjacentHTML('beforeend', html);
+      scrollBottom();
+    }
+
+    function appendOther(name, store, avClass, text) {
+      const html = `
+        <div class="msg-row">
+          <div class="avatar ${avClass}">${esc(name.slice(0, 1))}</div>
+          <div class="msg-body">
+            <div class="sender">${esc(name)} <span class="store">${esc(store)}</span></div>
+            <div class="bubble">${esc(text)}</div>
+            <div class="msg-time">${now()}</div>
+          </div>
+        </div>`;
+      $msgs.insertAdjacentHTML('beforeend', html);
+      scrollBottom();
+    }
+
+    function send() {
+      const v = ($input.value || '').trim();
+      if (!v) return;
+      if (v.length > 500) {
+        alert('한 번에 500자까지 입력 가능합니다.');
+        return;
+      }
+      appendMine(v);
+      $input.value = '';
+      if (navigator.vibrate) navigator.vibrate(10);
+
+      // mock: 0~3% 확률로 자동 답장
+      const replies = [
+        { name: '박실장', store: '지점 A', cls: 'live', text: '확인했습니다!' },
+        { name: '정실장', store: '지점 B', cls: 'shin', text: 'OK 알겠습니다' },
+        { name: '최실장', store: '지점 I', cls: 'ara', text: '감사합니다 ✨' }
+      ];
+      setTimeout(() => {
+        const r = replies[Math.floor(Math.random() * replies.length)];
+        appendOther(r.name, r.store, r.cls, r.text);
+        if (navigator.vibrate) navigator.vibrate([6, 30, 6]);
+      }, 800 + Math.random() * 1200);
+    }
+
+    $send.addEventListener('click', send);
+    $input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+
+    // 입력창 클릭 시 키보드 띄우기 보조 (iOS Safari)
+    $input.addEventListener('touchstart', () => $input.focus(), { passive: true });
+  })();
 
   // 메시지 위치 스크롤 맨 아래로 (layout 이후)
   requestAnimationFrame(() => {
