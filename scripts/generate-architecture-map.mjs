@@ -437,7 +437,7 @@ const html = `<!DOCTYPE html>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NOX 아키텍처 도면</title>
-<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="/m/_arch/vis-network.min.js"></script>
 <style>
   :root { --bg:#F8F4ED; --ink:#2D2B26; --line:#D8D2C8; --card:#FFFCF6; --sub:#7A746A; --gold:#C49B61; }
   * { box-sizing: border-box; }
@@ -452,7 +452,11 @@ const html = `<!DOCTYPE html>
   .topbar label.app-page { background: rgba(34, 197, 94, 0.15); color: #15803D; }
   .topbar label.api { background: rgba(59, 130, 246, 0.15); color: #1D4ED8; }
   .topbar input[type=checkbox] { accent-color: currentColor; margin: 0; }
-  #net { flex: 1; min-height: 0; }
+  #net { flex: 1; min-height: 400px; height: 100%; background: #FBF8F2; position: relative; }
+  #net::before { content: "그래프 로딩 중..."; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--sub); font-size: 13px; font-weight: 700; pointer-events: none; }
+  #net.ready::before { display: none; }
+  #net-error { padding: 20px; color: #B91C1C; font-size: 12px; display: none; background: rgba(239,68,68,0.05); border-radius: 8px; margin: 10px; }
+  #net-error.show { display: block; }
   #detail { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 14px 16px; max-height: 45vh; overflow-y: auto; display: none; box-shadow: 0 -4px 20px rgba(0,0,0,0.1); }
   #detail h3 { margin: 0 0 6px; font-size: 14px; font-weight: 800; }
   #detail .meta { font-size: 11px; color: var(--sub); margin-bottom: 8px; font-family: ui-monospace, monospace; }
@@ -477,6 +481,7 @@ const html = `<!DOCTYPE html>
   <span style="float:right; color:var(--sub);">상세는 <a href="/m/_arch/sitemap.md" style="color:var(--gold);">sitemap.md</a> 참조</span>
 </div>
 <div id="net"></div>
+<div id="net-error"></div>
 <div id="detail">
   <span class="close" onclick="document.getElementById('detail').style.display='none'">✕ 닫기</span>
   <h3 id="d-title"></h3>
@@ -487,6 +492,17 @@ const html = `<!DOCTYPE html>
   <ul id="d-in"></ul>
 </div>
 <script>
+(function () {
+  if (typeof vis === 'undefined') {
+    const err = document.getElementById('net-error');
+    if (err) {
+      err.classList.add('show');
+      err.innerHTML = '<b>그래프 라이브러리 (vis-network) 로드 실패.</b><br>' +
+        '브라우저 콘솔(F12)에 자세한 오류가 있을 수 있습니다. ' +
+        '<code>/m/_arch/vis-network.min.js</code> 가 200 응답인지 네트워크 탭에서 확인해주세요.';
+    }
+    return;
+  }
 const ALL_NODES = ${JSON.stringify(visNodes)};
 const ALL_EDGES = ${JSON.stringify(visEdges)};
 const nodes = new vis.DataSet(ALL_NODES);
@@ -537,6 +553,14 @@ document.getElementById('search').addEventListener('input', (e) => {
     network.fit({ nodes: matches.map(n => n.id), animation: { duration: 400 } });
   }
 });
+
+// 안정화 완료 신호 → "로딩 중" 오버레이 제거
+network.once('stabilizationIterationsDone', () => {
+  container.classList.add('ready');
+});
+// 안정화가 안 끝나도 8초 후엔 강제로 표시
+setTimeout(() => { container.classList.add('ready'); }, 8000);
+})();
 </script>
 </body>
 </html>
