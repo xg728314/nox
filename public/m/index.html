@@ -215,6 +215,12 @@
     flex-direction: column;
     gap: 4px;
   }
+  /* 2026-06-03: chat-strip 접기 — 접으면 첫 카드 1개만 (가장 최근) */
+  .chat-strip.collapsed .chat-list > *:not(:first-child) {
+    display: none;
+  }
+  #chat-collapse-btn { transition: all 0.15s; }
+  #chat-collapse-btn:active { transform: scale(0.92); }
   .chat-card {
     background: var(--card);
     border-radius: 12px;
@@ -424,6 +430,14 @@
     padding: 7px 4px;
     text-align: center;
     border: 1px solid rgba(45, 43, 38, 0.05);
+    /* 2026-06-03: 클릭으로 해당 카테고리 인라인 확장 */
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    user-select: none;
+  }
+  .status-cell:active { transform: scale(0.94); }
+  .status-cell.active {
+    box-shadow: 0 0 0 2px currentColor inset;
   }
   .status-cell .num {
     font-size: 18px;
@@ -1079,12 +1093,16 @@
       </div>
 
       <!-- ★ 채팅 상단 노출 -->
-      <div class="chat-strip">
+      <!-- 2026-06-03: 접기 토글 추가. 접으면 가장 최근 1개만 노출 -->
+      <div class="chat-strip" id="chat-strip">
         <div class="head">
           <div class="lbl">
             <span class="pulse"></span> 채팅 · 실시간
           </div>
-          <div class="more" onclick="location.href='chat.html'">전체 보기 →</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" id="chat-collapse-btn" aria-label="채팅 접기/펴기" style="background:transparent; border:1px solid var(--line); border-radius:999px; padding:3px 10px; font-size:10px; font-weight:800; color:var(--sub); cursor:pointer; font-family:inherit; letter-spacing:-0.01em;">▾ 접기</button>
+            <div class="more" onclick="location.href='chat.html'" style="cursor:pointer;">전체 보기 →</div>
+          </div>
         </div>
         <div class="chat-list">
           <!-- 1. 14매장 실장방 (hot, 새 메시지) — 최상단 -->
@@ -1146,9 +1164,9 @@
           <span class="live"><span class="pulse"></span>실시간</span>
         </div>
         <div class="status-row three">
-          <div class="status-cell working"><div class="num">6</div><div class="lbl">일하는 중</div></div>
-          <div class="status-cell waiting"><div class="num">2</div><div class="lbl">대기</div></div>
-          <div class="status-cell rest"><div class="num">1</div><div class="lbl">휴식</div></div>
+          <div class="status-cell working" data-filter="working" role="button" tabindex="0"><div class="num">6</div><div class="lbl">일하는 중</div></div>
+          <div class="status-cell waiting" data-filter="waiting" role="button" tabindex="0"><div class="num">2</div><div class="lbl">대기</div></div>
+          <div class="status-cell rest" data-filter="rest" role="button" tabindex="0"><div class="num">1</div><div class="lbl">휴식</div></div>
         </div>
         <div class="meta-row">
           <div class="left">
@@ -1590,6 +1608,63 @@
   document.querySelectorAll('.card, .chat-card, .soon-card').forEach(el => {
     el.addEventListener('click', () => navigator.vibrate && navigator.vibrate(10));
   });
+
+  // 2026-06-03: 채팅 strip 접기 토글 — 접으면 첫 1개만 (가장 최근)
+  (function () {
+    const strip = document.getElementById('chat-strip');
+    const btn = document.getElementById('chat-collapse-btn');
+    if (!strip || !btn) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const collapsed = strip.classList.toggle('collapsed');
+      btn.textContent = collapsed ? '▸ 펴기' : '▾ 접기';
+      haptic();
+    });
+  })();
+
+  // 2026-06-03: status-cell 클릭 → 정산 이동 대신 인라인 카테고리 확장
+  //   "6명 일하는 중" 탭 → 일하는 중 섹션만 펼침, 나머지 헤더만.
+  //   같은 셀 다시 탭 → 모두 헤더만 (= 누가 대기/휴식인지도 즉시 파악).
+  //   다른 셀 탭 → 그 카테고리로 전환.
+  //   동시에 .family 섹션으로 부드럽게 스크롤.
+  (function () {
+    const cells = document.querySelectorAll('.status-cell[data-filter]');
+    if (cells.length === 0) return;
+    let activeStatus = null;
+    cells.forEach((cell) => {
+      const handler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const f = cell.getAttribute('data-filter');
+        // 같은 셀 다시 탭 → 모두 접힘
+        if (activeStatus === f) {
+          applyStaffFilter('__none__');
+          lastFilter = '__none__';
+          activeStatus = null;
+          cells.forEach(c => c.classList.remove('active'));
+          document.querySelectorAll('#staff-filter .chip').forEach(c => c.classList.remove('active'));
+        } else {
+          // 다른 카테고리로 전환
+          applyStaffFilter(f);
+          lastFilter = f;
+          activeStatus = f;
+          cells.forEach(c => c.classList.toggle('active', c === cell));
+          // 칩과 동기화
+          document.querySelectorAll('#staff-filter .chip').forEach(c => {
+            c.classList.toggle('active', c.getAttribute('data-filter') === f);
+          });
+        }
+        haptic();
+        // .family 섹션으로 부드럽게 스크롤
+        const family = document.querySelector('.family');
+        if (family) family.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      cell.addEventListener('click', handler);
+      cell.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') handler(e);
+      });
+    });
+  })();
 
   // ─── Day 1: NOX 본체 연결 — 본인 정보 + 식구 자동 ───
   (async function loadFromNox() {
