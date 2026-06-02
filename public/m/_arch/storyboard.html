@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NOX 모바일 앱 — 사용 설명서</title>
+<style>
+  :root { --bg:#F8F4ED; --ink:#2D2B26; --line:#D8D2C8; --card:#FFFCF6; --sub:#7A746A; --gold:#C49B61; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif; line-height: 1.5; }
+  .hero { padding: 32px 24px 20px; background: linear-gradient(135deg, var(--card), #F5EFE3); border-bottom: 1px solid var(--line); }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
+  .hero .subtitle { margin: 0 0 12px; color: var(--sub); font-size: 14px; font-weight: 600; }
+  .hero .meta { display: flex; gap: 16px; font-size: 12px; color: var(--sub); font-weight: 600; flex-wrap: wrap; }
+  .hero .meta a { color: var(--gold); text-decoration: none; }
+  .toc { padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); }
+  .toc strong { font-size: 12px; font-weight: 800; color: var(--sub); margin-right: 4px; }
+  .toc a { padding: 4px 12px; font-size: 12px; font-weight: 800; text-decoration: none; color: var(--c, var(--ink)); border-radius: 999px; background: color-mix(in srgb, var(--c, var(--ink)) 12%, transparent); }
+  .sec { padding: 32px 24px; border-bottom: 1px solid var(--line); }
+  .sec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+  .sec h2 .sec-dot { width: 14px; height: 14px; border-radius: 4px; background: var(--sec-c); flex-shrink: 0; }
+  .sec h2 small { font-size: 12px; color: var(--sub); font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(640px, 1fr)); gap: 24px; }
+  @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
+  .card { display: flex; gap: 18px; padding: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  @media (max-width: 540px) { .card { flex-direction: column; align-items: center; } }
+  .phone { width: 220px; aspect-ratio: 390/844; flex-shrink: 0; background: #000; border-radius: 28px; padding: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
+  .phone img { width: 100%; height: 100%; object-fit: cover; border-radius: 22px; display: block; background: var(--bg); }
+  .phone .no-ss { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #666; font-size: 11px; font-weight: 600; border-radius: 22px; background: #1a1a1a; }
+  .info { flex: 1; min-width: 0; }
+  .info h3 { margin: 0 0 6px; font-size: 15px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .info h3 code { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--sub); background: var(--bg); padding: 2px 8px; border-radius: 6px; }
+  .info .desc { margin: 0 0 12px; font-size: 13px; color: #4A4640; }
+  .block { margin-top: 10px; }
+  .block-lbl { font-size: 10px; font-weight: 800; color: var(--sub); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .block ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.55; }
+  .block ul li { margin-bottom: 2px; }
+  .nexts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .next-chip { padding: 4px 10px; font-size: 11px; font-weight: 700; text-decoration: none; background: rgba(196,155,97,0.15); color: var(--gold); border-radius: 999px; }
+  .next-chip:hover { background: rgba(196,155,97,0.28); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>NOX 모바일 앱 — 사용 설명서</h1>
+  <p class="subtitle">스태프동기화 · 14매장 실장 공동 사용 · 5–8F</p>
+  <div class="meta">
+    <span>총 18 화면</span>
+    <span>마지막 갱신: 2026-06-02</span>
+    <span><a href="./map.html">→ 아키텍처 그래프</a> · <a href="./sitemap.md">→ 사이트맵 md</a></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <strong>섹션 바로가기:</strong>
+  <a href="#sec-홈" style="--c:#F59E0B">홈</a><a href="#sec-스태프" style="--c:#22C55E">스태프</a><a href="#sec-메이드 등록" style="--c:#C49B61">메이드 등록</a><a href="#sec-채팅" style="--c:#3B82F6">채팅</a><a href="#sec-정산" style="--c:#8B5CF6">정산</a><a href="#sec-매장" style="--c:#EC4899">매장</a><a href="#sec-내정보" style="--c:#7A746A">내정보</a>
+</nav>
+
+<section class="sec" id="sec-홈" style="--sec-c:#F59E0B">
+  <h2><span class="sec-dot"></span>홈<small>(1개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-index.html">
+      <div class="phone">
+        <img src="./screens/index.png" alt="홈 (대시보드)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>홈 (대시보드) <code>/m/index.html</code></h3>
+        <p class="desc">오늘 영업일 한눈 보기. 채팅 미리보기 + 우리 스태프 상태 + 곧 끝나는 메이드 + 매장별 분포까지 한 화면에.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>상단 검색 — 스태프/매장/종목 빠른 조회</li>
+            <li>채팅 카드 → 해당 채팅방 입장</li>
+            <li>+ 버튼 (우측 하단) → 빠른 메이드 등록</li>
+            <li>하단 탭바 — 홈/스태프/채팅/정산/내정보 5개 섹션</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-chat.html" class="next-chip">채팅방 목록 (chat.html)</a>
+            <a href="#card-staff-list.html" class="next-chip">내 스태프 목록 (staff-list.html)</a>
+            <a href="#card-add-maid-fast.html" class="next-chip">빠른 메이드 등록 (add-maid-fast.html)</a>
+            <a href="#card-settle.html" class="next-chip">정산 (개인) (settle.html)</a>
+            <a href="#card-me.html" class="next-chip">내 정보 (me.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-스태프" style="--sec-c:#22C55E">
+  <h2><span class="sec-dot"></span>스태프<small>(5개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-staff-list.html">
+      <div class="phone">
+        <img src="./screens/staff-list.png" alt="내 스태프 목록" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>내 스태프 목록 <code>/m/staff-list.html</code></h3>
+        <p class="desc">본인이 관리하는 아가씨 목록. 일하는 중 / 대기 / 휴식 상태 필터링.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>스태프 카드 클릭 → 상세 화면</li>
+            <li>+ 버튼 → 새 스태프 등록</li>
+            <li>필터 칩 — 전체/일하는중/대기/휴식</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-staff.html" class="next-chip">스태프 상세 (staff.html)</a>
+            <a href="#card-add-staff.html" class="next-chip">스태프 등록 (add-staff.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-staff.html">
+      <div class="phone">
+        <img src="./screens/staff.png" alt="스태프 상세" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>스태프 상세 <code>/m/staff.html</code></h3>
+        <p class="desc">한 명의 아가씨 상세 정보. 누적 출근, 매출, 페널티, 메모 등.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>출근 정보 / 정산 이력 / 페널티 기록</li>
+            <li>→ 페널티 규칙 보기</li>
+            <li>→ 출근 체크 화면</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-staff-rules.html" class="next-chip">스태프 규칙 / 페널티 (staff-rules.html)</a>
+            <a href="#card-attendance.html" class="next-chip">출근 체크 (attendance.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-staff-rules.html">
+      <div class="phone">
+        <img src="./screens/staff-rules.png" alt="스태프 규칙 / 페널티" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>스태프 규칙 / 페널티 <code>/m/staff-rules.html</code></h3>
+        <p class="desc">매장 규칙 + 위반 시 페널티 금액. 매장 운영 룰 명문화.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>규칙 항목 확인</li>
+            <li>← 뒤로 (스태프 상세로 복귀)</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-add-staff.html">
+      <div class="phone">
+        <img src="./screens/add-staff.png" alt="스태프 등록" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>스태프 등록 <code>/m/add-staff.html</code></h3>
+        <p class="desc">새 아가씨를 본인 식구로 등록. 이름, 연락처, 입금 계좌 등.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>기본 정보 입력 → 저장</li>
+            <li>원소속 매장 선택 (cross-store 식구일 경우)</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-staff-list.html" class="next-chip">내 스태프 목록 (staff-list.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-attendance.html">
+      <div class="phone">
+        <img src="./screens/attendance.png" alt="출근 체크" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>출근 체크 <code>/m/attendance.html</code></h3>
+        <p class="desc">오늘 누가 나왔는지 빠르게 출근/대기/휴식 상태 토글.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>상태 버튼 한 탭으로 갱신</li>
+            <li>전체 출근 9명 카운트 표시</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-staff-list.html" class="next-chip">내 스태프 목록 (staff-list.html)</a>
+            <a href="#card-chat.html" class="next-chip">채팅방 목록 (chat.html)</a>
+            <a href="#card-add-staff.html" class="next-chip">스태프 등록 (add-staff.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-메이드 등록" style="--sec-c:#C49B61">
+  <h2><span class="sec-dot"></span>메이드 등록<small>(4개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-add-maid-fast.html">
+      <div class="phone">
+        <img src="./screens/add-maid-fast.png" alt="빠른 메이드 등록" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>빠른 메이드 등록 <code>/m/add-maid-fast.html</code></h3>
+        <p class="desc">이미 등록된 식구를 1탭으로 빠르게 메이드 등록. 가장 자주 쓰는 흐름.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>스태프 카드 탭 → 종목 → 시간 → 등록</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-assign-session.html" class="next-chip">세션 등록 (대기자 → 룸) (assign-session.html)</a>
+            <a href="#card-add-maid.html" class="next-chip">메이드 등록 (전체) (add-maid.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-add-maid.html">
+      <div class="phone">
+        <img src="./screens/add-maid.png" alt="메이드 등록 (전체)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>메이드 등록 (전체) <code>/m/add-maid.html</code></h3>
+        <p class="desc">처음 와본 아가씨거나 식구 외 등록 시 사용. 상세 입력 모드.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>이름/매장/종목 직접 입력</li>
+            <li>→ 동명이인 disambig 가 필요하면 검색 화면</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-add-maid-search.html" class="next-chip">메이드 검색 등록 (add-maid-search.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-add-maid-search.html">
+      <div class="phone">
+        <img src="./screens/add-maid-search.png" alt="메이드 검색 등록" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>메이드 검색 등록 <code>/m/add-maid-search.html</code></h3>
+        <p class="desc">5–8F 전체 매장에서 이름 검색 — 동명이인이면 담당실장 + 매장 hint 로 구분.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>이름 입력 → 일치 목록</li>
+            <li>체크 → 등록</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-add-maid.html" class="next-chip">메이드 등록 (전체) (add-maid.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-assign-session.html">
+      <div class="phone">
+        <img src="./screens/assign-session.png" alt="세션 등록 (대기자 → 룸)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>세션 등록 (대기자 → 룸) <code>/m/assign-session.html</code></h3>
+        <p class="desc">대기자 한 명을 어느 룸/매장에 P/S/H 어느 시간으로 들여보낼지. 시작 시각 ±조정도 가능.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>Step 1 층 선택 (5–8F)</li>
+            <li>Step 2 룸 선택</li>
+            <li>Step 3 종목 (P/S/H 타입)</li>
+            <li>Step 4 시간 (기본/반티/차3)</li>
+            <li>Step 5 시작 시각 ±조정 (안 건드리면 현재 시각)</li>
+            <li>→ 등록 → 본 매장 카운터 세션 생성</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-index.html" class="next-chip">홈 (대시보드) (index.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-채팅" style="--sec-c:#3B82F6">
+  <h2><span class="sec-dot"></span>채팅<small>(3개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-chat.html">
+      <div class="phone">
+        <img src="./screens/chat.png" alt="채팅방 목록" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>채팅방 목록 <code>/m/chat.html</code></h3>
+        <p class="desc">14매장 실장방 + 우리 매장 실장방 + 그룹/DM 한 목록에. 미읽 unread 표시.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>채팅방 탭 → 입장</li>
+            <li>+ 버튼 → 새 채팅방 생성</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-chat-room.html" class="next-chip">채팅방 (대화) (chat-room.html)</a>
+            <a href="#card-chat-create.html" class="next-chip">새 채팅방 생성 (chat-create.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-chat-room.html">
+      <div class="phone">
+        <img src="./screens/chat-room.png" alt="채팅방 (대화)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>채팅방 (대화) <code>/m/chat-room.html</code></h3>
+        <p class="desc">실장끼리 메시지 + 메이드 등록 카드 + NOX 자동 알림이 한 흐름에. 메이드 카드는 양쪽 ✓ 확인 후 등록 확정.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>메시지 입력 + 보내기</li>
+            <li>+ 버튼 → 메이드 등록 시트 (내 식구 / 전체 5–8F / 검색 / 멀티 선택 / 매장 선택)</li>
+            <li>메이드 카드 → ✓ 확인됨 / ❌ 이상해요</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-chat.html" class="next-chip">채팅방 목록 (chat.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-chat-create.html">
+      <div class="phone">
+        <img src="./screens/chat-create.png" alt="새 채팅방 생성" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>새 채팅방 생성 <code>/m/chat-create.html</code></h3>
+        <p class="desc">실장/아가씨 검색해 그룹 채팅방을 새로 만든다.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>참여자 검색 → 추가 → 방 생성</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-chat.html" class="next-chip">채팅방 목록 (chat.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-정산" style="--sec-c:#8B5CF6">
+  <h2><span class="sec-dot"></span>정산<small>(2개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-settle.html">
+      <div class="phone">
+        <img src="./screens/settle.png" alt="정산 (개인)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>정산 (개인) <code>/m/settle.html</code></h3>
+        <p class="desc">본인이 관리하는 식구들의 누적 정산 — 종목별 / 매장별 / 시간대별 분포.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>기간 필터</li>
+            <li>스태프별 상세 정산</li>
+            <li>→ 매장 정산 보기 (사장권한일 때)</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-store-settlement.html" class="next-chip">매장 정산 (사장 view) (store-settlement.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-store-settlement.html">
+      <div class="phone">
+        <img src="./screens/store-settlement.png" alt="매장 정산 (사장 view)" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>매장 정산 (사장 view) <code>/m/store-settlement.html</code></h3>
+        <p class="desc">매장 전체 일/주/월 정산 요약. 사장 권한일 때 보임.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>기간 토글</li>
+            <li>매장별 / 종목별 breakdown</li>
+            <li>→ 매장 상세</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-store-detail.html" class="next-chip">매장 상세 (store-detail.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-매장" style="--sec-c:#EC4899">
+  <h2><span class="sec-dot"></span>매장<small>(2개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-store-detail.html">
+      <div class="phone">
+        <img src="./screens/store-detail.png" alt="매장 상세" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>매장 상세 <code>/m/store-detail.html</code></h3>
+        <p class="desc">매장별 운영 정보 — 룸 현황, 스태프, 매출, 설정.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>룸 현황 / 영업 상태</li>
+            <li>→ 매장 설정 (단가/페널티)</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-store-settings.html" class="next-chip">매장 설정 (store-settings.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="card" id="card-store-settings.html">
+      <div class="phone">
+        <img src="./screens/store-settings.png" alt="매장 설정" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>매장 설정 <code>/m/store-settings.html</code></h3>
+        <p class="desc">종목별 단가, 카드수수료, 웨이터팁 기본값, 영업일 잠금 등.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>P/S/H 타입별 시간/단가 편집</li>
+            <li>영업일 진행 중 잠금</li>
+          </ul>
+        </div>
+        <div class="block">
+          <div class="block-lbl">다음으로 갈 수 있는 화면</div>
+          <div class="nexts">
+            <a href="#card-store-detail.html" class="next-chip">매장 상세 (store-detail.html)</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="sec-내정보" style="--sec-c:#7A746A">
+  <h2><span class="sec-dot"></span>내정보<small>(1개 화면)</small></h2>
+  <div class="cards">
+    <article class="card" id="card-me.html">
+      <div class="phone">
+        <img src="./screens/me.png" alt="내 정보" loading="lazy" />
+      </div>
+      <div class="info">
+        <h3>내 정보 <code>/m/me.html</code></h3>
+        <p class="desc">본인 프로필, 매장 전환, 알림 설정, 로그아웃.</p>
+        <div class="block">
+          <div class="block-lbl">여기서 할 수 있는 것</div>
+          <ul>
+            <li>매장 전환 (멀티 매장 멤버십)</li>
+            <li>MFA / 비밀번호 변경</li>
+            <li>로그아웃</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+</body>
+</html>
