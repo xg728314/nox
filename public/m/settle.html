@@ -190,17 +190,46 @@
     background: rgba(220, 38, 38, 0.12);
     color: var(--red);
   }
-  .cs-row .body { flex: 1; }
+  .cs-row .body { flex: 1; min-width: 0; }
   .cs-row .body .name {
     font-size: 14px;
     font-weight: 800;
     letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cs-row .body .name .sub-inline {
+    font-size: 10px;
+    color: var(--sub);
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
   .cs-row .body .sub {
     font-size: 11px;
     color: var(--sub);
     font-weight: 600;
     margin-top: 2px;
+  }
+  /* 2026-06-03: 분포 바 통합 — 매장간 정산 행에 % 분포 시각화 */
+  .cs-row .body .bar {
+    margin-top: 6px;
+    height: 4px;
+    background: rgba(45, 43, 38, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .cs-row .body .bar .fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s;
+  }
+  .cs-row.in .body .bar .fill { background: linear-gradient(90deg, var(--green), #15803D); }
+  .cs-row.out .body .bar .fill { background: linear-gradient(90deg, var(--red), #B91C1C); }
+  .cs-row.mine .body .bar .fill { background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
+  .cs-row.mine .arrow {
+    background: rgba(196, 155, 97, 0.15);
+    color: var(--gold-deep);
   }
   .cs-row .amt {
     font-size: 15px;
@@ -209,6 +238,7 @@
   }
   .cs-row.in .amt { color: var(--green); }
   .cs-row.out .amt { color: var(--red); }
+  .cs-row.mine .amt { color: var(--gold-deep); }
 
   /* 매장별 도넛 미니 */
   .mini-chart {
@@ -383,12 +413,10 @@
     <a href="#" id="calendar-btn" class="more" aria-label="달력">📅</a>
   </header>
 
-  <!-- 기간 -->
+  <!-- 기간 (2026-06-03: 당일 / 이번 주 만. 월/전체 제거 — 일주일 윈도우 운영 원칙) -->
   <div class="period-tabs">
     <div class="period-tab active">오늘</div>
     <div class="period-tab">이번 주</div>
-    <div class="period-tab">이번 달</div>
-    <div class="period-tab">전체</div>
   </div>
 
   <!-- 큰 총액 -->
@@ -438,27 +466,24 @@
           </div>
         </div>
 
-        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+        <!-- 2026-06-03: 정산 일주일 원칙 — "이번 달 / 누적" 제거, "어제 / 이번 주" 만 -->
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
           <div style="text-align: center;">
-            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+280<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+29<span style="font-size: 10px; color: rgba(255,255,255,0.6);"> 만</span></div>
+            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">어제</div>
+          </div>
+          <div style="text-align: center; border-left: 1px solid rgba(255,255,255,0.12);">
+            <div style="font-size: 18px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+280<span style="font-size: 10px; color: rgba(255,255,255,0.6);"> 만</span></div>
             <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">이번 주</div>
-          </div>
-          <div style="text-align: center; border-left: 1px solid rgba(255,255,255,0.12); border-right: 1px solid rgba(255,255,255,0.12);">
-            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">+1,240<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
-            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">이번 달</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="font-size: 16px; font-weight: 800; color: var(--gold-soft); letter-spacing: -0.02em;">8,520<span style="font-size: 9px; color: rgba(255,255,255,0.6);"> 만</span></div>
-            <div style="font-size: 9px; color: rgba(255,255,255,0.5); font-weight: 700; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em;">누적</div>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 매장 간 정산 -->
+  <!-- 매장별 정산 · 분포 (2026-06-03: 매장간 정산 + 매장별 분포 통합) -->
   <div class="sec-head">
-    <div class="ttl">매장 간 정산</div>
+    <div class="ttl">매장별 정산 · 분포</div>
     <div class="more" onclick="location.href='store-settlement.html?store=라이브&dir=in'" style="cursor:pointer;">상세 →</div>
   </div>
   <div class="cross-store">
@@ -471,84 +496,59 @@
       </div>
     </div>
     <div class="cs-list">
+      <!-- 본인 매장 (항상 표시. 받을돈/줄돈 양쪽 탭에서 보임) -->
+      <div class="cs-row mine" onclick="location.href='store-settlement.html?store=마블'" style="cursor:pointer;">
+        <div class="arrow">●</div>
+        <div class="body">
+          <div class="name">마블 <span class="sub-inline">우리 매장 · 7건</span></div>
+          <div class="bar"><div class="fill" style="width:30%"></div></div>
+        </div>
+        <div class="amt">124만</div>
+      </div>
+
+      <!-- 받을 돈 (in) -->
       <div class="cs-row in" onclick="location.href='store-settlement.html?store=라이브&dir=in'" style="cursor:pointer;">
         <div class="arrow">←</div>
         <div class="body">
-          <div class="name">라이브</div>
-          <div class="sub">우리 스태프 2명 워킹 · 9건</div>
+          <div class="name">라이브 <span class="sub-inline">2명 워킹 · 9건</span></div>
+          <div class="bar"><div class="fill" style="width:35%"></div></div>
         </div>
         <div class="amt">+140만</div>
-      </div>
-      <div class="cs-row in" onclick="location.href='store-settlement.html?store=신세계&dir=in'" style="cursor:pointer;">
-        <div class="arrow">←</div>
-        <div class="body">
-          <div class="name">신세계</div>
-          <div class="sub">하늘 셔츠 5건</div>
-        </div>
-        <div class="amt">+70만</div>
       </div>
       <div class="cs-row in" onclick="location.href='store-settlement.html?store=아지트&dir=in'" style="cursor:pointer;">
         <div class="arrow">←</div>
         <div class="body">
-          <div class="name">아지트</div>
-          <div class="sub">유나 단골 5건</div>
+          <div class="name">아지트 <span class="sub-inline">유나 단골 · 5건</span></div>
+          <div class="bar"><div class="fill" style="width:32%"></div></div>
         </div>
         <div class="amt">+125만</div>
+      </div>
+      <div class="cs-row in" onclick="location.href='store-settlement.html?store=신세계&dir=in'" style="cursor:pointer;">
+        <div class="arrow">←</div>
+        <div class="body">
+          <div class="name">신세계 <span class="sub-inline">하늘 셔츠 · 5건</span></div>
+          <div class="bar"><div class="fill" style="width:18%"></div></div>
+        </div>
+        <div class="amt">+70만</div>
       </div>
       <div class="cs-row in" onclick="location.href='store-settlement.html?store=7층&dir=in'" style="cursor:pointer;">
         <div class="arrow">←</div>
         <div class="body">
-          <div class="name">7층</div>
-          <div class="sub">방울 4건</div>
+          <div class="name">7층 <span class="sub-inline">방울 · 4건</span></div>
+          <div class="bar"><div class="fill" style="width:13%"></div></div>
         </div>
         <div class="amt">+52만</div>
       </div>
 
-      <!-- 줄 돈 행 (out, 기본 숨김) -->
+      <!-- 줄 돈 (out, 기본 숨김) -->
       <div class="cs-row out hidden" onclick="location.href='store-settlement.html?store=신세계&dir=out'" style="cursor:pointer;">
         <div class="arrow">→</div>
         <div class="body">
-          <div class="name">신세계</div>
-          <div class="sub">미라 셔츠 5건 · 신세계 → 마블 워킹</div>
+          <div class="name">신세계 <span class="sub-inline">미라 5건 · 마블 워킹</span></div>
+          <div class="bar"><div class="fill" style="width:100%"></div></div>
         </div>
         <div class="amt">-80만</div>
       </div>
-    </div>
-  </div>
-
-  <!-- 매장별 분포 -->
-  <div class="sec-head">
-    <div class="ttl">매장별 분포</div>
-  </div>
-  <div class="mini-chart">
-    <div class="head">
-      <div class="lbl">우리 스태프 일한 곳</div>
-      <div class="total">9명 / 39건</div>
-    </div>
-    <div class="bar mine">
-      <div class="nm">마블</div>
-      <div class="track"><div class="fill" style="width:30%"></div></div>
-      <div class="v">124만</div>
-    </div>
-    <div class="bar">
-      <div class="nm">라이브</div>
-      <div class="track"><div class="fill" style="width:35%"></div></div>
-      <div class="v">140만</div>
-    </div>
-    <div class="bar">
-      <div class="nm">아지트</div>
-      <div class="track"><div class="fill" style="width:32%"></div></div>
-      <div class="v">125만</div>
-    </div>
-    <div class="bar">
-      <div class="nm">신세계</div>
-      <div class="track"><div class="fill" style="width:18%"></div></div>
-      <div class="v">70만</div>
-    </div>
-    <div class="bar">
-      <div class="nm">7층</div>
-      <div class="track"><div class="fill" style="width:13%"></div></div>
-      <div class="v">52만</div>
     </div>
   </div>
 
@@ -651,10 +651,11 @@
     t.addEventListener('click', () => {
       document.querySelectorAll('.cs-tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      // 받을 돈 / 줄 돈 행 토글
+      // 받을 돈 / 줄 돈 행 토글 — 본인 매장 (mine) 은 양쪽 탭에서 항상 표시
       const isIn = t.classList.contains('in');
       document.querySelectorAll('.cs-row.in').forEach(r => r.classList.toggle('hidden', !isIn));
       document.querySelectorAll('.cs-row.out').forEach(r => r.classList.toggle('hidden', isIn));
+      document.querySelectorAll('.cs-row.mine').forEach(r => r.classList.remove('hidden'));
       if (navigator.vibrate) navigator.vibrate(8);
     });
   });

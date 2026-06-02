@@ -769,6 +769,29 @@
   .section-head.rest .badge { background: rgba(245, 158, 11, 0.12); color: #B45309; }
   .section-head.off .badge { background: rgba(45, 43, 38, 0.06); color: var(--sub); }
 
+  /* 2026-06-03: 섹션 접기/펴기 - 필터 칩 클릭 또는 헤더 직접 탭 */
+  .section-head { cursor: pointer; user-select: none; transition: opacity 0.15s; }
+  .section-head::after {
+    content: '▾';
+    margin-left: auto;
+    margin-right: 4px;
+    font-size: 11px;
+    color: var(--sub);
+    transition: transform 0.18s;
+  }
+  .section.collapsed .section-head::after { transform: rotate(-90deg); }
+  .section.collapsed .section-head { opacity: 0.65; }
+  .section.collapsed .grid {
+    max-height: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: max-height 0.25s ease, opacity 0.18s;
+  }
+  .section .grid { transition: max-height 0.25s ease; }
+
   @keyframes pulse {
     0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
     50% { opacity: 0.8; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
@@ -776,24 +799,29 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    /* 2026-06-03: 4-col 으로 컴팩트 — 20명+ 식구 한눈에 보이게 */
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  /* 좁은 폰 화면 (예: SE) 에서는 3-col fallback */
+  @media (max-width: 360px) {
+    .grid { grid-template-columns: repeat(3, 1fr); }
   }
 
-  /* 카드 */
+  /* 카드 — 컴팩트 톤 */
   .card {
     background: var(--card);
-    border-radius: 22px;
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 1px 0 rgba(255,255,255,1) inset, 0 2px 12px rgba(45, 43, 38, 0.06);
+    box-shadow: 0 1px 0 rgba(255,255,255,1) inset, 0 1px 6px rgba(45, 43, 38, 0.05);
     cursor: pointer;
     transition: transform 0.18s cubic-bezier(.34,1.56,.64,1), box-shadow 0.18s;
     position: relative;
   }
-  .card:active { transform: scale(0.97); box-shadow: 0 1px 4px rgba(45, 43, 38, 0.08); }
+  .card:active { transform: scale(0.96); box-shadow: 0 1px 3px rgba(45, 43, 38, 0.06); }
   .card .top {
-    aspect-ratio: 1 / 1.05;
-    padding: 10px 8px;
+    aspect-ratio: 1 / 0.95;
+    padding: 7px 5px;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -832,11 +860,11 @@
   }
   .card .status-dot {
     position: absolute;
-    top: 7px; left: 7px;
-    width: 8px; height: 8px;
+    top: 5px; left: 5px;
+    width: 6px; height: 6px;
     background: var(--green);
     border-radius: 50%;
-    border: 2px solid #fff;
+    border: 1.5px solid #fff;
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
     z-index: 2;
   }
@@ -845,28 +873,28 @@
   .card.off .status-dot { background: #94A3B8; box-shadow: none; }
   .card .where {
     position: absolute;
-    top: 6px; right: 6px;
+    top: 4px; right: 4px;
     background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(8px);
-    padding: 2px 6px;
+    padding: 1px 5px;
     border-radius: 999px;
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 800;
     letter-spacing: -0.01em;
     color: var(--ink);
     z-index: 2;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    max-width: 70%;
+    gap: 2px;
+    max-width: 75%;
   }
   .card .where.mine { background: linear-gradient(135deg, var(--gold), var(--gold-deep)); color: #fff; }
   .card .where.waiting-tag { background: rgba(196, 155, 97, 0.18); color: var(--gold-deep); }
   .card .where.rest-tag { background: rgba(245, 158, 11, 0.2); color: #B45309; }
   .card .where.off-tag { background: rgba(45, 43, 38, 0.08); color: var(--sub); }
   .card .nm {
-    font-size: 19px;
+    font-size: 14px;
     font-weight: 800;
     letter-spacing: -0.04em;
     line-height: 1;
@@ -877,11 +905,11 @@
   }
   .card .nm-sub {
     text-align: center;
-    font-size: 8px;
+    font-size: 7px;
     font-weight: 700;
     color: var(--ink);
     opacity: 0.6;
-    margin-top: 3px;
+    margin-top: 2px;
     letter-spacing: -0.01em;
     white-space: nowrap;
     overflow: hidden;
@@ -893,38 +921,38 @@
   .card.off .nm-sub { color: var(--sub); opacity: 1; }
   .card .marks {
     display: flex;
-    gap: 2px;
+    gap: 1.5px;
     align-items: center;
     z-index: 1;
     position: relative;
     justify-content: center;
-    margin-top: 5px;
-    min-height: 6px;
+    margin-top: 3px;
+    min-height: 5px;
     flex-wrap: wrap;
   }
   .card .mark {
-    width: 6px; height: 6px;
+    width: 5px; height: 5px;
     border-radius: 50%;
     box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
   }
   .card .mark.S { background: var(--S); }
   .card .mark.H { background: var(--H); }
   .card .mark.P { background: var(--P); }
-  .card .bottom { padding: 8px 9px 10px; }
-  .card .row { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+  .card .bottom { padding: 5px 6px 6px; }
+  .card .row { display: flex; align-items: baseline; justify-content: space-between; gap: 3px; }
   .card .row .amt {
-    font-size: 13px; font-weight: 800; letter-spacing: -0.025em;
+    font-size: 11px; font-weight: 800; letter-spacing: -0.025em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .card .row .amt .plus { color: var(--H); font-size: 9px; font-weight: 700; }
-  .card .row .cnt { font-size: 9px; font-weight: 700; color: var(--gold); letter-spacing: -0.01em; }
-  .card.waiting .row .amt { color: var(--gold-deep); font-size: 11px; }
+  .card .row .amt .plus { color: var(--H); font-size: 8px; font-weight: 700; }
+  .card .row .cnt { font-size: 8px; font-weight: 700; color: var(--gold); letter-spacing: -0.01em; }
+  .card.waiting .row .amt { color: var(--gold-deep); font-size: 9px; }
   .card.off .row .amt { color: var(--sub); }
   .card .sub-info {
-    font-size: 9px;
+    font-size: 8px;
     color: var(--sub);
     font-weight: 600;
-    margin-top: 3px;
+    margin-top: 2px;
     letter-spacing: -0.01em;
     white-space: nowrap;
     overflow: hidden;
@@ -1505,23 +1533,57 @@
 
 <script>
   function haptic() { if (navigator.vibrate) navigator.vibrate(8); }
-  // 스태프 필터 칩 (data-filter 기반)
+  // 2026-06-03: 필터 칩 + 섹션 헤더 접기/펴기 — 20명+ 케이스 대응
+  //   동작:
+  //   · 전체 칩 → 모든 섹션 펼침
+  //   · 다른 칩 (일하는중/대기/휴식) → 해당 카테고리 섹션만 펼침, 나머지는 헤더만 (collapsed)
+  //   · 같은 칩 두 번 누르면 → 그 카테고리도 접힘 (모든 섹션 헤더만)
+  //   · 섹션 헤더 직접 탭 → 그 섹션 개별 토글
+  function sectionStatus(sec) {
+    const head = sec.querySelector('.section-head');
+    if (!head) return 'working';
+    if (head.classList.contains('waiting')) return 'waiting';
+    if (head.classList.contains('rest')) return 'rest';
+    if (head.classList.contains('off')) return 'off';
+    return 'working';
+  }
   function applyStaffFilter(filter) {
     document.querySelectorAll('.family .section').forEach(sec => {
-      const head = sec.querySelector('.section-head');
-      let status = 'working';
-      if (head && head.classList.contains('waiting')) status = 'waiting';
-      else if (head && head.classList.contains('rest')) status = 'rest';
-      else if (head && head.classList.contains('off')) status = 'off';
-      sec.style.display = (filter === 'all' || filter === status) ? '' : 'none';
+      sec.style.display = ''; // 항상 표시 (헤더라도)
+      const status = sectionStatus(sec);
+      if (filter === 'all') {
+        sec.classList.remove('collapsed');
+      } else if (filter === '__none__') {
+        sec.classList.add('collapsed');
+      } else {
+        sec.classList.toggle('collapsed', filter !== status);
+      }
     });
   }
+  let lastFilter = 'all';
   document.querySelectorAll('#staff-filter .chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      document.querySelectorAll('#staff-filter .chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
       const f = chip.getAttribute('data-filter') || 'all';
-      applyStaffFilter(f);
+      // 같은 칩 두 번 → 모두 접힘 (해당 카테고리도)
+      if (lastFilter === f && f !== 'all') {
+        applyStaffFilter('__none__');
+        lastFilter = '__none__';
+        document.querySelectorAll('#staff-filter .chip').forEach(c => c.classList.remove('active'));
+      } else {
+        document.querySelectorAll('#staff-filter .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        applyStaffFilter(f);
+        lastFilter = f;
+      }
+      haptic();
+    });
+  });
+  // 섹션 헤더 직접 탭 → 개별 토글 (칩 상태와 독립적)
+  document.querySelectorAll('.family .section-head').forEach(head => {
+    head.addEventListener('click', () => {
+      const sec = head.closest('.section');
+      if (!sec) return;
+      sec.classList.toggle('collapsed');
       haptic();
     });
   });
