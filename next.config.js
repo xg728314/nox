@@ -91,6 +91,26 @@ const nextConfig = {
         destination: "/admin/approvals/:path*",
         permanent: true,
       },
+      // 2026-06-03 R-스태프동기화-Next: 정적 HTML mock (/m/*.html) → Next.js 라우트.
+      //   북마크/캐시/외부링크에서 옛 .html 경로로 들어오면 자동 매핑.
+      { source: "/m/index.html", destination: "/m", permanent: true },
+      { source: "/m/staff-list.html", destination: "/m/staff", permanent: true },
+      { source: "/m/staff.html", destination: "/m/staff", permanent: true },
+      { source: "/m/staff-rules.html", destination: "/m/staff/rules", permanent: true },
+      { source: "/m/add-staff.html", destination: "/m/staff/new", permanent: true },
+      { source: "/m/attendance.html", destination: "/m/attendance", permanent: true },
+      { source: "/m/add-maid.html", destination: "/m/assign", permanent: true },
+      { source: "/m/add-maid-fast.html", destination: "/m/assign", permanent: true },
+      { source: "/m/add-maid-search.html", destination: "/m/assign", permanent: true },
+      { source: "/m/assign-session.html", destination: "/m/assign", permanent: true },
+      { source: "/m/chat.html", destination: "/m/chat", permanent: true },
+      { source: "/m/chat-room.html", destination: "/m/chat", permanent: true },
+      { source: "/m/chat-create.html", destination: "/m/chat/new", permanent: true },
+      { source: "/m/settle.html", destination: "/m/settle", permanent: true },
+      { source: "/m/store-settlement.html", destination: "/m/settle/store", permanent: true },
+      { source: "/m/store-detail.html", destination: "/m/store", permanent: true },
+      { source: "/m/store-settings.html", destination: "/m/store/settings", permanent: true },
+      { source: "/m/me.html", destination: "/m/me", permanent: true },
     ]
   },
 }
