@@ -22,7 +22,13 @@
       "Bash(taskkill //F //PID 35020)",
       "Bash(echo \"TSC=$?\")",
       "Skill(update-config)",
-      "mcp__supabase__*"
+      "mcp__supabase__*",
+      "WebFetch(domain:slotnara2.com)",
+      "WebFetch(domain:kktv247.com)",
+      "PowerShell($p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($p\\) { $p.OwningProcess | Select-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; \"killed\" } else { \"nothing on 3000\" })",
+      "Bash(rm -rf /c/ap/.next /c/ap/node_modules /c/ap/.git)",
+      "Bash(rm -rf /c/ap/app /c/ap/lib /c/ap/database /c/ap/public)",
+      "Bash(rm -f /c/ap/* /c/ap/.*)"
     ]
   },
   "enableAllProjectMcpServers": true

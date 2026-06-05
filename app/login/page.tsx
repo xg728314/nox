@@ -108,7 +108,7 @@ export default function LoginPage() {
     //   data.role === "hostess" ? "/me" :
     //   data.role === "counter" ? "/counter" :
     //   "/counter"
-    const dest = "/m/index.html"
+    const dest = "/m"
 
     // R25: 백업 코드 사용 시 한번 큰 경고. 1회용임을 인지시키고 잔여 표시.
     if (data.used_backup_code) {

@@ -11,5 +11,5 @@
 import { redirect } from "next/navigation"
 
 export default function CounterEntryRedirect() {
-  redirect("/m/index.html")
+  redirect("/m")
 }

@@ -12,5 +12,5 @@
 import { redirect } from "next/navigation"
 
 export default function CounterLayout() {
-  redirect("/m/index.html")
+  redirect("/m")
 }
