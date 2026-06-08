@@ -108,7 +108,7 @@ export default function StaffNewPage() {
   // ─── 결과 화면 ───
   if (result) {
     return (
-      <div className="flex flex-col min-h-full">
+      <div className="flex flex-col min-h-full pb-8">
         <PageHeader title="등록 완료" backHref="/m/staff" />
         <div className="px-5 pb-24 flex flex-col gap-3">
           {result.kind === "pre-register" ? (
@@ -204,7 +204,7 @@ export default function StaffNewPage() {
     <div className="flex flex-col min-h-full">
       <PageHeader title="새 스태프 등록" backHref="/m/staff" />
 
-      <div className="px-5 pb-32 flex flex-col gap-4">
+      <div className="flex-1 px-5 pb-4 flex flex-col gap-4">
         {/* 모드 토글 */}
         <div className="flex bg-[#EFEBE3] rounded-2xl p-1">
           {(
@@ -296,7 +296,7 @@ export default function StaffNewPage() {
       </div>
 
       <div
-        className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#D8D2C8]/60 px-5 py-3 flex gap-2"
+        className="sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#D8D2C8]/60 px-5 py-3 flex gap-2 z-10"
         style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
       >
         <button

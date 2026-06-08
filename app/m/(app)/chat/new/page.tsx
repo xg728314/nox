@@ -109,7 +109,7 @@ export default function ChatNewPage() {
         </div>
       </div>
       <div
-        className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#D8D2C8]/60 px-5 py-3"
+        className="sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#D8D2C8]/60 px-5 py-3 z-10"
         style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
       >
         <button

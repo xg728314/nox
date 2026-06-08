@@ -48,26 +48,35 @@ export async function POST(request: Request) {
     // 중복 검사
     //   1. 이미 같은 phone 의 활성 사전등록이 본인 매장에 있는지
     //   2. 이미 같은 phone 의 활성 hostess 가 본인 매장에 있는지 (가입 완료된 사람)
-    const [preExisting, hostessExisting] = await Promise.all([
-      supabase
-        .from("hostess_pre_registrations")
-        .select("id, name")
-        .eq("store_uuid", auth.store_uuid)
-        .eq("phone", phone)
-        .is("deleted_at", null)
-        .maybeSingle(),
-      supabase
-        .from("hostesses")
-        .select("id, name")
-        .eq("store_uuid", auth.store_uuid)
-        .eq("phone", phone)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .maybeSingle(),
-    ])
+    // graceful: 테이블 없음(42P01) 은 사전등록 INSERT 단계에서 다시 잡음.
+    const preExisting = await supabase
+      .from("hostess_pre_registrations")
+      .select("id, name")
+      .eq("store_uuid", auth.store_uuid)
+      .eq("phone", phone)
+      .is("deleted_at", null)
+      .maybeSingle()
+
+    // 42P01 (table missing) — 명확히 안내. 그 외 error 는 무시하고 INSERT 시도.
+    if (preExisting.error && (preExisting.error as { code?: string }).code === "42P01") {
+      return bad(
+        "MIGRATION_REQUIRED",
+        "사전등록 테이블이 아직 적용되지 않았습니다. Supabase 대시보드에서 database/111_hostess_pre_registrations.sql 을 1회 실행해주세요.",
+        503,
+      )
+    }
     if (preExisting.data) {
       return bad("DUPLICATE_PHONE", `이미 같은 번호로 사전등록된 사람이 있습니다 (${preExisting.data.name}).`, 409)
     }
+
+    const hostessExisting = await supabase
+      .from("hostesses")
+      .select("id, name")
+      .eq("store_uuid", auth.store_uuid)
+      .eq("phone", phone)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .maybeSingle()
     if (hostessExisting.data) {
       return bad("DUPLICATE_PHONE", `이미 같은 번호로 가입된 스태프가 있습니다 (${hostessExisting.data.name}).`, 409)
     }
@@ -90,11 +99,18 @@ export async function POST(request: Request) {
       if ((error as { code?: string } | null)?.code === "42P01") {
         return bad(
           "MIGRATION_REQUIRED",
-          "사전등록 테이블이 아직 적용되지 않았습니다. database/111_hostess_pre_registrations.sql 을 Supabase 에 적용해주세요.",
+          "사전등록 테이블이 아직 적용되지 않았습니다. Supabase 대시보드에서 database/111_hostess_pre_registrations.sql 을 1회 실행해주세요.",
           503,
         )
       }
-      return bad("INSERT_FAILED", error?.message ?? "사전등록에 실패했습니다.", 500)
+      // 디버깅을 위해 PostgreSQL 코드 + 상세 메시지 노출
+      const errCode = (error as { code?: string } | null)?.code ?? "unknown"
+      const errDetails = (error as { details?: string; hint?: string } | null) ?? null
+      return bad(
+        "INSERT_FAILED",
+        `[${errCode}] ${error?.message ?? "사전등록 실패"}${errDetails?.hint ? ` (hint: ${errDetails.hint})` : ""}`,
+        500,
+      )
     }
 
     return NextResponse.json({ ok: true, pre_registration: row }, { status: 201 })
