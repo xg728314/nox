@@ -81,6 +81,8 @@ CREATE TRIGGER trg_hostess_pre_reg_updated_at
 ALTER TABLE hostess_pre_registrations ENABLE ROW LEVEL SECURITY;
 
 -- 매장 멤버는 자기 매장 사전등록 조회 가능 (선택적, 앱은 service-role 사용)
+-- 재실행 안전성을 위해 DROP IF EXISTS 후 CREATE.
+DROP POLICY IF EXISTS hostess_pre_reg_select_same_store ON hostess_pre_registrations;
 CREATE POLICY hostess_pre_reg_select_same_store
   ON hostess_pre_registrations
   FOR SELECT
