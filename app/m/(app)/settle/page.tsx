@@ -1,22 +1,103 @@
 "use client"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
+import { Sheet } from "../../_components/Sheet"
+import { useToast, haptic } from "../../_components/Toast"
 import { useSettlement, useMe } from "../../_hooks/useMobileData"
-import { fmtMoney, fmtMoneyWon } from "../../_lib/format"
+import { fmtMoney, fmtMoneyWon, fmtRelative } from "../../_lib/format"
 import { cn } from "../../_lib/cn"
+import { apiFetch } from "@/lib/apiFetch"
 
 type Period = "today" | "week"
+
+const RESET_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7일
+
+function resetKey(membershipId: string | null | undefined) {
+  return membershipId ? `m.settle.reset.${membershipId}` : null
+}
 
 export default function SettlePage() {
   const me = useMe()
   const settle = useSettlement()
+  const toast = useToast()
   const [period, setPeriod] = useState<Period>("today")
+  const [resetSheetOpen, setResetSheetOpen] = useState(false)
+  const [password, setPassword] = useState("")
+  const [verifying, setVerifying] = useState(false)
+  const [resetAt, setResetAt] = useState<Date | null>(null)
 
-  const total = settle.data?.total_gross ?? 0
-  const count = settle.data?.total_count ?? 0
-  const byHostess = settle.data?.by_hostess ?? []
+  // localStorage 에서 초기화 시각 로드 + 만료 (7일) 자동 정리
+  useEffect(() => {
+    const key = resetKey(me.data?.membership_id)
+    if (!key || typeof window === "undefined") return
+    const v = window.localStorage.getItem(key)
+    if (!v) {
+      setResetAt(null)
+      return
+    }
+    const d = new Date(v)
+    if (Number.isNaN(d.getTime()) || Date.now() - d.getTime() > RESET_TTL_MS) {
+      window.localStorage.removeItem(key)
+      setResetAt(null)
+      return
+    }
+    setResetAt(d)
+  }, [me.data?.membership_id])
+
+  const isReset = resetAt !== null
+
+  // 초기화 상태에서는 화면상 0 으로 표시 (실 데이터는 서버에 보존)
+  const total = isReset ? 0 : settle.data?.total_gross ?? 0
+  const count = isReset ? 0 : settle.data?.total_count ?? 0
+  const byHostess = isReset ? [] : settle.data?.by_hostess ?? []
+
+  async function verifyAndReset() {
+    const pw = password.trim()
+    if (!pw || verifying) return
+    setVerifying(true)
+    haptic([10, 30, 10])
+    try {
+      const res = await apiFetch("/api/auth/verify-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      })
+      if (res.status === 401) {
+        toast("비밀번호가 일치하지 않습니다", "error")
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast(`확인 실패: ${j?.message ?? res.status}`, "error")
+        return
+      }
+      // 확인 성공 — localStorage 에 reset 시각 저장
+      const key = resetKey(me.data?.membership_id)
+      if (key && typeof window !== "undefined") {
+        const now = new Date().toISOString()
+        window.localStorage.setItem(key, now)
+        setResetAt(new Date(now))
+      }
+      toast("내 정산 화면이 초기화됐습니다", "success")
+      setResetSheetOpen(false)
+      setPassword("")
+    } catch (e) {
+      toast(`오류: ${(e as Error).message}`, "error")
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  function undoReset() {
+    const key = resetKey(me.data?.membership_id)
+    if (key && typeof window !== "undefined") {
+      window.localStorage.removeItem(key)
+    }
+    setResetAt(null)
+    toast("초기화 해제 — 정산 다시 표시", "info")
+  }
 
   return (
     <div className="flex flex-col min-h-full">
@@ -24,9 +105,40 @@ export default function SettlePage() {
         title="정산"
         subtitle={`${me.data?.full_name ?? ""} · ${me.data?.store_name ?? ""}`}
         backHref="/m"
+        right={
+          <button
+            type="button"
+            onClick={() => setResetSheetOpen(true)}
+            className="text-[10px] font-extrabold text-red-600 bg-red-50 border border-red-200 rounded-full px-3 py-1.5"
+          >
+            🗑 초기화
+          </button>
+        }
       />
 
       <div className="px-5 pb-24">
+        {/* 초기화 상태 배너 */}
+        {isReset && resetAt && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl px-4 py-3 mb-3 flex items-center gap-3">
+            <span className="text-[20px]">🔄</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-extrabold text-amber-800">
+                내 정산 화면 초기화됨 · {fmtRelative(resetAt)} 전
+              </div>
+              <div className="text-[10px] font-semibold text-amber-700 mt-0.5">
+                서버 데이터는 그대로 보존됩니다. 7일 후 자동 해제.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={undoReset}
+              className="shrink-0 text-[10px] font-extrabold bg-white text-amber-800 border border-amber-300 rounded-full px-3 py-1.5"
+            >
+              해제
+            </button>
+          </div>
+        )}
+
         {/* 기간 탭 (오늘 / 이번 주만) */}
         <div className="flex bg-[#EFEBE3] rounded-2xl p-1 mb-4">
           {(["today", "week"] as Period[]).map((p) => (
@@ -125,6 +237,56 @@ export default function SettlePage() {
       </div>
 
       <TabBar />
+
+      {/* 정산 초기화 모달 (비밀번호 확인) */}
+      <Sheet
+        open={resetSheetOpen}
+        onClose={() => {
+          setResetSheetOpen(false)
+          setPassword("")
+        }}
+        title="정산 초기화"
+        desc="본인 정산 화면을 0 으로 초기화합니다. 다른 사용자의 화면 / 서버 데이터는 영향 없음."
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setResetSheetOpen(false)
+                setPassword("")
+              }}
+              className="flex-1 bg-[#EFEBE3] text-[#2D2B26] rounded-xl py-3 text-[13px] font-extrabold"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={verifyAndReset}
+              disabled={!password.trim() || verifying}
+              className="flex-1 bg-red-600 text-white rounded-xl py-3 text-[13px] font-extrabold disabled:opacity-40"
+            >
+              {verifying ? "확인 중..." : "초기화"}
+            </button>
+          </>
+        }
+      >
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-[11px] font-semibold text-amber-800 mb-3 leading-relaxed">
+          · 초기화는 <b>본인 화면만</b> 영향. 사장/타 실장 view, 서버 기록은 그대로.
+          <br />· 7일 후 자동 해제 — 다시 누적되어 표시됩니다.
+          <br />· 이메일: <b>{me.data?.full_name ?? "—"}</b>
+        </div>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && password.trim() && !verifying) verifyAndReset()
+          }}
+          autoComplete="current-password"
+          placeholder="현재 비밀번호"
+          className="w-full bg-white border border-[#D8D2C8] rounded-xl px-4 py-3 text-[14px] font-semibold outline-none focus:border-red-500"
+        />
+      </Sheet>
     </div>
   )
 }
