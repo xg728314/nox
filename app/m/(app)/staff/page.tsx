@@ -4,26 +4,59 @@ import { useMemo, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { useHostesses } from "../../_hooks/useMobileData"
-import { initialOf } from "../../_lib/format"
+import { initialOf, fmtRelative } from "../../_lib/format"
 import { cn } from "../../_lib/cn"
+import { useToast, haptic } from "../../_components/Toast"
+import { invalidateApi } from "../../_hooks/useApi"
+import { apiFetch } from "@/lib/apiFetch"
 
 type FilterKey = "all" | "working" | "waiting" | "rest"
 
 export default function StaffListPage() {
-  const { data, isLoading, error } = useHostesses()
+  const { data, isLoading, error, refresh } = useHostesses()
   const [filter, setFilter] = useState<FilterKey>("all")
   const [q, setQ] = useState("")
+  const toast = useToast()
+  const [cancelingId, setCancelingId] = useState<string | null>(null)
 
   const all = data?.hostesses ?? []
+  const preRegs = data?.pre_registrations ?? []
   const filtered = useMemo(() => {
     let list = all
     if (q.trim()) {
       const needle = q.trim().toLowerCase()
       list = list.filter((h) => (h.hostess_name ?? "").toLowerCase().includes(needle))
     }
-    // working/waiting/rest 는 현재 정확한 출근 상태가 없어 전체로 표시 (다음 라운드 attendance 연동)
     return list
   }, [all, q])
+  const filteredPreRegs = useMemo(() => {
+    if (!q.trim()) return preRegs
+    const needle = q.trim().toLowerCase()
+    return preRegs.filter(
+      (p) =>
+        (p.hostess_name ?? "").toLowerCase().includes(needle) ||
+        (p.phone ?? "").includes(needle),
+    )
+  }, [preRegs, q])
+
+  async function cancelPreReg(id: string, name: string) {
+    if (!confirm(`사전등록 취소: ${name}?`)) return
+    setCancelingId(id)
+    haptic(10)
+    try {
+      const res = await apiFetch(`/api/manager/hostesses/pre-register/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      invalidateApi("/api/manager/hostesses")
+      await refresh()
+      toast("사전등록 취소됨", "success")
+    } catch (e) {
+      toast(`취소 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setCancelingId(null)
+    }
+  }
 
   return (
     <div className="flex flex-col min-h-full">
@@ -54,9 +87,9 @@ export default function StaffListPage() {
         <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
           {(
             [
-              { k: "all", lbl: "전체", n: all.length },
+              { k: "all", lbl: "전체", n: all.length + preRegs.length },
               { k: "working", lbl: "일하는 중", n: 0 },
-              { k: "waiting", lbl: "대기", n: 0 },
+              { k: "waiting", lbl: "대기", n: preRegs.length },
               { k: "rest", lbl: "휴식", n: 0 },
             ] as const
           ).map((c) => (
@@ -79,10 +112,55 @@ export default function StaffListPage() {
       <div className="px-5 pb-24">
         {isLoading && <SkelList />}
         {error && <Err msg="식구 목록을 불러올 수 없습니다" />}
-        {!isLoading && !error && filtered.length === 0 && (
+        {!isLoading && !error && filtered.length === 0 && filteredPreRegs.length === 0 && (
           <div className="text-center text-[12px] text-[#7A746A] font-semibold py-10">
             {q ? "검색 결과 없음" : "등록된 식구가 없습니다"}
           </div>
+        )}
+
+        {/* 사전등록 — 가입 대기 (filter === all 또는 waiting 일 때만) */}
+        {filteredPreRegs.length > 0 && (filter === "all" || filter === "waiting") && (
+          <section className="mb-4">
+            <div className="flex items-center justify-between mb-1.5 px-1">
+              <div className="text-[10px] font-extrabold text-[#A87D45] uppercase tracking-wider">
+                가입 대기 ({filteredPreRegs.length})
+              </div>
+              <div className="text-[10px] font-semibold text-[#7A746A]">전화 매칭 자동 연동</div>
+            </div>
+            <div className="bg-white rounded-2xl overflow-hidden border border-[#C49B61]/30 border-dashed">
+              {filteredPreRegs.map((p, i) => (
+                <div
+                  key={p.pre_registration_id}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3",
+                    i > 0 && "border-t border-[#D8D2C8]/40",
+                  )}
+                >
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-center text-[16px] font-extrabold text-[#A87D45] shrink-0 relative">
+                    {initialOf(p.hostess_name)}
+                    <span className="absolute -bottom-1 -right-1 bg-[#C49B61] text-white text-[8px] px-1 rounded-full font-extrabold">
+                      대기
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] font-extrabold tracking-tight truncate">{p.hostess_name}</div>
+                    <div className="text-[10px] font-semibold text-[#7A746A] truncate">
+                      {p.phone.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")} · {fmtRelative(p.created_at)} 등록
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => cancelPreReg(p.pre_registration_id, p.hostess_name)}
+                    disabled={cancelingId === p.pre_registration_id}
+                    aria-label="사전등록 취소"
+                    className="shrink-0 text-[10px] font-extrabold bg-red-50 text-red-600 border border-red-200 rounded-full px-2.5 py-1.5 disabled:opacity-40"
+                  >
+                    {cancelingId === p.pre_registration_id ? "..." : "취소"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
         {filtered.length > 0 && (
           <div className="bg-white rounded-2xl overflow-hidden border border-[#D8D2C8]/60">

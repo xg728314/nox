@@ -14,10 +14,24 @@ export type HostessPreview = {
   origin_store_uuid: string | null
 }
 
+/** R-사전등록 (2026-06-08): 아직 NOX 가입 안 된 사전등록 row. */
+export type PreRegistrationPreview = {
+  pre_registration_id: string
+  hostess_name: string
+  phone: string
+  stage_name: string | null
+  note: string | null
+  created_at: string
+  manager_membership_id: string
+  is_pending: true
+}
+
 export type ManagerHostessesResponse = {
   store_uuid: string
   role: AuthContext["role"]
   hostesses: HostessPreview[]
+  /** 가입 대기 — 실장이 사전등록만 한 사람. /m/staff 에서 "가입 대기" 배지로 표시. */
+  pre_registrations: PreRegistrationPreview[]
 }
 
 export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHostessesResponse> {
@@ -73,11 +87,15 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     }
   }
 
+  // 사전등록 조회 — owner 는 매장 전체, manager 는 본인 등록만
+  const preRegistrations = await loadPreRegistrations(supabase, auth)
+
   if (hostessIds.length === 0) {
     return {
       store_uuid: auth.store_uuid,
       role: auth.role,
       hostesses: [],
+      pre_registrations: preRegistrations,
     }
   }
 
@@ -114,5 +132,58 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
         origin_store_uuid: extras.origin_store_uuid,
       }
     }),
+    pre_registrations: preRegistrations,
   }
+}
+
+/**
+ * 사전등록 row 조회.
+ *
+ * - manager: 본인이 등록한 active 사전등록만
+ * - owner: 매장 전체 active 사전등록
+ *
+ * 테이블 미적용 (migration 111 미실행) 시 빈 배열로 graceful fallback.
+ */
+async function loadPreRegistrations(
+  supabase: ReturnType<typeof getServiceClient>,
+  auth: AuthContext,
+): Promise<PreRegistrationPreview[]> {
+  let query = supabase
+    .from("hostess_pre_registrations")
+    .select("id, name, phone, stage_name, note, created_at, manager_membership_id")
+    .eq("store_uuid", auth.store_uuid)
+    .is("deleted_at", null)
+    .is("linked_membership_id", null) // 가입 완료된 것은 hostesses 에서 이미 보임
+    .order("created_at", { ascending: false })
+
+  if (auth.role === "manager") {
+    query = query.eq("manager_membership_id", auth.membership_id)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    // 42P01: 테이블 없음 (migration 미적용) — 조용히 빈 배열
+    if ((error as { code?: string }).code === "42P01") return []
+    // 그 외 에러도 hostesses 응답을 막지 않도록 swallow
+    return []
+  }
+  type Row = {
+    id: string
+    name: string
+    phone: string
+    stage_name: string | null
+    note: string | null
+    created_at: string
+    manager_membership_id: string
+  }
+  return ((data ?? []) as Row[]).map((r) => ({
+    pre_registration_id: r.id,
+    hostess_name: r.name,
+    phone: r.phone,
+    stage_name: r.stage_name,
+    note: r.note,
+    created_at: r.created_at,
+    manager_membership_id: r.manager_membership_id,
+    is_pending: true as const,
+  }))
 }

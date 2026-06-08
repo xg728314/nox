@@ -50,7 +50,9 @@ type SignupBody = {
   password?: unknown
 }
 
-const ALLOWED_SIGNUP_ROLES = ["owner", "manager", "staff"] as const
+// 2026-06-08 R-사전등록: hostess role 추가. 단 사전등록 (manager 가 미리 등록)
+//   이 있어야만 통과. 가입 즉시 사전등록 row 와 자동 연동.
+const ALLOWED_SIGNUP_ROLES = ["owner", "manager", "staff", "hostess"] as const
 type AllowedSignupRole = typeof ALLOWED_SIGNUP_ROLES[number]
 
 function bad(error: string, message: string, status = 400) {
@@ -161,6 +163,40 @@ export async function POST(request: Request) {
       return bad("STORE_INVALID", "선택한 매장이 존재하지 않거나 비활성 상태입니다.")
     }
     const storeUuid = storeRow.id as string
+
+    // ─── 2b. hostess role: 사전등록 매칭 검증 (2026-06-08 R-사전등록) ──
+    //   hostess 는 본인이 매장을 임의로 선택 못 함. 실장이 사전등록한 매장 +
+    //   같은 전화번호여야 함. 매칭 안 되면 거부.
+    type PreRegRow = {
+      id: string
+      manager_membership_id: string
+      store_uuid: string
+      name: string
+    }
+    let preRegRow: PreRegRow | null = null
+    if (role === "hostess") {
+      const { data: preReg, error: preErr } = await admin
+        .from("hostess_pre_registrations")
+        .select("id, manager_membership_id, store_uuid, name")
+        .eq("phone", phone)
+        .eq("store_uuid", storeUuid)
+        .is("linked_membership_id", null)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (preErr && (preErr as { code?: string }).code !== "42P01") {
+        return bad("INTERNAL_ERROR", "사전등록 조회에 실패했습니다.", 500)
+      }
+      if (!preReg) {
+        return bad(
+          "PRE_REGISTRATION_REQUIRED",
+          "사전등록을 찾을 수 없습니다. 매장 실장에게 이름+전화로 사전등록 요청 후 다시 가입해주세요.",
+          403,
+        )
+      }
+      preRegRow = preReg as unknown as PreRegRow
+    }
 
     // ─── 3a. Duplicate check: email already in auth.users ──────
     // listUsers() is paginated; we accept the small cost here because
@@ -296,24 +332,77 @@ export async function POST(request: Request) {
       return bad("PROFILE_WRITE_FAILED", "프로필 생성에 실패했습니다.", 500)
     }
 
-    // ─── 6. Pending membership with the selected role ──────────
-    const { error: memErr } = await admin.from("store_memberships").insert({
-      profile_id: userId,
-      store_uuid: storeUuid,
-      role,
-      status: "pending",
-      is_primary: true,
-      approved_by: null,
-      approved_at: null,
-    })
-    if (memErr) {
+    // ─── 6. Membership 생성. hostess (사전등록 매칭) 는 즉시 approved.
+    //     사전등록을 실장이 이미 수행했으므로 운영자 별도 승인 불필요.
+    const isPreRegisteredHostess = role === "hostess" && preRegRow != null
+    const { data: memData, error: memErr } = await admin
+      .from("store_memberships")
+      .insert({
+        profile_id: userId,
+        store_uuid: storeUuid,
+        role,
+        status: isPreRegisteredHostess ? "approved" : "pending",
+        is_primary: true,
+        approved_by: isPreRegisteredHostess ? userId : null,
+        approved_at: isPreRegisteredHostess ? new Date().toISOString() : null,
+      })
+      .select("id")
+      .single()
+    if (memErr || !memData) {
       // 또한 profile 도 정리 — auth.users 와 함께 rollback.
       try { await admin.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
-      await rollbackAuthUser(`membership_insert_failed: ${memErr.message}`)
+      await rollbackAuthUser(`membership_insert_failed: ${memErr?.message}`)
       return bad("MEMBERSHIP_WRITE_FAILED", "가입 신청 생성에 실패했습니다.", 500)
+    }
+    const membershipId = memData.id as string
+
+    // ─── 6b. hostess + 사전등록 매칭 — hostesses row + pre_reg 연동
+    //     이 단계가 실패해도 사용자는 가입 자체는 성공한 상태이므로 hard-fail.
+    if (isPreRegisteredHostess && preRegRow) {
+      const { data: hostessRow, error: hostErr } = await admin
+        .from("hostesses")
+        .insert({
+          store_uuid: storeUuid,
+          membership_id: membershipId,
+          manager_membership_id: preRegRow.manager_membership_id,
+          name: fullName,
+          phone,
+          is_active: true,
+        })
+        .select("id")
+        .single()
+      if (hostErr || !hostessRow) {
+        // rollback membership + profile + auth user
+        try { await admin.from("store_memberships").delete().eq("id", membershipId) } catch { /* best-effort */ }
+        try { await admin.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
+        await rollbackAuthUser(`hostess_insert_failed: ${hostErr?.message}`)
+        return bad("HOSTESS_WRITE_FAILED", "스태프 레코드 생성에 실패했습니다.", 500)
+      }
+      // pre_reg 연동 — best-effort (실패해도 가입 자체는 성공)
+      try {
+        await admin
+          .from("hostess_pre_registrations")
+          .update({
+            linked_membership_id: membershipId,
+            linked_hostess_id: hostessRow.id,
+            linked_at: new Date().toISOString(),
+          })
+          .eq("id", preRegRow.id)
+      } catch {
+        /* best-effort */
+      }
     }
 
     // ─── 7. Response ────────────────────────────────────────────
+    if (isPreRegisteredHostess) {
+      return NextResponse.json({
+        ok: true,
+        status: "approved",
+        role,
+        auto_linked: true,
+        message: "사전등록 매칭으로 자동 가입 완료. 바로 로그인할 수 있습니다.",
+      })
+    }
     return NextResponse.json({
       ok: true,
       status: "pending",

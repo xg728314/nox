@@ -32,10 +32,22 @@ export type HostessPreview = {
   manager_membership_id: string | null
   origin_store_uuid: string | null
 }
+/** 사전등록 row (가입 대기) */
+export type PreRegistrationPreview = {
+  pre_registration_id: string
+  hostess_name: string
+  phone: string
+  stage_name: string | null
+  note: string | null
+  created_at: string
+  manager_membership_id: string
+  is_pending: true
+}
 export type HostessesResponse = {
   store_uuid: string
   role: string
   hostesses: HostessPreview[]
+  pre_registrations?: PreRegistrationPreview[]
 }
 export function useHostesses() {
   return useApi<HostessesResponse>("/api/manager/hostesses", { ttl: 5000 })
