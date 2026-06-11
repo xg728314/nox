@@ -58,14 +58,31 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
 
     // owner 경로에서도 manager_membership_id / origin_store_uuid 를 추가로 시도.
     // hostesses 테이블이 한 store 의 hostess 행을 갖고 있다면 매핑한다.
+    // 2026-06-12: origin_store_uuid 컬럼이 production 일부 환경에 없을 수 있어
+    //   42703 (column does not exist) 시 그 컬럼 빼고 재시도.
     if (hostessIds.length > 0) {
-      const { data: hRows } = await supabase
+      let hRows: unknown[] | null = null
+      const full = await supabase
         .from("hostesses")
         .select("membership_id, manager_membership_id, origin_store_uuid")
         .eq("store_uuid", auth.store_uuid)
         .in("membership_id", hostessIds)
-      for (const row of hRows ?? []) {
-        const r = row as { membership_id: string; manager_membership_id: string | null; origin_store_uuid: string | null }
+      if (full.error && (full.error as { code?: string }).code === "42703") {
+        const base = await supabase
+          .from("hostesses")
+          .select("membership_id, manager_membership_id")
+          .eq("store_uuid", auth.store_uuid)
+          .in("membership_id", hostessIds)
+        hRows = base.data ?? []
+      } else {
+        hRows = full.data ?? []
+      }
+      for (const row of hRows) {
+        const r = row as {
+          membership_id: string
+          manager_membership_id: string | null
+          origin_store_uuid?: string | null
+        }
         hostessExtras.set(r.membership_id, {
           manager_membership_id: r.manager_membership_id ?? null,
           origin_store_uuid: r.origin_store_uuid ?? null,
@@ -73,18 +90,32 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       }
     }
   } else {
-    const { data: assignments, error: assignmentsError } = await supabase
+    // manager 분기 — 같은 fallback
+    let assignments: unknown[] | null = null
+    const full = await supabase
       .from("hostesses")
       .select("membership_id, manager_membership_id, origin_store_uuid")
       .eq("store_uuid", auth.store_uuid)
       .eq("manager_membership_id", auth.membership_id)
-
-    if (assignmentsError) {
-      console.error("[getManagerHostesses manager] hostesses query failed:", assignmentsError)
-      throw new Error(`manager assignments query failed: ${assignmentsError.message}`)
+    if (full.error && (full.error as { code?: string }).code === "42703") {
+      const base = await supabase
+        .from("hostesses")
+        .select("membership_id, manager_membership_id")
+        .eq("store_uuid", auth.store_uuid)
+        .eq("manager_membership_id", auth.membership_id)
+      if (base.error) {
+        console.error("[getManagerHostesses manager] base fallback failed:", base.error)
+        throw new Error(`manager assignments fallback failed: ${base.error.message}`)
+      }
+      assignments = base.data ?? []
+    } else if (full.error) {
+      console.error("[getManagerHostesses manager] hostesses query failed:", full.error)
+      throw new Error(`manager assignments query failed: ${full.error.message}`)
+    } else {
+      assignments = full.data ?? []
     }
     for (const row of assignments ?? []) {
-      const r = row as { membership_id: string; manager_membership_id: string | null; origin_store_uuid: string | null }
+      const r = row as { membership_id: string; manager_membership_id: string | null; origin_store_uuid?: string | null }
       hostessIds.push(r.membership_id)
       hostessExtras.set(r.membership_id, {
         manager_membership_id: r.manager_membership_id ?? null,
