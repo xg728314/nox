@@ -247,29 +247,35 @@ export async function POST(request: Request) {
 
       const uniqueRequested = Array.from(new Set(memberIdsInput))
         .filter(id => id !== authContext.membership_id)
-      let validatedMemberIds: string[] = []
+
+      // 2026-06-12 R-cross-store-group: 매장 제약 제거.
+      //   기존: store_uuid = authContext.store_uuid 멤버만 허용 → 14매장 협업 시
+      //         "INVALID_MEMBERS" 거부. 사장/실장이 다른 매장과 그룹 채팅 불가.
+      //   변경: status='approved' + deleted_at IS NULL 만 검증. 어느 매장이든 OK.
+      //         각 멤버의 store_uuid 를 그대로 chat_participants 에 보존.
+      type MemberRow = { id: string; store_uuid: string }
+      let validatedMembers: MemberRow[] = []
       if (uniqueRequested.length > 0) {
         const { data: verified } = await supabase
           .from("store_memberships")
-          .select("id")
-          .eq("store_uuid", authContext.store_uuid)
+          .select("id, store_uuid")
           .eq("status", "approved")
           .is("deleted_at", null)
           .in("id", uniqueRequested)
-        const verifiedIds = new Set((verified ?? []).map((m: { id: string }) => m.id))
-        if (verifiedIds.size !== uniqueRequested.length) {
+        const verifiedRows = (verified ?? []) as MemberRow[]
+        if (verifiedRows.length !== uniqueRequested.length) {
           return NextResponse.json(
-            { error: "INVALID_MEMBERS", message: "유효하지 않은 멤버가 포함되어 있습니다." },
+            { error: "INVALID_MEMBERS", message: "승인되지 않았거나 삭제된 멤버가 포함되어 있습니다." },
             { status: 400 }
           )
         }
-        validatedMemberIds = [...verifiedIds]
+        validatedMembers = verifiedRows
       }
 
       const { data: created, error: createErr } = await supabase
         .from("chat_rooms")
         .insert({
-          store_uuid: authContext.store_uuid,
+          store_uuid: authContext.store_uuid, // 방의 'home' 매장 = 만든 사람 매장
           type: "group",
           name: groupName?.trim() || "그룹 채팅",
           created_by: authContext.membership_id,
@@ -281,16 +287,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "CREATE_FAILED" }, { status: 500 })
       }
 
+      // chat_participants 의 store_uuid 는 각 멤버의 실제 소속 매장
+      //   (cross-store 멤버여도 정상)
       const rows = [
         {
           chat_room_id: created.id,
           membership_id: authContext.membership_id,
           store_uuid: authContext.store_uuid,
         },
-        ...validatedMemberIds.map(mid => ({
+        ...validatedMembers.map((m) => ({
           chat_room_id: created.id,
-          membership_id: mid,
-          store_uuid: authContext.store_uuid,
+          membership_id: m.id,
+          store_uuid: m.store_uuid,
         })),
       ]
       await supabase.from("chat_participants").insert(rows)
