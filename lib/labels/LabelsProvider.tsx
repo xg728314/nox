@@ -20,9 +20,16 @@
  */
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import type { LabelKey } from "./default"
 import { DEFAULT_LABELS } from "./default"
 import { INDUSTRY_LABELS } from "./industry"
+
+// 2026-06-12 R-login-401-noise: 인증 없는 경로에서는 /api/auth/me 호출 skip.
+//   기존: layout.tsx 가 모든 페이지 감싸서 login/signup 진입 시도 me 호출 → 401.
+//   사용자 DevTools 빨간 X 거슬림.
+//   변경: pathname check 로 public path 면 호출 안 함. 라벨도 어차피 미로그인이라 default.
+const PUBLIC_PATHS = ["/login", "/signup", "/find-id", "/reset-password"] as const
 
 const BUILD_MODE_TABLE: Record<LabelKey, string> =
   process.env.NEXT_PUBLIC_BUILD_MODE === "app"
@@ -42,8 +49,12 @@ const LabelsContext = createContext<LabelsContextValue>({
 
 export function LabelsProvider({ children }: { children: ReactNode }) {
   const [labels, setLabels] = useState<Partial<Record<LabelKey, string>>>({})
+  const pathname = usePathname()
+  const isPublic = pathname ? PUBLIC_PATHS.some((p) => pathname.startsWith(p)) : false
 
   useEffect(() => {
+    // 인증 없는 경로는 me 호출 안 함 — 401 노이즈 제거
+    if (isPublic) return
     let cancelled = false
 
     async function loadLabels() {
@@ -67,7 +78,7 @@ export function LabelsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isPublic])
 
   return (
     <LabelsContext.Provider value={{ labels, setLabels }}>
