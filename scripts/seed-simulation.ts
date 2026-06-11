@@ -394,20 +394,20 @@ async function seedSessions() {
 
       const mgr = pick(store.managers)
 
-      // 세션 INSERT
+      // 세션 INSERT — 일단 active 로 만들고 참여자 추가 후 closed 로 변경
+      //   (트리거: closed 세션에 참여자 INSERT 차단)
       const { data: sessionRow, error: sErr } = await supabase
         .from("room_sessions")
         .insert({
           store_uuid: store.storeUuid,
           room_uuid: room.id,
           business_day_id: bizDayId,
-          status: s < 4 ? "closed" : "active", // 첫 4 완료, 나머지 진행
+          status: "active",
           opened_by: mgr.userId,
           manager_membership_id: mgr.membershipId,
           manager_name: mgr.name,
           is_external_manager: false,
           started_at: startedAt.toISOString(),
-          ended_at: s < 4 ? new Date(startedAt.getTime() + 90 * 60_000).toISOString() : null,
         })
         .select("id")
         .single()
@@ -416,6 +416,7 @@ async function seedSessions() {
         continue
       }
       sessionCount++
+      const willClose = s < 4 // 첫 4 세션은 정산까지
 
       // 참여자 1~3명 (manager 담당 아가씨 우선)
       const numParticipants = 1 + Math.floor(Math.random() * 3)
@@ -449,11 +450,12 @@ async function seedSessions() {
           store_uuid: store.storeUuid,
           entered_at: startedAt.toISOString(),
         })
-        if (!pErr) participantCount++
+        if (pErr) log(`    participant 실패: ${pErr.message}`)
+        else participantCount++
       }
 
       // 첫 4 세션은 finalize (정산까지)
-      if (s < 4) {
+      if (willClose) {
         // 참여자 합산
         const { data: parts } = await supabase
           .from("session_participants")
@@ -474,17 +476,28 @@ async function seedSessions() {
           business_day_id: bizDayId,
           status: "finalized",
           gross_total: totals.gross,
-          orders_total: 0,
+          order_total_amount: 0,
+          participant_total_amount: totals.gross,
           tc_amount: totals.gross,
           manager_amount: totals.mgr,
           hostess_amount: totals.host,
-          waiter_tip_amount: 0,
+          margin_amount: 0,
           card_fee_amount: 0,
           payment_method: pick(["cash", "card", "credit"]),
           finalized_at: new Date().toISOString(),
           finalized_by: mgr.userId,
         })
-        if (!rErr) finalizedCount++
+        if (rErr) log(`    receipt 실패: ${rErr.message}`)
+        else finalizedCount++
+
+        // 세션 closed 로 마감 (trigger 통과)
+        await supabase
+          .from("room_sessions")
+          .update({
+            status: "closed",
+            ended_at: new Date(startedAt.getTime() + 90 * 60_000).toISOString(),
+          })
+          .eq("id", sessionRow.id)
       }
     }
     log(`  [${store.storeName}] 세션 ${targetSessions} (진행 ${targetSessions - 4}, 정산 4)`)
@@ -493,16 +506,21 @@ async function seedSessions() {
 }
 
 // ─── 3단계: 채팅 (14매장 글로벌 + 매장별) ────────────────
+//   chat_rooms: name (not title), store_uuid, type, is_active
+//   chat_participants: store_uuid 필요
+//   chat_messages: store_uuid 필요
 async function seedChat() {
   log("=== 3단계: 채팅 ===")
-  // 글로벌 14매장 실장방 (type='global' 가정, 없으면 생성)
+
+  // 글로벌 방의 store_uuid 는 첫 매장으로 (스키마가 NOT NULL 가능)
+  const globalStoreUuid = seededStores[0].storeUuid
   let globalRoom: string | null = null
   {
     const { data: existing } = await supabase
       .from("chat_rooms")
       .select("id")
       .eq("type", "global")
-      .eq("title", `${SIM_PREFIX} 14매장 실장방`)
+      .eq("name", `${SIM_PREFIX} 14매장 실장방`)
       .maybeSingle()
     if (existing) globalRoom = existing.id
     else {
@@ -510,28 +528,35 @@ async function seedChat() {
         .from("chat_rooms")
         .insert({
           type: "global",
-          title: `${SIM_PREFIX} 14매장 실장방`,
-          created_by: seededStores[0].managers[0].userId,
+          name: `${SIM_PREFIX} 14매장 실장방`,
+          store_uuid: globalStoreUuid,
+          created_by: seededStores[0].managers[0].membershipId,
+          is_active: true,
         })
         .select("id")
         .single()
-      if (!error && data) globalRoom = data.id
+      if (error) log(`  global chat_rooms 실패: ${error.message}`)
+      else if (data) globalRoom = data.id
     }
   }
 
+  let globalParticipants = 0
   if (globalRoom) {
-    // 모든 실장을 글로벌 방에 참여시킴
     for (const store of seededStores) {
       for (const mgr of store.managers) {
-        await supabase
+        const { error } = await supabase
           .from("chat_participants")
           .upsert(
-            { chat_room_id: globalRoom, membership_id: mgr.membershipId },
+            {
+              chat_room_id: globalRoom,
+              membership_id: mgr.membershipId,
+              store_uuid: store.storeUuid,
+            },
             { onConflict: "chat_room_id,membership_id" },
           )
+        if (!error) globalParticipants++
       }
     }
-    // 글로벌 메시지 몇 개
     const sampleMessages = [
       "오늘 분주합니다 다들 화이팅",
       "지유 셔츠 들어갔어요 — 신세계방으로",
@@ -545,21 +570,21 @@ async function seedChat() {
       await supabase.from("chat_messages").insert({
         chat_room_id: globalRoom,
         sender_membership_id: mgr.membershipId,
+        store_uuid: store.storeUuid,
         content: sampleMessages[i],
         created_at: new Date(Date.now() - (5 - i) * 7 * 60_000).toISOString(),
       })
     }
   }
 
-  // 매장별 실장방
   let storeRoomCount = 0
   for (const store of seededStores) {
-    const title = `${store.storeName} 실장방`
+    const name = `${store.storeName} 실장방`
     const { data: existing } = await supabase
       .from("chat_rooms")
       .select("id")
       .eq("type", "group")
-      .eq("title", title)
+      .eq("name", name)
       .maybeSingle()
     let roomId = existing?.id ?? null
     if (!roomId) {
@@ -567,13 +592,15 @@ async function seedChat() {
         .from("chat_rooms")
         .insert({
           type: "group",
-          title,
+          name,
           store_uuid: store.storeUuid,
-          created_by: store.managers[0].userId,
+          created_by: store.managers[0].membershipId,
+          is_active: true,
         })
         .select("id")
         .single()
-      if (!error && data) roomId = data.id
+      if (error) log(`  ${store.storeName} chat_rooms 실패: ${error.message}`)
+      else if (data) roomId = data.id
     }
     if (!roomId) continue
     storeRoomCount++
@@ -581,22 +608,22 @@ async function seedChat() {
       await supabase
         .from("chat_participants")
         .upsert(
-          { chat_room_id: roomId, membership_id: mgr.membershipId },
+          { chat_room_id: roomId, membership_id: mgr.membershipId, store_uuid: store.storeUuid },
           { onConflict: "chat_room_id,membership_id" },
         )
     }
-    // 메시지 2~3개
     const msgs = ["오늘 출근 명단 확인 부탁드려요", "방울 ↔ 7층 룸 변경 확인", "정산 마감 자정"]
     for (let i = 0; i < msgs.length; i++) {
       await supabase.from("chat_messages").insert({
         chat_room_id: roomId,
         sender_membership_id: store.managers[i % 3].membershipId,
+        store_uuid: store.storeUuid,
         content: msgs[i],
         created_at: new Date(Date.now() - (3 - i) * 12 * 60_000).toISOString(),
       })
     }
   }
-  log(`chat 완료: 글로벌 1 + 매장별 ${storeRoomCount}`)
+  log(`chat 완료: 글로벌 1 (참여 ${globalParticipants}) + 매장별 ${storeRoomCount}`)
 }
 
 // ─── Cleanup (재실행 전 정리) ──────────────────────────
@@ -611,8 +638,8 @@ async function cleanup() {
   log(`  시뮬 매장 ${storeIds.length}개`)
 
   if (storeIds.length > 0) {
-    // 종속 데이터 차례로 삭제
-    const tables = [
+    // 종속 데이터 — store_uuid 컬럼 있는 테이블들
+    const tablesWithStoreUuid = [
       "receipts",
       "session_participants",
       "room_sessions",
@@ -625,17 +652,19 @@ async function cleanup() {
       "chat_participants",
       "chat_rooms",
       "store_memberships",
-      "stores",
     ]
-    for (const t of tables) {
+    for (const t of tablesWithStoreUuid) {
       const { error, count } = await supabase
         .from(t)
         .delete({ count: "exact" })
         .in("store_uuid", storeIds)
-        .or("id.is.not.null") // ensure delete query is valid
       if (error) log(`  [${t}] 삭제 실패:`, error.message)
-      else log(`  [${t}] ${count} 삭제`)
+      else log(`  [${t}] ${count ?? 0} 삭제`)
     }
+    // stores 자체는 id 기준
+    const { error, count } = await supabase.from("stores").delete({ count: "exact" }).in("id", storeIds)
+    if (error) log(`  [stores] 삭제 실패:`, error.message)
+    else log(`  [stores] ${count ?? 0} 삭제`)
   }
 
   // 시뮬 이메일 사용자 일괄 정리
