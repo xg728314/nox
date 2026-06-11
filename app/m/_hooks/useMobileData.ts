@@ -115,10 +115,21 @@ export function useServiceTypes() {
 export type ChatRoom = {
   id: string
   type: "global" | "room_session" | "group" | "direct"
+  /** 백엔드 우선 표시 이름 (수동 설정 > 참여자 자동 > 기본) */
   title: string
+  /** 백엔드 alias (이전 호환) */
+  display_name?: string
+  /** 사용자가 설정한 원본 이름 (없으면 null) */
+  name?: string | null
   last_message: string | null
+  last_message_text?: string | null
   last_message_at: string | null
   unread_count: number
+  /** 그룹 채팅 참여자 이름 상위 5명 (본인 제외) */
+  participant_names?: string[]
+  participant_count?: number
+  pinned_at?: string | null
+  is_creator?: boolean
 }
 export function useChatRooms() {
   return useApi<{ rooms: ChatRoom[] }>("/api/chat/rooms", { ttl: 5000 })

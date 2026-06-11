@@ -26,9 +26,15 @@ type RoomRow = {
 
 type EnrichedRoom = RoomRow & {
   display_name: string
+  // 모바일 클라이언트 호환 alias
+  title: string
+  last_message: string | null
   unread_count: number
   pinned_at: string | null
   is_creator: boolean
+  // 참여자 이름 (상위 5명). 그룹 채팅방의 이름 자동 생성 + UI 표시용.
+  participant_names: string[]
+  participant_count: number
 }
 
 /**
@@ -153,14 +159,86 @@ export async function getRoomList(
     }
   }
 
+  // 4b. group 채팅방 참여자 이름 fetch — 이름 미설정 시 자동 표시용
+  //     (모든 group room 에 대해 본인 제외 참여자 최대 5명)
+  const groupRoomIds = rooms.filter((r) => r.type === "group").map((r) => r.id)
+  const groupParticipantNames = new Map<string, string[]>() // roomId → 이름 배열
+  const groupParticipantCounts = new Map<string, number>() // roomId → 전체 수
+  if (groupRoomIds.length > 0) {
+    const { data: gpRows } = await supabase
+      .from("chat_participants")
+      .select("chat_room_id, membership_id, store_uuid")
+      .in("chat_room_id", groupRoomIds)
+      .is("left_at", null)
+    const roomMembers = new Map<string, { id: string; storeUuid: string }[]>()
+    const allMemIds = new Set<string>()
+    for (const r of gpRows ?? []) {
+      const arr = roomMembers.get(r.chat_room_id) ?? []
+      arr.push({ id: r.membership_id, storeUuid: r.store_uuid })
+      roomMembers.set(r.chat_room_id, arr)
+      allMemIds.add(r.membership_id)
+    }
+    // 매장별 그룹화 — resolveMemberNames 가 store 별 처리
+    const byStore = new Map<string, string[]>()
+    for (const r of gpRows ?? []) {
+      const arr = byStore.get(r.store_uuid) ?? []
+      arr.push(r.membership_id)
+      byStore.set(r.store_uuid, arr)
+    }
+    const nameMap = new Map<string, string>()
+    for (const [storeId, ids] of byStore) {
+      const m = await resolveMemberNames(supabase, storeId, ids)
+      for (const [k, v] of m) nameMap.set(k, v)
+    }
+    // 본인 제외 + 최대 5명
+    for (const [roomId, members] of roomMembers) {
+      const others = members.filter((m) => m.id !== membership_id)
+      groupParticipantCounts.set(roomId, members.length)
+      const names: string[] = []
+      for (const m of others) {
+        const n = nameMap.get(m.id)
+        if (n) names.push(n)
+        if (names.length >= 5) break
+      }
+      groupParticipantNames.set(roomId, names)
+    }
+  }
+
   // 5. Enrich rooms
-  let enriched: EnrichedRoom[] = rooms.map((r) => ({
-    ...r,
-    display_name: r.type === "direct" ? (peerNameMap.get(r.id) || "1:1 채팅") : (r.name || (r.type === "global" ? "매장 전체" : "룸 채팅")),
-    unread_count: unreadMap.get(r.id) || 0,
-    pinned_at: pinnedAtMap.get(r.id) ?? null,
-    is_creator: r.created_by === membership_id,
-  }))
+  let enriched: EnrichedRoom[] = rooms.map((r) => {
+    let displayName: string
+    if (r.type === "direct") {
+      displayName = peerNameMap.get(r.id) || "1:1 채팅"
+    } else if (r.type === "global") {
+      displayName = r.name || "매장 전체"
+    } else if (r.type === "group") {
+      // group: 사용자 설정 이름 우선. default ("그룹 채팅") 또는 빈 값이면 참여자 이름으로.
+      const customName = r.name && r.name.trim() !== "" && r.name !== "그룹 채팅"
+      if (customName) {
+        displayName = r.name!
+      } else {
+        const names = groupParticipantNames.get(r.id) ?? []
+        const total = groupParticipantCounts.get(r.id) ?? names.length
+        const shown = names.slice(0, 3)
+        const rest = Math.max(0, total - 1 - shown.length) // -1 = 본인
+        if (shown.length === 0) displayName = "그룹 채팅"
+        else displayName = shown.join(", ") + (rest > 0 ? ` 외 ${rest}명` : "")
+      }
+    } else {
+      displayName = r.name || "룸 채팅"
+    }
+    return {
+      ...r,
+      display_name: displayName,
+      title: displayName, // 모바일 클라이언트 호환
+      last_message: r.last_message_text,
+      unread_count: unreadMap.get(r.id) || 0,
+      pinned_at: pinnedAtMap.get(r.id) ?? null,
+      is_creator: r.created_by === membership_id,
+      participant_names: groupParticipantNames.get(r.id) ?? [],
+      participant_count: groupParticipantCounts.get(r.id) ?? 0,
+    }
+  })
 
   // 5b. 2026-05-01 R-Hostess-Home: 스태프(staff/hostess) 면 global / group 제외.
   //   chat_participants row 가 남아있어도 (super_admin override 시점의 잔재
