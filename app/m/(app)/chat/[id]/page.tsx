@@ -62,10 +62,10 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-full h-[100dvh]">
+    <div className="flex flex-col min-h-full">
       <PageHeader title="채팅방" subtitle={roomId.slice(0, 12)} backHref="/m/chat" />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 min-h-[200px]">
         {loading && <div className="text-center text-[12px] text-[#7A746A] py-6">불러오는 중...</div>}
         {!loading && messages.length === 0 && (
           <div className="text-center text-[12px] text-[#7A746A] py-10">아직 메시지가 없습니다</div>
@@ -78,7 +78,7 @@ export default function ChatRoomPage() {
       </div>
 
       <div
-        className="border-t border-[#D8D2C8]/60 bg-white px-3 py-2 flex items-center gap-2"
+        className="sticky bottom-0 z-10 border-t border-[#D8D2C8]/60 bg-white px-3 py-2 flex items-center gap-2"
         style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
       >
         <input
