@@ -50,7 +50,10 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       .eq("role", "hostess")
       .eq("status", "approved")
 
-    if (allHostessesError) throw new Error("Failed to query hostess assignments.")
+    if (allHostessesError) {
+      console.error("[getManagerHostesses owner] store_memberships query failed:", allHostessesError)
+      throw new Error(`hostess assignments query failed: ${allHostessesError.message}`)
+    }
     hostessIds = (allHostesses ?? []).map((hostess) => hostess.id)
 
     // owner 경로에서도 manager_membership_id / origin_store_uuid 를 추가로 시도.
@@ -76,7 +79,10 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       .eq("store_uuid", auth.store_uuid)
       .eq("manager_membership_id", auth.membership_id)
 
-    if (assignmentsError) throw new Error("Failed to query hostess assignments.")
+    if (assignmentsError) {
+      console.error("[getManagerHostesses manager] hostesses query failed:", assignmentsError)
+      throw new Error(`manager assignments query failed: ${assignmentsError.message}`)
+    }
     for (const row of assignments ?? []) {
       const r = row as { membership_id: string; manager_membership_id: string | null; origin_store_uuid: string | null }
       hostessIds.push(r.membership_id)
@@ -106,7 +112,10 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     .eq("role", "hostess")
     .in("id", hostessIds)
 
-  if (hostessesError) throw new Error("Failed to query hostess details.")
+  if (hostessesError) {
+    console.error("[getManagerHostesses] store_memberships details query failed:", hostessesError)
+    throw new Error(`hostess details query failed: ${hostessesError.message}`)
+  }
 
   type Row = {
     id: string
@@ -164,7 +173,8 @@ async function loadPreRegistrations(
   if (error) {
     // 42P01: 테이블 없음 (migration 미적용) — 조용히 빈 배열
     if ((error as { code?: string }).code === "42P01") return []
-    // 그 외 에러도 hostesses 응답을 막지 않도록 swallow
+    // 그 외 에러는 로그 + 빈 배열 (hostesses 응답을 막지 않음)
+    console.warn("[loadPreRegistrations] error:", error)
     return []
   }
   type Row = {

@@ -17,10 +17,27 @@ export async function GET(request: Request) {
       const data = await getManagerHostesses(authContext)
       return NextResponse.json(data)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "err"
+      const msg = e instanceof Error ? e.message : String(e)
+      const stack = e instanceof Error ? e.stack : undefined
+      console.error("[/api/manager/hostesses] QUERY_FAILED:", {
+        message: msg,
+        stack,
+        role: authContext.role,
+        store_uuid: authContext.store_uuid,
+        membership_id: authContext.membership_id,
+      })
       return NextResponse.json(
-        { error: "QUERY_FAILED", message: msg },
-        { status: 500 }
+        {
+          error: "QUERY_FAILED",
+          message: msg,
+          // 디버깅용 (다음 라운드에서 제거): 본인 매장 / 역할 / membership.
+          ctx: {
+            role: authContext.role,
+            store_uuid: authContext.store_uuid?.slice(0, 12),
+            membership_id: authContext.membership_id?.slice(0, 12),
+          },
+        },
+        { status: 500 },
       )
     }
   } catch (error) {
