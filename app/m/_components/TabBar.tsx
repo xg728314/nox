@@ -14,8 +14,13 @@ const TABS = [
 export function TabBar({ chatUnread = false }: { chatUnread?: boolean }) {
   const pathname = usePathname() ?? "/m"
   return (
+    // 2026-06-12 R-tabbar-fixed: 콘텐츠 짧을 때 sticky 가 스크롤 컨테이너 끝에
+    //   붙어서 탭바가 화면 중간 위로 올라오는 현상 fix.
+    //   - 페이지 컨테이너는 flex flex-col min-h-full (각 페이지)
+    //   - mt-auto: 부모 flex-col 안에서 위 모든 공간 흡수 → 탭바 항상 bottom.
+    //   - sticky bottom-0: 콘텐츠 긴 페이지에서도 항상 viewport bottom 에 보임.
     <nav
-      className="sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-[#D8D2C8] z-30"
+      className="mt-auto sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-[#D8D2C8] z-30"
       style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
     >
       <div className="flex items-stretch px-2 pt-2">
