@@ -114,16 +114,24 @@ export default function StaffNewPage() {
           {result.kind === "pre-register" ? (
             <>
               <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 text-[12px] font-bold text-green-700">
-                ✓ <b>{result.name}</b> 사전등록 완료
+                ✓ <b>{result.name}</b> 식구 등록 완료
               </div>
               <div className="bg-white border border-[#D8D2C8]/60 rounded-2xl p-4">
                 <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider mb-1">
-                  다음 단계
+                  바로 가능
                 </div>
                 <div className="text-[12px] font-bold text-[#2D2B26] leading-relaxed">
-                  · 스태프 본인이 <b>NOX 가입 (/signup)</b> 페이지에서 같은 전화번호({result.phone.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")}) 로 회원가입하면 자동 연동됩니다.
-                  <br />· 그 전까지는 스태프 목록에 <b>"가입 대기"</b> 배지로 표시.
-                  <br />· 가입 전이라 세션 등록 / 정산 참여는 불가합니다.
+                  · 즉시 세션 등록, 정산, 채팅 참여 가능합니다.
+                  <br />· 스태프 목록에 정식 식구로 표시됨.
+                </div>
+              </div>
+              <div className="bg-white border border-[#D8D2C8]/60 rounded-2xl p-4">
+                <div className="text-[10px] font-extrabold text-[#A87D45] uppercase tracking-wider mb-1">
+                  스태프 본인 가입 시 (선택)
+                </div>
+                <div className="text-[12px] font-bold text-[#2D2B26] leading-relaxed">
+                  · 본인이 NOX 가입을 원하면 <b>같은 전화번호({result.phone.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")}) + 이름</b> 으로 가입.
+                  <br />· 매칭 시 본인 계정으로 자동 전환 (기록 그대로 유지).
                 </div>
               </div>
             </>

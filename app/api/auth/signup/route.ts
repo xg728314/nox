@@ -164,38 +164,104 @@ export async function POST(request: Request) {
     }
     const storeUuid = storeRow.id as string
 
-    // ─── 2b. hostess role: 사전등록 매칭 검증 (2026-06-08 R-사전등록) ──
-    //   hostess 는 본인이 매장을 임의로 선택 못 함. 실장이 사전등록한 매장 +
-    //   같은 전화번호여야 함. 매칭 안 되면 거부.
-    type PreRegRow = {
-      id: string
-      manager_membership_id: string
-      store_uuid: string
-      name: string
-    }
-    let preRegRow: PreRegRow | null = null
+    // ─── 2b. hostess role: phantom 전환 흐름 (2026-06-12 R-phantom-immediate) ──
+    //   기존: pre_registration 찾고 새 user/mem/hostess 만들기.
+    //   변경: 실장/사장이 이미 phantom 식구로 즉시 등록함 (phone+이름).
+    //         스태프 본인은 같은 phone+이름으로 가입 시 phantom user 의
+    //         email/password 만 진짜로 갱신 (admin.updateUserById).
+    //         profile/membership/hostess row 모두 그대로 → row UUID 안정.
+    //
+    //   phantom 식별: auth.users.email 이 @nox-phantom.local 도메인.
+    //   매칭 키: profiles.phone + profiles.full_name.
+    const PHANTOM_DOMAIN = "nox-phantom.local"
+    type PhantomMatch = { profileId: string; phantomEmail: string }
+    let phantomMatch: PhantomMatch | null = null
     if (role === "hostess") {
-      const { data: preReg, error: preErr } = await admin
-        .from("hostess_pre_registrations")
-        .select("id, manager_membership_id, store_uuid, name")
+      // phone + name 매칭 profile 들 후보
+      const { data: candidates, error: candErr } = await admin
+        .from("profiles")
+        .select("id, full_name, phone")
         .eq("phone", phone)
-        .eq("store_uuid", storeUuid)
-        .is("linked_membership_id", null)
+        .eq("full_name", fullName)
         .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (preErr && (preErr as { code?: string }).code !== "42P01") {
-        return bad("INTERNAL_ERROR", "사전등록 조회에 실패했습니다.", 500)
+      if (candErr) {
+        return bad("INTERNAL_ERROR", "프로필 조회에 실패했습니다.", 500)
       }
-      if (!preReg) {
+      // 그 중 phantom auth user 찾기 (이메일 도메인 = @nox-phantom.local)
+      for (const p of candidates ?? []) {
+        const { data: u } = await admin.auth.admin.getUserById(p.id as string)
+        const userEmail = u?.user?.email ?? ""
+        if (userEmail.endsWith(`@${PHANTOM_DOMAIN}`)) {
+          // 해당 phantom 이 신청 매장에 hostess membership 가지고 있는지 확인
+          const { data: mem } = await admin
+            .from("store_memberships")
+            .select("id")
+            .eq("profile_id", p.id as string)
+            .eq("store_uuid", storeUuid)
+            .eq("role", "hostess")
+            .is("deleted_at", null)
+            .maybeSingle()
+          if (mem) {
+            phantomMatch = { profileId: p.id as string, phantomEmail: userEmail }
+            break
+          }
+        }
+      }
+      if (!phantomMatch) {
         return bad(
-          "PRE_REGISTRATION_REQUIRED",
-          "사전등록을 찾을 수 없습니다. 매장 실장에게 이름+전화로 사전등록 요청 후 다시 가입해주세요.",
+          "NOT_PRE_REGISTERED",
+          "본인이 등록되지 않았습니다. 매장 실장에게 이름+전화로 사전등록 요청해주세요.",
           403,
         )
       }
-      preRegRow = preReg as unknown as PreRegRow
+    }
+
+    // ─── 2c. hostess + phantom 매칭 — fast-path 전환 후 즉시 return ──
+    //   phantom user 의 email + password 만 진짜로 갱신.
+    //   profile / membership / hostess row 그대로 (UUID 안정성).
+    //   아래 EMAIL_TAKEN / phone dup / createUser 흐름 전부 skip.
+    if (role === "hostess" && phantomMatch) {
+      const { error: updErr } = await admin.auth.admin.updateUserById(
+        phantomMatch.profileId,
+        {
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: fullName, nickname, phone, phantom: false },
+        },
+      )
+      if (updErr) {
+        const msg = updErr.message ?? ""
+        if (/already/i.test(msg) || /registered/i.test(msg) || /taken/i.test(msg)) {
+          return NextResponse.json(
+            { error: "EMAIL_TAKEN", message: "이미 가입된 이메일입니다." },
+            { status: 409 },
+          )
+        }
+        return bad("PHANTOM_UPDATE_FAILED", `자동 연동 실패: ${msg}`, 500)
+      }
+
+      // profile 도 nickname 추가 / 최신화
+      await admin
+        .from("profiles")
+        .upsert(
+          {
+            id: phantomMatch.profileId,
+            full_name: fullName,
+            nickname,
+            phone,
+            is_active: true,
+          },
+          { onConflict: "id" },
+        )
+
+      return NextResponse.json({
+        ok: true,
+        status: "approved",
+        role: "hostess",
+        auto_linked: true,
+        message: "사전등록 매칭 — 자동 연동 완료. 바로 로그인할 수 있습니다.",
+      })
     }
 
     // ─── 3a. Duplicate check: email already in auth.users ──────
@@ -332,77 +398,25 @@ export async function POST(request: Request) {
       return bad("PROFILE_WRITE_FAILED", "프로필 생성에 실패했습니다.", 500)
     }
 
-    // ─── 6. Membership 생성. hostess (사전등록 매칭) 는 즉시 approved.
-    //     사전등록을 실장이 이미 수행했으므로 운영자 별도 승인 불필요.
-    const isPreRegisteredHostess = role === "hostess" && preRegRow != null
-    const { data: memData, error: memErr } = await admin
-      .from("store_memberships")
-      .insert({
-        profile_id: userId,
-        store_uuid: storeUuid,
-        role,
-        status: isPreRegisteredHostess ? "approved" : "pending",
-        is_primary: true,
-        approved_by: isPreRegisteredHostess ? userId : null,
-        approved_at: isPreRegisteredHostess ? new Date().toISOString() : null,
-      })
-      .select("id")
-      .single()
-    if (memErr || !memData) {
+    // ─── 6. Pending membership 생성 (owner/manager/staff).
+    //     hostess 는 위 fast-path 에서 return 되었으므로 이 분기 도달 안 함.
+    const { error: memErr } = await admin.from("store_memberships").insert({
+      profile_id: userId,
+      store_uuid: storeUuid,
+      role,
+      status: "pending",
+      is_primary: true,
+      approved_by: null,
+      approved_at: null,
+    })
+    if (memErr) {
       // 또한 profile 도 정리 — auth.users 와 함께 rollback.
       try { await admin.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
-      await rollbackAuthUser(`membership_insert_failed: ${memErr?.message}`)
+      await rollbackAuthUser(`membership_insert_failed: ${memErr.message}`)
       return bad("MEMBERSHIP_WRITE_FAILED", "가입 신청 생성에 실패했습니다.", 500)
-    }
-    const membershipId = memData.id as string
-
-    // ─── 6b. hostess + 사전등록 매칭 — hostesses row + pre_reg 연동
-    //     이 단계가 실패해도 사용자는 가입 자체는 성공한 상태이므로 hard-fail.
-    if (isPreRegisteredHostess && preRegRow) {
-      const { data: hostessRow, error: hostErr } = await admin
-        .from("hostesses")
-        .insert({
-          store_uuid: storeUuid,
-          membership_id: membershipId,
-          manager_membership_id: preRegRow.manager_membership_id,
-          name: fullName,
-          phone,
-          is_active: true,
-        })
-        .select("id")
-        .single()
-      if (hostErr || !hostessRow) {
-        // rollback membership + profile + auth user
-        try { await admin.from("store_memberships").delete().eq("id", membershipId) } catch { /* best-effort */ }
-        try { await admin.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
-        await rollbackAuthUser(`hostess_insert_failed: ${hostErr?.message}`)
-        return bad("HOSTESS_WRITE_FAILED", "스태프 레코드 생성에 실패했습니다.", 500)
-      }
-      // pre_reg 연동 — best-effort (실패해도 가입 자체는 성공)
-      try {
-        await admin
-          .from("hostess_pre_registrations")
-          .update({
-            linked_membership_id: membershipId,
-            linked_hostess_id: hostessRow.id,
-            linked_at: new Date().toISOString(),
-          })
-          .eq("id", preRegRow.id)
-      } catch {
-        /* best-effort */
-      }
     }
 
     // ─── 7. Response ────────────────────────────────────────────
-    if (isPreRegisteredHostess) {
-      return NextResponse.json({
-        ok: true,
-        status: "approved",
-        role,
-        auto_linked: true,
-        message: "사전등록 매칭으로 자동 가입 완료. 바로 로그인할 수 있습니다.",
-      })
-    }
     return NextResponse.json({
       ok: true,
       status: "pending",
