@@ -149,7 +149,16 @@ export async function POST(request: Request) {
       phone,
       is_active: true,
     }
-    // origin_store_uuid 컬럼이 있으면 같이 set (graceful — 컬럼 없으면 42703 → 재시도)
+
+    /** PostgREST: column missing 패턴 — 42703 / PGRST204 / "schema cache" / "Could not find" */
+    function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+      if (!err) return false
+      if (err.code === "42703" || err.code === "PGRST204") return true
+      const m = err.message ?? ""
+      return /schema cache|Could not find the '/.test(m)
+    }
+
+    // origin_store_uuid 컬럼이 있으면 같이 set (graceful — 컬럼 없으면 빼고 재시도)
     let hostessRow: { id: string } | null = null
     {
       const full = await supabase
@@ -157,7 +166,7 @@ export async function POST(request: Request) {
         .insert({ ...hostessInsert, origin_store_uuid: auth.store_uuid })
         .select("id")
         .single()
-      if (full.error && (full.error as { code?: string }).code === "42703") {
+      if (full.error && isMissingColumn(full.error)) {
         const base = await supabase
           .from("hostesses")
           .insert(hostessInsert)
@@ -167,7 +176,7 @@ export async function POST(request: Request) {
           try { await supabase.from("store_memberships").delete().eq("id", membershipId) } catch { /* best-effort */ }
           try { await supabase.from("profiles").delete().eq("id", userId) } catch { /* best-effort */ }
           await rollback(`hostess base: ${base.error?.message}`)
-          return bad("HOSTESS_WRITE_FAILED", `hostess 생성 실패: ${base.error?.message}`, 500)
+          return bad("HOSTESS_WRITE_FAILED", `hostess 생성 실패 (base): ${base.error?.message}`, 500)
         }
         hostessRow = base.data
       } else if (full.error || !full.data) {
