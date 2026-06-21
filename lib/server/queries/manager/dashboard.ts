@@ -51,9 +51,16 @@ export async function getManagerDashboard(auth: AuthContext): Promise<ManagerDas
       .in("id", previewIds)
 
     if (!hostessesError && hostesses) {
-      preview = hostesses.map((h: { id: string; profiles: { full_name: string }[] | null }) => ({
+      // PostgREST FK embed 는 단일 객체 — 과거 `[0]` 접근으로 항상 빈 이름이던 버그 fix.
+      type Embed = { full_name: string | null } | { full_name: string | null }[] | null
+      const pickName = (p: Embed): string => {
+        if (!p) return ""
+        if (Array.isArray(p)) return p[0]?.full_name ?? ""
+        return p.full_name ?? ""
+      }
+      preview = hostesses.map((h: { id: string; profiles: Embed }) => ({
         hostess_id: h.id,
-        hostess_name: h.profiles?.[0]?.full_name ?? "",
+        hostess_name: pickName(h.profiles),
       }))
     }
   }

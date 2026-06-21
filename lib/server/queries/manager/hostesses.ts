@@ -148,12 +148,20 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     throw new Error(`hostess details query failed: ${hostessesError.message}`)
   }
 
+  type ProfileEmbed = { full_name: string | null } | { full_name: string | null }[] | null
   type Row = {
     id: string
     profile_id: string | null
     role: string
     status: string
-    profiles: { full_name: string }[] | null
+    profiles: ProfileEmbed
+  }
+  // PostgREST 는 FK embed 를 단일 객체로 반환 (1:1 관계). 과거 코드가 `[0]` 로
+  // 접근해서 항상 빈 문자열 → 스태프 이름이 "?" 로 표시되던 버그 fix.
+  const pickFullName = (p: ProfileEmbed): string => {
+    if (!p) return ""
+    if (Array.isArray(p)) return p[0]?.full_name ?? ""
+    return p.full_name ?? ""
   }
 
   return {
@@ -163,7 +171,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       const extras = hostessExtras.get(h.id) ?? { manager_membership_id: null, origin_store_uuid: null }
       return {
         hostess_id: h.id,
-        hostess_name: h.profiles?.[0]?.full_name ?? "",
+        hostess_name: pickFullName(h.profiles),
         membership_id: h.id,
         profile_id: h.profile_id ?? null,
         role: h.role,
