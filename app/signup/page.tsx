@@ -162,15 +162,15 @@ export default function SignupPage() {
             {success ? (
               <div className="py-6 text-center">
                 <div className="text-3xl">✓</div>
-                <h2 className="mt-3 text-xl font-semibold">회원가입이 접수되었습니다</h2>
+                <h2 className="mt-3 text-xl font-semibold">회원가입 완료</h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  운영자가 확인 후 승인하면 로그인할 수 있습니다.
+                  바로 로그인할 수 있습니다.
                 </p>
                 <button
                   onClick={() => router.push("/login")}
                   className="mt-6 h-12 w-full rounded-2xl bg-[linear-gradient(90deg,#0ea5e9,#2563eb)] text-base font-semibold text-white shadow-[0_8px_30px_rgba(37,99,235,0.45)]"
                 >
-                  로그인으로 돌아가기
+                  로그인하러 가기
                 </button>
               </div>
             ) : (

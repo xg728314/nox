@@ -398,16 +398,19 @@ export async function POST(request: Request) {
       return bad("PROFILE_WRITE_FAILED", "프로필 생성에 실패했습니다.", 500)
     }
 
-    // ─── 6. Pending membership 생성 (owner/manager/staff).
+    // ─── 6. Membership 생성 — 즉시 approved (2026-06-24 R-signup-auto-approve)
+    //     기존: status='pending' → 운영자 승인 대기.
+    //     변경: 가입 즉시 'approved'. 운영자 승인 step 제거. approved_at
+    //           을 NOW 로 stamp (approved_by 는 null = 시스템 자동 승인).
     //     hostess 는 위 fast-path 에서 return 되었으므로 이 분기 도달 안 함.
     const { error: memErr } = await admin.from("store_memberships").insert({
       profile_id: userId,
       store_uuid: storeUuid,
       role,
-      status: "pending",
+      status: "approved",
       is_primary: true,
       approved_by: null,
-      approved_at: null,
+      approved_at: new Date().toISOString(),
     })
     if (memErr) {
       // 또한 profile 도 정리 — auth.users 와 함께 rollback.
@@ -419,9 +422,10 @@ export async function POST(request: Request) {
     // ─── 7. Response ────────────────────────────────────────────
     return NextResponse.json({
       ok: true,
-      status: "pending",
+      status: "approved",
       role,
-      message: "회원가입 신청이 접수되었습니다. 운영자 승인 후 로그인할 수 있습니다.",
+      auto_approved: true,
+      message: "회원가입 완료. 바로 로그인할 수 있습니다.",
     })
   } catch {
     return NextResponse.json(
