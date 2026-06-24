@@ -89,6 +89,17 @@ jobs:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
+      # R-auto-close (2026-06-25): 10분 초과 자동 세션 종료.
+      # 5분 주기 충분 (clients 60s polling 으로도 트리거, 이건 안전망).
+      - name: auto-close-expired-sessions
+        run: |
+          curl -fsS -X POST "$BASE_URL/api/sessions/auto-close-expired" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron" || true
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
   daily-12-kst:
     if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
     runs-on: ubuntu-latest

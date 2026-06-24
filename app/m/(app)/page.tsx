@@ -8,6 +8,7 @@ import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
 import { useMe, useHostesses, useChatRooms, useRooms, type HostessPreview } from "../_hooks/useMobileData"
+import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { cn } from "../_lib/cn"
 
 /**
@@ -30,6 +31,10 @@ export default function HomePage() {
 
   const [chatCollapsed, setChatCollapsed] = useState(false)
   const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "rest" | null>(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+
+  // 10분 초과 자동 종료 + 최근 30분 자동 종료된 식구 목록
+  const { recent: autoClosedRecent } = useAutoCloseExpired()
 
   // 2026-06-24 R-staff-assign-sheet: 홈에서 식구 카드 클릭 → 4-step 배정 시트.
   //   - 단일 클릭: 그 식구 1명만 선택 + 시트 오픈
@@ -116,11 +121,40 @@ export default function HomePage() {
         <button
           type="button"
           aria-label="알림"
-          className="w-9 h-9 rounded-full bg-white border border-[#D8D2C8] flex items-center justify-center"
+          className="w-9 h-9 rounded-full bg-white border border-[#D8D2C8] flex items-center justify-center relative"
         >
           🔔
+          {autoClosedRecent.length > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[9px] font-extrabold flex items-center justify-center">
+              {autoClosedRecent.length}
+            </span>
+          )}
         </button>
       </header>
+
+      {/* 자동 종료 배너 — 최근 30분 내 10분 초과 자동 종료된 식구 */}
+      {autoClosedRecent.length > 0 && !bannerDismissed && (
+        <div className="mx-5 mt-1 mb-2 bg-red-50 border-2 border-red-300 rounded-2xl px-3 py-2.5 flex items-start gap-2 shadow-sm">
+          <span className="text-[16px] leading-none mt-0.5">⏰</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-extrabold text-red-700 leading-tight">
+              {autoClosedRecent.length}명 자동 종료 (시간 10분 초과)
+            </div>
+            <div className="text-[10px] font-bold text-red-700/80 mt-0.5 leading-snug">
+              {autoClosedRecent.slice(0, 3).map((r) => `${r.hostess_name} (${r.store_name}, +${r.overdue_minutes}분)`).join(", ")}
+              {autoClosedRecent.length > 3 && ` 외 ${autoClosedRecent.length - 3}명`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBannerDismissed(true)}
+            className="text-[12px] font-extrabold text-red-700 px-1.5 leading-none mt-0.5"
+            aria-label="배너 닫기"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 검색 */}
       <Link
