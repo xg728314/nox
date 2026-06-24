@@ -4,8 +4,10 @@ import { useParams } from "next/navigation"
 import { PageHeader } from "../../../_components/PageHeader"
 import { apiFetch } from "@/lib/apiFetch"
 import { useToast } from "../../../_components/Toast"
+import { useMe } from "../../../_hooks/useMobileData"
 import { fmtHM } from "../../../_lib/format"
 import { cn } from "../../../_lib/cn"
+import { ChatPatternAction } from "./ChatPatternAction"
 
 type ChatMessage = {
   id: string
@@ -19,6 +21,7 @@ type ChatMessage = {
 export default function ChatRoomPage() {
   const params = useParams<{ id: string }>()
   const roomId = decodeURIComponent(params.id ?? "")
+  const me = useMe()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [input, setInput] = useState("")
@@ -72,7 +75,7 @@ export default function ChatRoomPage() {
         )}
         <div className="flex flex-col gap-2">
           {messages.map((m) => (
-            <MessageBubble key={m.id} msg={m} />
+            <MessageBubble key={m.id} msg={m} myStoreUuid={me.data?.store_uuid ?? null} />
           ))}
         </div>
       </div>
@@ -107,7 +110,7 @@ export default function ChatRoomPage() {
   )
 }
 
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+function MessageBubble({ msg, myStoreUuid }: { msg: ChatMessage; myStoreUuid: string | null }) {
   // sender_membership_id 가 본인이면 우측 정렬 — 본인 판단은 me 와 비교 필요하나
   //   여기서는 sender_name 가 없으면 본인으로 처리 (보낸 직후)
   const isMine = !msg.sender_name
@@ -127,6 +130,8 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         >
           {msg.content}
         </div>
+        {/* R-chat-pattern (2026-06-25): 메시지 자동 파싱 → 확인 버튼 */}
+        <ChatPatternAction content={msg.content} myStoreUuid={myStoreUuid} />
         <div className={cn("text-[9px] text-[#7A746A] mt-0.5", isMine ? "text-right" : "text-left", "px-1")}>
           {fmtHM(msg.created_at)}
         </div>
