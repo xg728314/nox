@@ -5,7 +5,7 @@ import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { Sheet } from "../../_components/Sheet"
 import { useToast, haptic } from "../../_components/Toast"
-import { useSettlement, useMe } from "../../_hooks/useMobileData"
+import { useSettlement, useMe, useIncomingStaff, type IncomingStaffGroup } from "../../_hooks/useMobileData"
 import { fmtMoney, fmtMoneyWon, fmtRelative } from "../../_lib/format"
 import { cn } from "../../_lib/cn"
 import { apiFetch } from "@/lib/apiFetch"
@@ -21,6 +21,7 @@ function resetKey(membershipId: string | null | undefined) {
 export default function SettlePage() {
   const me = useMe()
   const settle = useSettlement()
+  const incoming = useIncomingStaff()
   const toast = useToast()
   const [period, setPeriod] = useState<Period>("today")
   const [resetSheetOpen, setResetSheetOpen] = useState(false)
@@ -237,6 +238,14 @@ export default function SettlePage() {
             ))}
           </div>
         )}
+
+        {/* 본 매장에서 일하는/일한 타매장 식구 — 줄돈/받을돈 검증 */}
+        <IncomingStaffSection
+          groups={incoming.data?.groups ?? []}
+          isLoading={incoming.isLoading}
+          grandPrice={incoming.data?.grand_total_price ?? 0}
+          grandHostess={incoming.data?.grand_total_hostess_payout ?? 0}
+        />
       </div>
 
       <TabBar />
@@ -309,4 +318,107 @@ function Card({ v, l }: { v: string; l: string }) {
       <div className="text-[9px] font-bold text-white/50 uppercase tracking-wider mt-0.5">{l}</div>
     </div>
   )
+}
+
+/**
+ * R-incoming-staff (2026-06-25): 본 매장에서 일하는/일한 타매장 식구.
+ *   origin_store + origin_manager 별 그룹 표시.
+ *   줄돈/받을돈 검증 — 타매장에게 줘야 할 hostess_payout 합계 (per origin).
+ */
+function IncomingStaffSection({
+  groups,
+  isLoading,
+  grandPrice,
+  grandHostess,
+}: {
+  groups: IncomingStaffGroup[]
+  isLoading: boolean
+  grandPrice: number
+  grandHostess: number
+}) {
+  if (isLoading) {
+    return (
+      <div className="mt-6 mb-2">
+        <div className="text-[13px] font-extrabold mb-2">🔄 우리 매장 들어온 타매장 식구</div>
+        <div className="h-16 rounded-2xl bg-[#EFEBE3] animate-pulse" />
+      </div>
+    )
+  }
+  if (groups.length === 0) return null
+
+  return (
+    <div className="mt-6 mb-2">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-[13px] font-extrabold">🔄 우리 매장 들어온 타매장 식구</div>
+        <div className="text-[10px] font-bold text-[#A87D45]">
+          총 매출 {fmtMoneyWon(grandPrice)} · <span className="text-red-700">줄돈 {fmtMoneyWon(grandHostess)}</span>
+        </div>
+      </div>
+      <div className="text-[10px] font-semibold text-[#7A746A] mb-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 leading-snug">
+        본 매장에서 일하는 타매장 식구는 줄돈 (= 매출의 식구 몫) 을 원소속 매장에 정산해야 합니다.
+        매니저별로 분리 표시 — 매장간 정산 오차 확인용.
+      </div>
+      <div className="space-y-2">
+        {groups.map((g, idx) => (
+          <div key={`${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`}
+            className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden"
+          >
+            {/* 그룹 헤더 */}
+            <div className="px-4 py-2.5 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
+                  {g.origin_store_name} <span className="text-[10px] text-[#7A746A] font-bold">· {g.origin_manager_name ?? "미배정"} 실장</span>
+                </div>
+                <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                  진행 {g.active_count} / 종료 {g.finished_count}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[12px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(g.total_price)}</div>
+                <div className="text-[9px] font-bold text-red-700">줄돈 {fmtMoneyWon(g.total_hostess_payout)}</div>
+              </div>
+            </div>
+            {/* 참여자 목록 */}
+            <div className="divide-y divide-[#D8D2C8]/40">
+              {g.participants.map((p) => (
+                <div key={p.participant_id} className="flex items-center justify-between px-4 py-2 gap-2">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full shrink-0",
+                        p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
+                        {p.hostess_name}
+                        <span className="text-[9px] font-bold text-[#A87D45] ml-1.5">
+                          {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
+                        </span>
+                      </div>
+                      <div className="text-[9px] font-semibold text-[#7A746A]">
+                        {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
+                        {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
+                        {p.left_at && ` → ${formatClockTime(p.left_at)}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(p.price_amount)}</div>
+                    <div className="text-[9px] font-bold text-red-700">줄 {fmtMoney(p.hostess_payout_amount)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function formatClockTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }

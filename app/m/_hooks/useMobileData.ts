@@ -169,6 +169,43 @@ export function useSettlement() {
   return useApi<SettlementSummary>("/api/manager/settlement/summary", { ttl: 10_000 })
 }
 
+/** R-incoming-staff (2026-06-25): 본 매장 들어온 타매장 식구 */
+export type IncomingStaffParticipant = {
+  participant_id: string
+  membership_id: string
+  hostess_name: string
+  category: string | null
+  time_minutes: number | null
+  price_amount: number
+  hostess_payout_amount: number
+  manager_payout_amount: number
+  status: string
+  entered_at: string | null
+  left_at: string | null
+}
+export type IncomingStaffGroup = {
+  origin_store_uuid: string
+  origin_store_name: string
+  origin_manager_membership_id: string | null
+  origin_manager_name: string | null
+  total_price: number
+  total_hostess_payout: number
+  total_manager_payout: number
+  active_count: number
+  finished_count: number
+  participants: IncomingStaffParticipant[]
+}
+export type IncomingStaffResponse = {
+  business_day_id: string | null
+  groups: IncomingStaffGroup[]
+  grand_total_price: number
+  grand_total_hostess_payout: number
+  grand_total_manager_payout: number
+}
+export function useIncomingStaff() {
+  return useApi<IncomingStaffResponse>("/api/manager/incoming-staff", { ttl: 5000 })
+}
+
 /** 출근 상태 */
 export type AttendanceRow = {
   membership_id: string
