@@ -202,15 +202,31 @@ export async function POST(request: Request) {
     }
 
     // 7. 참여자 등록 — hostess 각각의 origin_store_uuid 가져와서
+    //    cross-store 인 경우 DB 트리거 "교차 스토어에는 transfer_request_id 가
+    //    필요합니다" 를 만족하기 위해 transfer_request 자동 생성 (즉시 approved).
     let createdCount = 0
     const errors: string[] = []
     for (const hmid of hostess_membership_ids) {
-      // hostess 정보 — origin_store_uuid 추적
-      const { data: hostessRow } = await supabase
+      // hostess 정보 — origin_store_uuid 추적.
+      // 1차 시도: origin_store_uuid 컬럼 포함. 컬럼 없으면 42703 → 재시도.
+      type HostessRow = { store_uuid: string; name: string; origin_store_uuid?: string | null }
+      let hostessRow: HostessRow | null = null
+      const full = await supabase
         .from("hostesses")
         .select("origin_store_uuid, store_uuid, name")
         .eq("membership_id", hmid)
         .maybeSingle()
+      if (full.error && (full.error as { code?: string }).code === "42703") {
+        const base = await supabase
+          .from("hostesses")
+          .select("store_uuid, name")
+          .eq("membership_id", hmid)
+          .maybeSingle()
+        hostessRow = (base.data as unknown as HostessRow | null) ?? null
+      } else {
+        hostessRow = (full.data as unknown as HostessRow | null) ?? null
+      }
+
       const originStore = hostessRow?.origin_store_uuid ?? hostessRow?.store_uuid ?? null
 
       // 권한 — super_admin 아니면 hostess 가 본인 매장 식구 인지 확인
@@ -218,6 +234,48 @@ export async function POST(request: Request) {
         if (originStore !== auth.store_uuid && hostessRow?.store_uuid !== auth.store_uuid) {
           errors.push(`${hostessRow?.name ?? hmid}: 본인 매장 식구 아님`)
           continue
+        }
+      }
+
+      // cross-store 일 때 transfer_request 자동 생성 (DB 트리거 충족용)
+      let transferRequestId: string | null = null
+      if (originStore && originStore !== target_store_uuid) {
+        // 기존 approved request 있는지 먼저 확인 (멱등성 — 같은 영업일 + 같은 hostess + same from/to)
+        const { data: existingTr } = await supabase
+          .from("transfer_requests")
+          .select("id")
+          .eq("hostess_membership_id", hmid)
+          .eq("from_store_uuid", originStore)
+          .eq("to_store_uuid", target_store_uuid)
+          .eq("business_day_id", businessDayId)
+          .eq("status", "approved")
+          .limit(1)
+          .maybeSingle()
+        if (existingTr?.id) {
+          transferRequestId = existingTr.id
+        } else {
+          const nowIso = new Date().toISOString()
+          const { data: trRow, error: trErr } = await supabase
+            .from("transfer_requests")
+            .insert({
+              hostess_membership_id: hmid,
+              from_store_uuid: originStore,
+              to_store_uuid: target_store_uuid,
+              business_day_id: businessDayId,
+              status: "approved",
+              from_store_approved_by: auth.user_id,
+              from_store_approved_at: nowIso,
+              to_store_approved_by: auth.user_id,
+              to_store_approved_at: nowIso,
+              reason: `[dispatch] ${auth.is_super_admin ? "운영자" : auth.role} 즉시 배정`,
+            })
+            .select("id")
+            .single()
+          if (trErr || !trRow) {
+            errors.push(`${hostessRow?.name ?? hmid}: transfer_request 생성 실패 — ${trErr?.message ?? "?"}`)
+            continue
+          }
+          transferRequestId = trRow.id
         }
       }
 
@@ -241,6 +299,7 @@ export async function POST(request: Request) {
         status: "active",
         store_uuid: target_store_uuid,
         origin_store_uuid: originStore,
+        transfer_request_id: transferRequestId,
         entered_at: new Date().toISOString(),
       })
       if (pErr) {

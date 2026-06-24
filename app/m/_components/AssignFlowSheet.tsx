@@ -177,12 +177,22 @@ export function AssignFlowSheet({
           participants_created?: number
           room?: { room_no?: string; room_name?: string | null }
           target_store?: { name?: string }
+          errors?: string[]
         }
         if (!res.ok || !j.ok) {
           throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
         }
         const roomLabel = j.room?.room_name || (j.room?.room_no ? `룸 ${j.room.room_no}` : "")
-        toast(`${j.participants_created ?? hostessIds.length}명 → ${j.target_store?.name ?? "타매장"} ${roomLabel} 배정 완료`, "success")
+        const created = j.participants_created ?? 0
+        if (created === 0) {
+          // 세션은 만들어졌지만 참여자 등록 모두 실패 — 사용자에게 알림
+          throw new Error(j.errors?.[0] ?? "참여자 등록 실패 (이유 불명)")
+        }
+        toast(`${created}명 → ${j.target_store?.name ?? "타매장"} ${roomLabel} 배정 완료`, "success")
+        if (j.errors && j.errors.length > 0) {
+          // 일부 실패 — 추가 정보
+          toast(`일부 실패: ${j.errors[0]}`, "info")
+        }
       }
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/settlement/summary")
