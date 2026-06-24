@@ -69,22 +69,16 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
   const nowIso = now.toISOString()
 
   // 1. active session_participants — 부모 session 도 active.
-  //    expr (entered_at + time_minutes + 10) < now 조건을 직접 SQL 로 못 거는
-  //    supabase-js 한계 → 후보 쿼리 후 클라이언트 필터 (소수 row 대상이라 부담 X)
+  //    expr (entered_at + time_minutes + 10) < now 조건은 클라이언트 필터.
+  //    부모 session status 도 별도 쿼리 (FK 관계 없는 join 회피).
   const { data: candidates, error: qErr } = await supabase
     .from("session_participants")
-    .select(`
-      id, membership_id, session_id, store_uuid, category, time_minutes, entered_at,
-      hostesses!session_participants_membership_id_fkey(name),
-      stores!session_participants_store_uuid_fkey(store_name),
-      room_sessions!inner(status)
-    `)
+    .select("id, membership_id, session_id, store_uuid, category, time_minutes, entered_at")
     .eq("status", "active")
     .is("deleted_at", null)
-    .eq("room_sessions.status", "active")
     .not("time_minutes", "is", null)
     .not("entered_at", "is", null)
-    .limit(500)
+    .limit(1000)
 
   if (qErr) throw new Error(`auto-close candidates query: ${qErr.message}`)
 
@@ -96,22 +90,37 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
     category: string | null
     time_minutes: number
     entered_at: string
-    hostesses?: { name: string } | { name: string }[] | null
-    stores?: { store_name: string } | { store_name: string }[] | null
+  }
+  const rows = (candidates ?? []) as Row[]
+  if (rows.length === 0) return { closed_now: [], closed_sessions: [] }
+
+  // 부모 session status 매핑
+  const sessionIds = Array.from(new Set(rows.map((r) => r.session_id)))
+  const sessionStatusMap = new Map<string, string>()
+  {
+    const { data: sessions } = await supabase
+      .from("room_sessions")
+      .select("id, status")
+      .in("id", sessionIds)
+    for (const s of ((sessions ?? []) as { id: string; status: string }[])) {
+      sessionStatusMap.set(s.id, s.status)
+    }
   }
 
-  const overdueRows: Array<{
-    p: Row
-    overdueMinutes: number
-  }> = []
-  for (const c of ((candidates ?? []) as unknown as Row[])) {
+  const overdueRows: Array<{ p: Row; overdueMinutes: number; orphan: boolean }> = []
+  for (const c of rows) {
+    const parentStatus = sessionStatusMap.get(c.session_id)
     const enteredMs = new Date(c.entered_at).getTime()
     if (Number.isNaN(enteredMs)) continue
     const endMs = enteredMs + c.time_minutes * 60_000
     const overdueMs = now.getTime() - endMs
     const overdueMin = Math.floor(overdueMs / 60_000)
-    if (overdueMin >= OVERDUE_MINUTES) {
-      overdueRows.push({ p: c, overdueMinutes: overdueMin })
+    // 케이스 A — parent active + 10분 초과 → 정상 자동 종료 대상
+    // 케이스 B — parent closed/cancelled + part active = orphan → 즉시 정리
+    if (parentStatus === "active" && overdueMin >= OVERDUE_MINUTES) {
+      overdueRows.push({ p: c, overdueMinutes: overdueMin, orphan: false })
+    } else if (parentStatus && parentStatus !== "active") {
+      overdueRows.push({ p: c, overdueMinutes: Math.max(0, overdueMin), orphan: true })
     }
   }
 
@@ -128,9 +137,9 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
   if (upErr) throw new Error(`bulk update participants: ${upErr.message}`)
 
   // 3. 영향 받은 session 별로 active 참여자 0 이면 session 도 closed
-  const sessionIds = Array.from(new Set(overdueRows.map((r) => r.p.session_id)))
+  const affectedSessionIds = Array.from(new Set(overdueRows.map((r) => r.p.session_id)))
   const closedSessions: string[] = []
-  for (const sid of sessionIds) {
+  for (const sid of affectedSessionIds) {
     const { count } = await supabase
       .from("session_participants")
       .select("id", { count: "exact", head: true })
@@ -147,29 +156,45 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
     }
   }
 
-  const closed_now = overdueRows.map((r) => {
-    const h = Array.isArray(r.p.hostesses) ? r.p.hostesses[0] : r.p.hostesses
-    const s = Array.isArray(r.p.stores) ? r.p.stores[0] : r.p.stores
-    return {
-      participant_id: r.p.id,
-      membership_id: r.p.membership_id,
-      hostess_name: h?.name ?? "?",
-      store_name: s?.store_name ?? "?",
-      overdue_minutes: r.overdueMinutes,
-      left_at: nowIso,
+  // 4. hostess + store 이름 매핑 (별도 쿼리 — FK 없음)
+  const memberships = Array.from(new Set(overdueRows.map((r) => r.p.membership_id)))
+  const stores = Array.from(new Set(overdueRows.map((r) => r.p.store_uuid)))
+  const hostessNameMap = new Map<string, string>()
+  const storeNameMap = new Map<string, string>()
+  if (memberships.length > 0) {
+    const { data: hs } = await supabase
+      .from("hostesses")
+      .select("membership_id, name")
+      .in("membership_id", memberships)
+    for (const h of ((hs ?? []) as { membership_id: string; name: string }[])) {
+      hostessNameMap.set(h.membership_id, h.name)
     }
-  })
+  }
+  if (stores.length > 0) {
+    const { data: ss } = await supabase
+      .from("stores")
+      .select("id, store_name")
+      .in("id", stores)
+    for (const s of ((ss ?? []) as { id: string; store_name: string }[])) {
+      storeNameMap.set(s.id, s.store_name)
+    }
+  }
+
+  const closed_now = overdueRows.map((r) => ({
+    participant_id: r.p.id,
+    membership_id: r.p.membership_id,
+    hostess_name: hostessNameMap.get(r.p.membership_id) ?? "?",
+    store_name: storeNameMap.get(r.p.store_uuid) ?? "?",
+    overdue_minutes: r.overdueMinutes,
+    left_at: nowIso,
+  }))
   return { closed_now, closed_sessions: closedSessions }
 }
 
 async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string) {
   const { data } = await supabase
     .from("session_participants")
-    .select(`
-      id, membership_id, store_uuid, time_minutes, entered_at, left_at,
-      hostesses!session_participants_membership_id_fkey(name),
-      stores!session_participants_store_uuid_fkey(store_name)
-    `)
+    .select("id, membership_id, store_uuid, time_minutes, entered_at, left_at")
     .eq("memo", MEMO_TAG)
     .eq("status", "left")
     .gte("left_at", sinceIso)
@@ -183,12 +208,35 @@ async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string) {
     time_minutes: number | null
     entered_at: string
     left_at: string
-    hostesses?: { name: string } | { name: string }[] | null
-    stores?: { store_name: string } | { store_name: string }[] | null
   }
-  return ((data ?? []) as unknown as Row[]).map((r) => {
-    const h = Array.isArray(r.hostesses) ? r.hostesses[0] : r.hostesses
-    const s = Array.isArray(r.stores) ? r.stores[0] : r.stores
+  const rows = (data ?? []) as Row[]
+  if (rows.length === 0) return []
+
+  // 이름 매핑 별도 쿼리
+  const memberships = Array.from(new Set(rows.map((r) => r.membership_id)))
+  const stores = Array.from(new Set(rows.map((r) => r.store_uuid)))
+  const hostessNameMap = new Map<string, string>()
+  const storeNameMap = new Map<string, string>()
+  {
+    const { data: hs } = await supabase
+      .from("hostesses")
+      .select("membership_id, name")
+      .in("membership_id", memberships)
+    for (const h of ((hs ?? []) as { membership_id: string; name: string }[])) {
+      hostessNameMap.set(h.membership_id, h.name)
+    }
+  }
+  {
+    const { data: ss } = await supabase
+      .from("stores")
+      .select("id, store_name")
+      .in("id", stores)
+    for (const s of ((ss ?? []) as { id: string; store_name: string }[])) {
+      storeNameMap.set(s.id, s.store_name)
+    }
+  }
+
+  return rows.map((r) => {
     let overdueMin: number | null = null
     if (r.entered_at && r.time_minutes != null && r.left_at) {
       const endMs = new Date(r.entered_at).getTime() + r.time_minutes * 60_000
@@ -198,8 +246,8 @@ async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string) {
     return {
       participant_id: r.id,
       membership_id: r.membership_id,
-      hostess_name: h?.name ?? "?",
-      store_name: s?.store_name ?? "?",
+      hostess_name: hostessNameMap.get(r.membership_id) ?? "?",
+      store_name: storeNameMap.get(r.store_uuid) ?? "?",
       overdue_minutes: overdueMin ?? 0,
       left_at: r.left_at,
     }
