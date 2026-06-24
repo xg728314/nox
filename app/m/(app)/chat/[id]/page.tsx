@@ -26,8 +26,41 @@ export default function ChatRoomPage() {
   const [loading, setLoading] = useState(true)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [patternEnabled, setPatternEnabled] = useState(false)
+  const [patternBusy, setPatternBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
+
+  // 채팅방의 패턴 인식 활성화 상태 조회
+  useEffect(() => {
+    if (!roomId) return
+    apiFetch(`/api/chat/rooms/${encodeURIComponent(roomId)}/pattern-toggle`)
+      .then((r) => r.json())
+      .then((j) => setPatternEnabled(!!j?.pattern_enabled))
+      .catch(() => { /* swallow */ })
+  }, [roomId])
+
+  async function togglePattern() {
+    if (patternBusy) return
+    setPatternBusy(true)
+    try {
+      const res = await apiFetch(`/api/chat/rooms/${encodeURIComponent(roomId)}/pattern-toggle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !patternEnabled }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j?.ok) {
+        throw new Error(j?.message ?? `HTTP ${res.status}`)
+      }
+      setPatternEnabled(!!j.pattern_enabled)
+      toast(`패턴 자동 인식 ${j.pattern_enabled ? "활성화" : "비활성화"}`, "success")
+    } catch (e) {
+      toast(`전환 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setPatternBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!roomId) return
@@ -66,7 +99,27 @@ export default function ChatRoomPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader title="채팅방" subtitle={roomId.slice(0, 12)} backHref="/m/chat" />
+      <PageHeader
+        title="채팅방"
+        subtitle={roomId.slice(0, 12)}
+        backHref="/m/chat"
+        right={me.data?.is_super_admin ? (
+          <button
+            type="button"
+            onClick={togglePattern}
+            disabled={patternBusy}
+            className={cn(
+              "text-[10px] font-extrabold px-2.5 py-1 rounded-full border",
+              patternEnabled
+                ? "bg-[#C49B61]/15 text-[#A87D45] border-[#C49B61]/40"
+                : "bg-white text-[#7A746A] border-[#D8D2C8]",
+            )}
+            title="운영자 — 메이드 패턴 자동 인식 토글"
+          >
+            🎯 자동인식 {patternEnabled ? "ON" : "OFF"}
+          </button>
+        ) : undefined}
+      />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 min-h-[200px]">
         {loading && <div className="text-center text-[12px] text-[#7A746A] py-6">불러오는 중...</div>}
@@ -75,7 +128,12 @@ export default function ChatRoomPage() {
         )}
         <div className="flex flex-col gap-2">
           {messages.map((m) => (
-            <MessageBubble key={m.id} msg={m} myStoreUuid={me.data?.store_uuid ?? null} />
+            <MessageBubble
+              key={m.id}
+              msg={m}
+              myStoreUuid={me.data?.store_uuid ?? null}
+              patternEnabled={patternEnabled}
+            />
           ))}
         </div>
       </div>
@@ -110,7 +168,7 @@ export default function ChatRoomPage() {
   )
 }
 
-function MessageBubble({ msg, myStoreUuid }: { msg: ChatMessage; myStoreUuid: string | null }) {
+function MessageBubble({ msg, myStoreUuid, patternEnabled }: { msg: ChatMessage; myStoreUuid: string | null; patternEnabled: boolean }) {
   // sender_membership_id 가 본인이면 우측 정렬 — 본인 판단은 me 와 비교 필요하나
   //   여기서는 sender_name 가 없으면 본인으로 처리 (보낸 직후)
   const isMine = !msg.sender_name
@@ -130,8 +188,11 @@ function MessageBubble({ msg, myStoreUuid }: { msg: ChatMessage; myStoreUuid: st
         >
           {msg.content}
         </div>
-        {/* R-chat-pattern (2026-06-25): 메시지 자동 파싱 → 확인 버튼 */}
-        <ChatPatternAction content={msg.content} myStoreUuid={myStoreUuid} />
+        {/* R-chat-pattern (2026-06-25): 메시지 자동 파싱 → 확인 버튼.
+            운영자가 토글한 채팅방 (pattern_enabled=true) 에서만 렌더. */}
+        {patternEnabled && (
+          <ChatPatternAction content={msg.content} myStoreUuid={myStoreUuid} />
+        )}
         <div className={cn("text-[9px] text-[#7A746A] mt-0.5", isMine ? "text-right" : "text-left", "px-1")}>
           {fmtHM(msg.created_at)}
         </div>
