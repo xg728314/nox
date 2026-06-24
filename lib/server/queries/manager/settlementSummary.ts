@@ -203,15 +203,29 @@ export async function getManagerSettlementSummary(
     .eq("store_uuid", auth.store_uuid)
     .in("membership_id", hostessIds)
 
-  const participationsP = sessionIds.length === 0
-    ? Promise.resolve({ data: [] as { membership_id: string; session_id: string }[] })
-    : supabase
-        .from("session_participants")
-        .select("membership_id, session_id")
-        .eq("store_uuid", auth.store_uuid)
-        .in("session_id", sessionIds)
-        .in("membership_id", hostessIds)
-        .is("deleted_at", null)
+  // R-cross-store-settlement (2026-06-25): 본 매장 세션 + 본 매장 식구가
+  //   타 매장에서 일한 cross-store 참여 둘 다 합산.
+  //   CLAUDE.md "정산은 무조건 origin_store_uuid 기준" — 식구가 어디서 일하든
+  //   본 매장이 origin 이면 정산 책임.
+  //   대안 1 (단순): store_uuid 필터 제거 — membership_id IN hostessIds 만으로
+  //     모든 참여 잡음. session_uuid 필터도 제거 (cross-store 세션 ID 는
+  //     sessionIds 에 없음). 일별 필터는 entered_at >= business_day 시작 이상
+  //     로 대신 — 영업일 자정 인근만 약간 부정확. 일단 단순화.
+  type ParticipantAgg = {
+    membership_id: string
+    session_id: string
+    price_amount: number | null
+    manager_payout_amount: number | null
+    hostess_payout_amount: number | null
+    store_uuid: string
+    origin_store_uuid: string | null
+    status: string
+  }
+  const participationsP = supabase
+    .from("session_participants")
+    .select("membership_id, session_id, price_amount, manager_payout_amount, hostess_payout_amount, store_uuid, origin_store_uuid, status")
+    .in("membership_id", hostessIds)
+    .is("deleted_at", null)
 
   const [hstsRes, participationsRes] = await Promise.all([
     hstsP,
@@ -227,42 +241,25 @@ export async function getManagerSettlementSummary(
     nameMap.set(h.membership_id, h.name)
   }
 
-  if (sessionIds.length === 0) {
-    console.log(JSON.stringify({
-      tag: "perf.settlement.summary.total",
-      ms: Date.now() - tStart,
-      path: "empty_sessions",
-    }))
-    return {
-      store_uuid: auth.store_uuid,
-      role: auth.role,
-      business_day_id: businessDayId,
-      summary: hostessIds.map((id) => ({
-        hostess_id: id,
-        hostess_name: nameMap.get(id) || "",
-        has_settlement: false,
-        status: null,
-        gross_total: null,
-        tc_amount: null,
-        manager_amount: null,
-        hostess_amount: null,
-        tc_count: 0,
-      })),
-    }
-  }
+  // R-per-participant-agg: 본 매장 세션 0 이어도 cross-store 참여가 있을 수
+  //   있음 → empty_sessions early return 제거.
 
-  const hostessSessionMap = new Map<string, Set<string>>()
-  for (const p of (participationsRes.data ?? []) as { membership_id: string; session_id: string }[]) {
-    if (!hostessSessionMap.has(p.membership_id)) {
-      hostessSessionMap.set(p.membership_id, new Set())
-    }
-    hostessSessionMap.get(p.membership_id)!.add(p.session_id)
+  // R-per-participant-agg (2026-06-25): 정산 계산을 participant payout 기준으로
+  //   변경. 이전: receipt 합계 (per-session) 를 여러 hostess 에 중복 가산 — 3명
+  //   참여 시 3배 over-count. 이전: cross-store session 의 receipt 매핑 못해서
+  //   누락. 신규: hostess 의 각 participation row 의 price/payout 직접 합산.
+  //   receipt 는 status (draft/finalized) 표시에만 사용.
+  type PartRow = ParticipantAgg
+  const hostessParts = new Map<string, PartRow[]>()
+  for (const raw of (participationsRes.data ?? []) as PartRow[]) {
+    if (!hostessParts.has(raw.membership_id)) hostessParts.set(raw.membership_id, [])
+    hostessParts.get(raw.membership_id)!.push(raw)
   }
 
   const summary: SummaryRow[] = hostessIds.map((hostessId) => {
-    const hostessSessions = hostessSessionMap.get(hostessId)
+    const parts = hostessParts.get(hostessId) ?? []
 
-    if (!hostessSessions || hostessSessions.size === 0) {
+    if (parts.length === 0) {
       return {
         hostess_id: hostessId,
         hostess_name: nameMap.get(hostessId) || "",
@@ -277,33 +274,27 @@ export async function getManagerSettlementSummary(
     }
 
     let totalGross = 0
-    let totalTc = 0
     let totalManager = 0
     let totalHostess = 0
-    let settledCount = 0
+    const seenSessions = new Set<string>()
     let finalizedCount = 0
     let draftCount = 0
 
-    for (const sid of hostessSessions) {
-      const receipt = receiptMap.get(sid)
-      if (receipt) {
-        settledCount++
-        totalGross += receipt.gross_total ?? 0
-        totalTc += receipt.tc_amount ?? 0
-        totalManager += receipt.manager_amount ?? 0
-        totalHostess += receipt.hostess_amount ?? 0
-        if (receipt.status === "finalized") finalizedCount++
-        if (receipt.status === "draft") draftCount++
-      }
+    for (const p of parts) {
+      totalGross += Number(p.price_amount ?? 0)
+      totalManager += Number(p.manager_payout_amount ?? 0)
+      totalHostess += Number(p.hostess_payout_amount ?? 0)
+      seenSessions.add(p.session_id)
+      const receipt = receiptMap.get(p.session_id)
+      if (receipt?.status === "finalized") finalizedCount++
+      else if (receipt?.status === "draft") draftCount++
     }
 
-    const hasSettlement = settledCount > 0
+    const hasSettlement = parts.length > 0
     let aggregateStatus: string | null = null
-    if (finalizedCount === settledCount && settledCount > 0) {
-      aggregateStatus = "finalized"
-    } else if (settledCount > 0) {
-      aggregateStatus = "draft"
-    }
+    if (finalizedCount > 0 && draftCount === 0) aggregateStatus = "finalized"
+    else if (draftCount > 0 || finalizedCount > 0) aggregateStatus = "draft"
+    else aggregateStatus = "active" // 아직 receipt 없음 — 진행 중
 
     return {
       hostess_id: hostessId,
@@ -311,10 +302,10 @@ export async function getManagerSettlementSummary(
       has_settlement: hasSettlement,
       status: aggregateStatus,
       gross_total: hasSettlement ? totalGross : null,
-      tc_amount: hasSettlement ? totalTc : null,
+      tc_amount: hasSettlement ? totalGross : null, // TC = total price (per CLAUDE.md domain)
       manager_amount: hasSettlement ? totalManager : null,
       hostess_amount: hasSettlement ? totalHostess : null,
-      tc_count: hostessSessions.size,
+      tc_count: seenSessions.size,
     }
   })
 

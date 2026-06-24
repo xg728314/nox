@@ -49,25 +49,33 @@ export async function PATCH(
     // 2026-05-01 R-Counter-Speed: participant + receipt + session 검증 직렬 →
     //   participant 먼저 await (다음 query 들이 session_id 의존), 그 후
     //   receipts + room_sessions Promise.all. 1단계 절감.
-    const { data: participant, error: pError } = await supabase
+    // 2026-06-25 R-cross-store-patch: super_admin 은 store_uuid 필터 우회.
+    //   ExtendEndSheet 에서 cross-store dispatch 된 식구 (origin != working store)
+    //   를 PATCH 할 때 auth.store_uuid 가 다른 매장이라 "Participant not found"
+    //   에러 발생하던 버그. is_super_admin 면 store scope 우회 + cross-store 허용.
+    let pq = supabase
       .from("session_participants")
       .select("id, session_id, store_uuid, price_amount, manager_payout_amount, hostess_payout_amount, category, time_minutes, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, status, updated_at")
       .eq("id", participant_id)
-      .eq("store_uuid", authContext.store_uuid)
       .is("deleted_at", null)
-      .maybeSingle()
+    if (!authContext.is_super_admin) {
+      pq = pq.eq("store_uuid", authContext.store_uuid)
+    }
+    const { data: participant, error: pError } = await pq.maybeSingle()
 
     if (pError || !participant) {
       return NextResponse.json({ error: "PARTICIPANT_NOT_FOUND", message: "Participant not found." }, { status: 404 })
     }
 
-    // receipts + room_sessions 병렬 (둘 다 session_id 만 의존).
+    // receipts + room_sessions 병렬. super_admin 이면 store_uuid 필터 우회
+    // (cross-store 식구의 working store 의 session 도 조회 가능해야 함).
+    const effectiveStoreUuid = authContext.is_super_admin ? participant.store_uuid : authContext.store_uuid
     const [receiptRes, sessionBizRes] = await Promise.all([
       supabase
         .from("receipts")
         .select("id, status")
         .eq("session_id", participant.session_id)
-        .eq("store_uuid", authContext.store_uuid)
+        .eq("store_uuid", effectiveStoreUuid)
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -75,7 +83,7 @@ export async function PATCH(
         .from("room_sessions")
         .select("business_day_id, status")
         .eq("id", participant.session_id)
-        .eq("store_uuid", authContext.store_uuid)
+        .eq("store_uuid", effectiveStoreUuid)
         .is("deleted_at", null)
         .maybeSingle(),
     ])
