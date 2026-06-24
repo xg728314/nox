@@ -5,8 +5,10 @@ import { TabBar } from "../_components/TabBar"
 import { StatusCells } from "../_components/StatusCells"
 import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
+import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
 import { useMe, useHostesses, useChatRooms, useRooms } from "../_hooks/useMobileData"
+import { cn } from "../_lib/cn"
 
 /**
  * 홈 (대시보드) — /m
@@ -28,6 +30,15 @@ export default function HomePage() {
 
   const [chatCollapsed, setChatCollapsed] = useState(false)
   const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "rest" | null>(null)
+
+  // 2026-06-24 R-staff-assign-sheet: 홈에서 식구 카드 클릭 → 4-step 배정 시트.
+  //   - 단일 클릭: 그 식구 1명만 선택 + 시트 오픈
+  //   - 길게 누르면 multi-select 모드 → 여러 명 토글 → 하단 액션바 → 시트
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [pendingIds, setPendingIds] = useState<string[]>([])
+  const [pendingNames, setPendingNames] = useState<string[]>([])
 
   // 채팅 미리보기 (최대 4개)
   const chatPreview = useMemo(() => (chats.data?.rooms ?? []).slice(0, 4), [chats.data])
@@ -152,7 +163,32 @@ export default function HomePage() {
                 name={h.hostess_name}
                 isMyStore
                 storeLabel={me.data?.store_name ?? undefined}
-                href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
+                selected={selectMode && selectedIds.has(h.membership_id)}
+                onTap={() => {
+                  if (selectMode) {
+                    // 토글
+                    setSelectedIds((prev) => {
+                      const n = new Set(prev)
+                      if (n.has(h.membership_id)) n.delete(h.membership_id)
+                      else n.add(h.membership_id)
+                      if (n.size === 0) setSelectMode(false)
+                      return n
+                    })
+                  } else {
+                    // 단일 클릭 — 1명 시트
+                    setPendingIds([h.membership_id])
+                    setPendingNames([h.hostess_name])
+                    setSheetOpen(true)
+                  }
+                }}
+                onLongPress={() => {
+                  setSelectMode(true)
+                  setSelectedIds((prev) => {
+                    const n = new Set(prev)
+                    n.add(h.membership_id)
+                    return n
+                  })
+                }}
               />
             ))}
           </div>
@@ -169,6 +205,58 @@ export default function HomePage() {
       >
         +
       </Link>
+
+      {/* 선택 모드 액션 바 — selectMode 일 때만 + FAB 위로 띄움 */}
+      {selectMode && (
+        <div
+          className={cn(
+            "fixed left-1/2 -translate-x-1/2 bottom-[80px] z-30",
+            "bg-white rounded-2xl shadow-[0_8px_24px_rgba(45,43,38,0.18)] border border-[#D8D2C8]/60",
+            "flex items-center gap-2 px-3 py-2",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setSelectMode(false)
+              setSelectedIds(new Set())
+            }}
+            className="text-[11px] font-extrabold text-[#7A746A] px-2"
+          >
+            취소
+          </button>
+          <div className="text-[12px] font-extrabold text-[#2D2B26]">
+            {selectedIds.size}명 선택
+          </div>
+          <button
+            type="button"
+            disabled={selectedIds.size === 0}
+            onClick={() => {
+              const list = (hostesses.data?.hostesses ?? []).filter((h) => selectedIds.has(h.membership_id))
+              setPendingIds(list.map((h) => h.membership_id))
+              setPendingNames(list.map((h) => h.hostess_name))
+              setSheetOpen(true)
+            }}
+            className="bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white rounded-xl px-4 py-2 text-[12px] font-extrabold disabled:opacity-40"
+          >
+            묶어서 배정 →
+          </button>
+        </div>
+      )}
+
+      <AssignFlowSheet
+        open={sheetOpen}
+        onClose={() => {
+          setSheetOpen(false)
+          // 시트 닫히면 선택 해제
+          if (selectMode) {
+            setSelectMode(false)
+            setSelectedIds(new Set())
+          }
+        }}
+        hostessIds={pendingIds}
+        hostessNames={pendingNames}
+      />
 
       <TabBar
         chatUnread={(chats.data?.rooms ?? []).some((c) => c.unread_count > 0)}

@@ -1,5 +1,6 @@
 "use client"
 import Link from "next/link"
+import { useRef } from "react"
 import { cn } from "../_lib/cn"
 import { fmtMoney, initialOf } from "../_lib/format"
 import type { ServiceCategory } from "../_lib/tokens"
@@ -15,6 +16,12 @@ export type StaffCardProps = {
   subInfo?: string
   status?: "working" | "waiting" | "rest" | "off"
   href?: string
+  /** 선택 모드 — true 면 체크 표시 + onTap 클릭만 (Link 비활성) */
+  selected?: boolean
+  /** 탭 핸들러. 지정하면 button 렌더 + href 무시. */
+  onTap?: () => void
+  /** 길게 눌러서 selection 모드 진입 */
+  onLongPress?: () => void
 }
 
 export function StaffCard({
@@ -28,6 +35,9 @@ export function StaffCard({
   subInfo,
   status = "working",
   href = "/m/staff",
+  selected = false,
+  onTap,
+  onLongPress,
 }: StaffCardProps) {
   const isStatusCard = status !== "working"
   const topBg =
@@ -48,18 +58,20 @@ export function StaffCard({
   const statusDotColor =
     status === "waiting" ? "bg-[#C49B61]" : status === "rest" ? "bg-[#F59E0B]" : status === "off" ? "bg-[#94A3B8]" : "bg-green-500"
 
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "block bg-[#FFFCF6] rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(45,43,38,0.05)] transition-transform active:scale-[0.96]",
-        status === "off" && "opacity-60",
-      )}
-    >
+  const cardInner = (
+    <>
       <div className={cn("relative aspect-[1/0.95] p-[7px_5px] flex flex-col", topBg)}>
         <span
           className={cn("absolute top-[5px] left-[5px] w-[6px] h-[6px] rounded-full border-[1.5px] border-white", statusDotColor)}
         />
+        {/* 선택 모드 체크 표시 */}
+        {selected && (
+          <span className="absolute inset-0 bg-gradient-to-br from-[#C49B61]/30 to-[#A87D45]/40 z-[1] flex items-center justify-center">
+            <span className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white flex items-center justify-center text-[16px] font-extrabold shadow-lg">
+              ✓
+            </span>
+          </span>
+        )}
         {storeLabel && (
           <span
             className={cn(
@@ -87,6 +99,84 @@ export function StaffCard({
         </div>
         <div className="text-[8px] font-semibold text-[#7A746A] mt-[2px] truncate">{initialOf(name)} · {subInfo ?? ""}</div>
       </div>
+    </>
+  )
+
+  const baseClass = cn(
+    "block bg-[#FFFCF6] rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(45,43,38,0.05)] transition-transform active:scale-[0.96] text-left w-full",
+    status === "off" && "opacity-60",
+    selected && "ring-2 ring-[#C49B61] ring-offset-1",
+  )
+
+  if (onTap) {
+    return <TappableCard baseClass={baseClass} onTap={onTap} onLongPress={onLongPress}>{cardInner}</TappableCard>
+  }
+
+  return (
+    <Link href={href} className={baseClass}>
+      {cardInner}
     </Link>
+  )
+}
+
+/**
+ * 길게 누르기 (600ms) 와 짧은 탭 을 구분하는 button.
+ *   - longPress 발동 시 fired ref 가 true → 이후 click 무시.
+ *   - mouse / touch 둘 다 지원.
+ */
+function TappableCard({
+  baseClass,
+  onTap,
+  onLongPress,
+  children,
+}: {
+  baseClass: string
+  onTap: () => void
+  onLongPress?: () => void
+  children: React.ReactNode
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const firedRef = useRef(false)
+
+  const start = () => {
+    firedRef.current = false
+    if (!onLongPress) return
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => {
+      firedRef.current = true
+      timerRef.current = null
+      onLongPress()
+    }, 600)
+  }
+  const cancel = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+  const click = (e: React.MouseEvent) => {
+    cancel()
+    if (firedRef.current) {
+      // long press 가 이미 발동 — onTap skip
+      firedRef.current = false
+      e.preventDefault()
+      return
+    }
+    onTap()
+  }
+  return (
+    <button
+      type="button"
+      onClick={click}
+      onMouseDown={start}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      onTouchStart={start}
+      onTouchEnd={cancel}
+      onTouchCancel={cancel}
+      className={baseClass}
+    >
+      {children}
+    </button>
   )
 }
