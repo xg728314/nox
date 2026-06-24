@@ -44,17 +44,17 @@ export default function HomePage() {
   const chatPreview = useMemo(() => (chats.data?.rooms ?? []).slice(0, 4), [chats.data])
   const chatVisible = chatCollapsed ? chatPreview.slice(0, 1) : chatPreview
 
-  // 스태프 통계 (active session 기준)
+  // 스태프 통계 (active session 기준 — cross-store 포함)
+  //   2026-06-24 R-cross-store-working: 본 매장 룸 카운트 대신
+  //   hostess.is_working (서버에서 모든 매장의 active 세션 참여 여부) 사용.
+  //   → 마블 식구가 아우라에서 일해도 working 으로 잡힘.
   const stats = useMemo(() => {
     const all = hostesses.data?.hostesses ?? []
-    const activeRooms = rooms.data?.rooms ?? []
-    // 현재 active session 에 참여한 hostess 수 추정 (서버 정확 카운트 없으면 0)
-    let working = 0
-    for (const r of activeRooms) if (r.session) working += r.session.participant_count ?? 0
+    const working = all.reduce((acc, h) => acc + (h.is_working ? 1 : 0), 0)
     const total = all.length
-    const waiting = Math.max(0, Math.min(total, total - working))
+    const waiting = Math.max(0, total - working)
     return { working, waiting, rest: 0, total }
-  }, [hostesses.data, rooms.data])
+  }, [hostesses.data])
 
   return (
     <div className="flex flex-col min-h-full text-[#2D2B26]">
@@ -163,6 +163,8 @@ export default function HomePage() {
                 name={h.hostess_name}
                 isMyStore
                 storeLabel={me.data?.store_name ?? undefined}
+                status={h.is_working ? "working" : "waiting"}
+                subInfo={h.is_working && h.working_store_uuid && h.working_store_uuid !== me.data?.store_uuid ? "타매장 근무중" : undefined}
                 selected={selectMode && selectedIds.has(h.membership_id)}
                 onTap={() => {
                   if (selectMode) {

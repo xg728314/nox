@@ -31,6 +31,9 @@ export type HostessPreview = {
   status: string
   manager_membership_id: string | null
   origin_store_uuid: string | null
+  /** R-cross-store-working (2026-06-24): 어디서든 active session 참여 중. */
+  is_working?: boolean
+  working_store_uuid?: string | null
 }
 /** 사전등록 row (가입 대기) */
 export type PreRegistrationPreview = {

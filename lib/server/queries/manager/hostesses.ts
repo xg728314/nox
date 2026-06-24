@@ -12,6 +12,10 @@ export type HostessPreview = {
   status: string
   manager_membership_id: string | null
   origin_store_uuid: string | null
+  /** R-cross-store-working (2026-06-24): 어디서든 active session 참여 중. */
+  is_working: boolean
+  /** 현재 근무 중인 매장 (있으면) */
+  working_store_uuid: string | null
 }
 
 /** R-사전등록 (2026-06-08): 아직 NOX 가입 안 된 사전등록 row. */
@@ -148,6 +152,30 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     throw new Error(`hostess details query failed: ${hostessesError.message}`)
   }
 
+  // R-cross-store-working: 현재 active session 참여 중 hostess 추출.
+  //   session_participants (status='active') JOIN room_sessions (status='active')
+  //   타매장 dispatch 로 다른 매장에서 일하는 식구도 잡힘.
+  const workingMap = new Map<string, string>() // membership_id → working_store_uuid
+  {
+    const { data: parts } = await supabase
+      .from("session_participants")
+      .select("membership_id, store_uuid, session_id, room_sessions!inner(status)")
+      .in("membership_id", hostessIds)
+      .eq("status", "active")
+      .is("deleted_at", null)
+    type PartRow = {
+      membership_id: string
+      store_uuid: string
+      room_sessions: { status: string } | { status: string }[] | null
+    }
+    for (const p of ((parts ?? []) as PartRow[])) {
+      const sess = Array.isArray(p.room_sessions) ? p.room_sessions[0] : p.room_sessions
+      if (sess?.status === "active" && !workingMap.has(p.membership_id)) {
+        workingMap.set(p.membership_id, p.store_uuid)
+      }
+    }
+  }
+
   type ProfileEmbed = { full_name: string | null } | { full_name: string | null }[] | null
   type Row = {
     id: string
@@ -169,6 +197,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     role: auth.role,
     hostesses: (hostesses ?? []).map((h: Row) => {
       const extras = hostessExtras.get(h.id) ?? { manager_membership_id: null, origin_store_uuid: null }
+      const workingStore = workingMap.get(h.id) ?? null
       return {
         hostess_id: h.id,
         hostess_name: pickFullName(h.profiles),
@@ -178,6 +207,8 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
         status: h.status,
         manager_membership_id: extras.manager_membership_id,
         origin_store_uuid: extras.origin_store_uuid,
+        is_working: workingStore !== null,
+        working_store_uuid: workingStore,
       }
     }),
     pre_registrations: preRegistrations,
