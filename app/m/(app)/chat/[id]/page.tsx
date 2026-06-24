@@ -62,14 +62,48 @@ export default function ChatRoomPage() {
     }
   }
 
+  // R-chat-realtime (2026-06-25): 3초 polling 으로 새 메시지 자동 갱신.
+  //   기존엔 mount 시 1회만 fetch → 새로고침 해야 새 메시지 보임.
+  //   페이지 가시성 hidden 일 땐 polling 중지 (배경 탭 절약).
   useEffect(() => {
     if (!roomId) return
-    setLoading(true)
-    apiFetch(`/api/chat/messages?chat_room_id=${encodeURIComponent(roomId)}&limit=50`)
-      .then((r) => r.json())
-      .then((j) => setMessages(Array.isArray(j?.messages) ? j.messages : []))
-      .catch(() => toast("메시지를 불러올 수 없습니다", "error"))
-      .finally(() => setLoading(false))
+    let cancelled = false
+    async function fetchMessages(initial: boolean) {
+      if (initial) setLoading(true)
+      try {
+        const r = await apiFetch(`/api/chat/messages?chat_room_id=${encodeURIComponent(roomId)}&limit=50`)
+        const j = await r.json()
+        const next = Array.isArray(j?.messages) ? (j.messages as ChatMessage[]) : []
+        if (cancelled) return
+        // 중복 제거 — id 기준 (서버는 동일 데이터 반환 가능)
+        setMessages((prev) => {
+          if (prev.length === next.length) {
+            // 같은 길이면 마지막 id 비교로 변경 여부 빠르게 확인
+            const lastA = prev[prev.length - 1]?.id
+            const lastB = next[next.length - 1]?.id
+            if (lastA === lastB) return prev // no change
+          }
+          return next
+        })
+      } catch {
+        if (initial && !cancelled) toast("메시지를 불러올 수 없습니다", "error")
+      } finally {
+        if (initial && !cancelled) setLoading(false)
+      }
+    }
+    fetchMessages(true)
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") fetchMessages(false)
+    }, 3000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchMessages(false)
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [roomId, toast])
 
   useEffect(() => {
