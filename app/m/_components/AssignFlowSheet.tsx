@@ -194,8 +194,12 @@ export function AssignFlowSheet({
           toast(`일부 실패: ${j.errors[0]}`, "info")
         }
       }
+      // 2026-06-24 R-invalidate-hostesses: 배정 후 is_working 표시 갱신을 위해
+      //   hostesses cache 도 무효화. 누락 시 stale 데이터로 \"대기중\" 잔존.
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/settlement/summary")
+      invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/building/hostesses")
       onClose()
       router.push("/m")
     } catch (e) {
