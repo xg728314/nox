@@ -46,21 +46,28 @@ export function Sheet({
         aria-hidden
       />
       {/* 2026-06-24 R-sheet-frame-fit: 데스크탑에서 PhoneFrame (420×min(900,vh)) 과
-          맞춰 sheet 도 420px 폭 + 폰 하단 정렬. 모바일은 풀폭 그대로 (md: 분기). */}
+          맞춰 sheet 도 400px 폭 + 폰 하단 정렬. 모바일은 풀폭 그대로 (md: 분기).
+          2026-06-24 R-sheet-fully-offscreen: translate-y 대신 bottom 자체를
+          animate. translate-y-[120%] 로는 \"bottom: 190px\" 상태에서 sheet 상단
+          70px 잔존 → full-page 스크린샷에 0명 배정 시트 노출 버그.
+          bottom: -100vh 로 완전 off-screen + transition. */}
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          "fixed left-0 right-0 bottom-0 z-[101] bg-[#F8F4ED] rounded-t-3xl px-5 pt-3.5 shadow-[0_-8px_32px_rgba(0,0,0,0.18)] overflow-y-auto transition-transform duration-300",
+          "fixed left-0 right-0 z-[101] bg-[#F8F4ED] rounded-t-3xl px-5 pt-3.5 shadow-[0_-8px_32px_rgba(0,0,0,0.18)] overflow-y-auto",
           "md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[400px]",
-          open ? "md:translate-y-0 translate-y-0" : "md:translate-y-[120%] translate-y-full",
+          open ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         style={{
           maxHeight,
           paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 18px)",
-          // 데스크탑 — 폰 프레임 (높이 min(900, vh-2rem)) 의 하단에 맞춤.
-          // 모바일 — viewport 하단.
-          bottom: "max(0px, calc((100dvh - min(900px, 100dvh - 2rem)) / 2 - 10px))",
+          // open: 폰 프레임 하단 (데스크탑) / viewport 하단 (모바일)
+          // closed: -100vh — 완전 off-screen 보장
+          bottom: open
+            ? "max(0px, calc((100dvh - min(900px, 100dvh - 2rem)) / 2 - 10px))"
+            : "-100vh",
+          transition: "bottom 300ms ease-out, opacity 250ms ease-out",
         }}
       >
         <div className="w-[38px] h-1 bg-[#2D2B26]/20 rounded-full mx-auto mb-3" />
