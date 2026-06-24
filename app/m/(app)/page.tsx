@@ -41,8 +41,15 @@ export default function HomePage() {
   const [pendingNames, setPendingNames] = useState<string[]>([])
 
   // 채팅 미리보기 (최대 4개)
+  //   2026-06-25 R-chat-collapse: 접기 = 매장 전체 (type=global) 채팅 1개만 표시.
+  //     없으면 fallback 으로 첫 채팅. 평소엔 4개 (last_message_at 순 그대로).
   const chatPreview = useMemo(() => (chats.data?.rooms ?? []).slice(0, 4), [chats.data])
-  const chatVisible = chatCollapsed ? chatPreview.slice(0, 1) : chatPreview
+  const chatVisible = useMemo(() => {
+    if (!chatCollapsed) return chatPreview
+    const all = chats.data?.rooms ?? []
+    const global = all.find((r) => r.type === "global")
+    return global ? [global] : chatPreview.slice(0, 1)
+  }, [chatCollapsed, chatPreview, chats.data])
 
   // 1초마다 갱신되는 \"now\" — 남은 시간 / 임박 카운트용
   const [nowTick, setNowTick] = useState(() => Date.now())
