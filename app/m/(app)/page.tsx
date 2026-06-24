@@ -229,6 +229,8 @@ export default function HomePage() {
                   storeName: h.working_store_name,
                   category: h.working_category,
                   remainingMinutes: remainingMinutesOf(h),
+                  startedAt: h.working_entered_at,
+                  timeMinutes: h.working_time_minutes,
                 } : undefined}
                 selected={selectMode && selectedIds.has(h.membership_id)}
                 onTap={() => {

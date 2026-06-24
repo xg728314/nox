@@ -27,6 +27,10 @@ export type StaffCardProps = {
     storeName?: string | null
     category?: string | null
     remainingMinutes?: number | null
+    /** ISO timestamp — 시작시각 표기 (HH:MM) + 종료시각 계산 */
+    startedAt?: string | null
+    /** 종료시각 = startedAt + timeMinutes */
+    timeMinutes?: number | null
   }
 }
 
@@ -64,20 +68,32 @@ export function StaffCard({
   const statusDotColor =
     status === "waiting" ? "bg-[#C49B61]" : status === "rest" ? "bg-[#F59E0B]" : status === "off" ? "bg-[#94A3B8]" : "bg-green-500"
 
-  // R-card-compact (2026-06-25): 카드 높이 절반. 하단 영역 제거, 상단만 사용.
-  //   - aspect 1/0.55 (이전 1/0.95 + 하단 영역) → 약 ½ 높이
-  //   - 일하는 식구: workingDetail 로 매장/종목/남은시간 표시 (subInfo 대체)
+  // R-card-v2 (2026-06-25): 정보 강조 layout.
+  //   · aspect 1/0.75 — 시작/종료 시각 row 까지 여유 (이전 0.55 너무 빡빡)
+  //   · vertical center — 이름 + 상세 라인 가운데 정렬 (이전 mt-auto 로 밑에 몰림)
+  //   · detailLine 10px (이전 8px) — 매장·종목·남은시간 강조. 단일 줄 (truncate)
+  //   · 시간 row 7px — 상단 가운데. \"21:00 → 22:30\"
+  //   · 남은 분 ≤ 10 → 카드 전체 animate-pulse + 빨간 ring (반짝)
   const detailLine = status === "working" && workingDetail
     ? formatWorkingDetail(workingDetail)
     : subInfo
+  const timeRow = status === "working" && workingDetail?.startedAt
+    ? `${fmtClockTime(workingDetail.startedAt)} → ${fmtEndClockTime(workingDetail.startedAt, workingDetail.timeMinutes)}`
+    : null
+  const isUrgent =
+    status === "working" &&
+    workingDetail?.remainingMinutes != null &&
+    workingDetail.remainingMinutes > 0 &&
+    workingDetail.remainingMinutes <= 10
+  const remaining = workingDetail?.remainingMinutes
   const cardInner = (
-    <div className={cn("relative aspect-[1/0.55] p-[6px_5px] flex flex-col rounded-2xl overflow-hidden", topBg)}>
+    <div className={cn("relative aspect-[1/0.75] p-[5px] flex flex-col rounded-2xl overflow-hidden", topBg)}>
       <span
-        className={cn("absolute top-[5px] left-[5px] w-[6px] h-[6px] rounded-full border-[1.5px] border-white z-[2]", statusDotColor)}
+        className={cn("absolute top-[4px] left-[4px] w-[6px] h-[6px] rounded-full border-[1.5px] border-white z-[2]", statusDotColor)}
       />
       {/* 선택 모드 체크 표시 */}
       {selected && (
-        <span className="absolute inset-0 bg-gradient-to-br from-[#C49B61]/30 to-[#A87D45]/40 z-[1] flex items-center justify-center">
+        <span className="absolute inset-0 bg-gradient-to-br from-[#C49B61]/30 to-[#A87D45]/40 z-[3] flex items-center justify-center">
           <span className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white flex items-center justify-center text-[14px] font-extrabold shadow-lg">
             ✓
           </span>
@@ -86,21 +102,43 @@ export function StaffCard({
       {storeLabel && (
         <span
           className={cn(
-            "absolute top-1 right-1 px-[5px] py-[1px] text-[8px] font-extrabold rounded-full backdrop-blur-sm shadow-sm max-w-[75%] truncate z-[2]",
+            "absolute top-[3px] right-[3px] px-[5px] py-[1px] text-[7px] font-extrabold rounded-full backdrop-blur-sm shadow-sm max-w-[55%] truncate z-[2]",
             isMyStore ? "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white" : "bg-white/95 text-[#2D2B26]",
           )}
         >
           {storeLabel}
         </span>
       )}
-      <div className="mt-auto text-center text-[13px] font-extrabold tracking-[-0.04em] leading-tight">{name || initialOf(name)}</div>
-      {detailLine && (
-        <div className="text-center text-[8px] font-bold text-[#2D2B26]/70 mt-[1px] truncate px-[2px] leading-tight">
-          {detailLine}
+      {/* 시작 → 종료 시간 (상단 가운데) */}
+      {timeRow && (
+        <div className="text-center text-[8px] font-bold text-[#2D2B26]/55 leading-none mt-[1px] tabular-nums">
+          {timeRow}
         </div>
       )}
+      {/* 가운데 — 이름 + 상세 라인 */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-[2px] min-w-0">
+        <div className="text-[13px] font-extrabold tracking-[-0.04em] leading-none truncate max-w-full">
+          {name || initialOf(name)}
+        </div>
+        {detailLine && (
+          <div
+            className={cn(
+              "text-[10px] font-extrabold tracking-tight leading-none truncate max-w-full px-[2px]",
+              isUrgent ? "text-red-600" : "text-[#2D2B26]/85",
+            )}
+          >
+            {detailLine}
+          </div>
+        )}
+        {/* 임박 강조 — 큰 분 숫자 */}
+        {isUrgent && remaining != null && (
+          <div className="text-[9px] font-extrabold text-red-600 leading-none tabular-nums">
+            ⏰ {remaining}분 남음
+          </div>
+        )}
+      </div>
       {earnings != null && (
-        <div className="text-center text-[9px] font-extrabold text-[#A87D45] mt-[1px] truncate">
+        <div className="text-center text-[9px] font-extrabold text-[#A87D45] truncate leading-none mb-[1px]">
           {fmtMoney(earnings)}{count != null && ` · ${count}건`}
         </div>
       )}
@@ -111,6 +149,8 @@ export function StaffCard({
     "block bg-[#FFFCF6] rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(45,43,38,0.05)] transition-transform active:scale-[0.96] text-left w-full",
     status === "off" && "opacity-60",
     selected && "ring-2 ring-[#C49B61] ring-offset-1",
+    // 종료 임박 — 빨간 ring + animate-pulse (반짝). selected ring 보다 우선 안 함 (selected 우선).
+    isUrgent && !selected && "ring-2 ring-red-500 animate-pulse",
   )
 
   if (onTap) {
@@ -189,6 +229,7 @@ function TappableCard({
 /**
  * R-working-detail (2026-06-25): 일하는 식구 카드의 상세 라인 포맷.
  *   "라이브 · 셔츠 · 23분"  /  "마블 · 퍼블릭 · 곧 종료"
+ *   단일 줄 truncate 전제 — 짧고 의미있게.
  */
 function formatWorkingDetail(d: { storeName?: string | null; category?: string | null; remainingMinutes?: number | null }): string {
   const parts: string[] = []
@@ -196,8 +237,23 @@ function formatWorkingDetail(d: { storeName?: string | null; category?: string |
   if (d.category) parts.push(d.category)
   if (typeof d.remainingMinutes === "number") {
     if (d.remainingMinutes <= 0) parts.push("종료")
-    else if (d.remainingMinutes <= 10) parts.push(`⏰ ${d.remainingMinutes}분`)
     else parts.push(`${d.remainingMinutes}분`)
   }
   return parts.join(" · ")
+}
+
+/** HH:MM 표기 (ISO timestamp) */
+function fmtClockTime(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+/** start + minutes 의 종료 HH:MM */
+function fmtEndClockTime(startIso: string | null | undefined, minutes: number | null | undefined): string {
+  if (!startIso || minutes == null) return ""
+  const d = new Date(startIso)
+  if (Number.isNaN(d.getTime())) return ""
+  d.setMinutes(d.getMinutes() + minutes)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
