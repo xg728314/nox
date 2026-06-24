@@ -49,9 +49,12 @@ export default function SettlePage() {
   const isReset = resetAt !== null
 
   // 초기화 상태에서는 화면상 0 으로 표시 (실 데이터는 서버에 보존)
-  const total = isReset ? 0 : settle.data?.total_gross ?? 0
-  const count = isReset ? 0 : settle.data?.total_count ?? 0
-  const byHostess = isReset ? [] : settle.data?.by_hostess ?? []
+  // 2026-06-24 R-settle-shape-fix: API 는 summary[] 반환 — 합계는 client 집계.
+  const summary = isReset ? [] : settle.data?.summary ?? []
+  const withSettlement = summary.filter((r) => r.has_settlement)
+  const total = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
+  const count = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.tc_count ?? 0), 0)
+  const byHostess = withSettlement
 
   async function verifyAndReset() {
     const pw = password.trim()
@@ -224,11 +227,11 @@ export default function SettlePage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-extrabold tracking-tight">{h.hostess_name}</div>
-                  <div className="text-[10px] font-semibold text-[#7A746A]">{h.count}건 메이드</div>
+                  <div className="text-[10px] font-semibold text-[#7A746A]">{h.tc_count ?? 0}건 메이드</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[14px] font-extrabold tracking-tight">{fmtMoneyWon(h.gross)}</div>
-                  <div className="text-[9px] font-semibold text-[#A87D45]">지급 {fmtMoney(h.payout)}</div>
+                  <div className="text-[14px] font-extrabold tracking-tight">{fmtMoneyWon(h.gross_total ?? 0)}</div>
+                  <div className="text-[9px] font-semibold text-[#A87D45]">지급 {fmtMoney(h.hostess_amount ?? 0)}</div>
                 </div>
               </div>
             ))}

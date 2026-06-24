@@ -135,18 +135,24 @@ export function useChatRooms() {
   return useApi<{ rooms: ChatRoom[] }>("/api/chat/rooms", { ttl: 5000 })
 }
 
-/** 정산 요약 */
+/** 정산 요약 — 서버 응답 형태에 맞춤 (lib/server/queries/manager/settlementSummary.ts) */
+export type SettlementSummaryRow = {
+  hostess_id: string
+  hostess_name: string
+  has_settlement: boolean
+  status: string | null
+  gross_total: number | null
+  tc_amount: number | null
+  manager_amount: number | null
+  hostess_amount: number | null
+  /** R-settle-display (2026-06-24): 세션 카운트 — 백엔드 추가 후 채워짐. */
+  tc_count?: number
+}
 export type SettlementSummary = {
+  store_uuid: string
+  role: string
   business_day_id: string | null
-  total_gross: number
-  total_count: number
-  by_hostess: Array<{
-    hostess_id: string
-    hostess_name: string
-    count: number
-    gross: number
-    payout: number
-  }>
+  summary: SettlementSummaryRow[]
 }
 export function useSettlement() {
   return useApi<SettlementSummary>("/api/manager/settlement/summary", { ttl: 10_000 })

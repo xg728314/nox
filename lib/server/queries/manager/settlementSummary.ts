@@ -11,6 +11,8 @@ export type SummaryRow = {
   tc_amount: number | null
   manager_amount: number | null
   hostess_amount: number | null
+  /** R-settle-display (2026-06-24): 세션 카운트 — UI 의 "건수" 표시용 */
+  tc_count: number
 }
 
 export type ManagerSettlementSummaryResponse = {
@@ -269,6 +271,7 @@ export async function getManagerSettlementSummary(
         tc_amount: null,
         manager_amount: null,
         hostess_amount: null,
+        tc_count: 0,
       }
     }
 
@@ -310,6 +313,7 @@ export async function getManagerSettlementSummary(
       tc_amount: hasSettlement ? totalTc : null,
       manager_amount: hasSettlement ? totalManager : null,
       hostess_amount: hasSettlement ? totalHostess : null,
+      tc_count: hostessSessions.size,
     }
   })
 
