@@ -98,68 +98,92 @@ export function AssignFlowSheet({
   }, [matchingTypes, cat, time])
 
   async function submit() {
-    if (!isMyStore) {
-      toast("타 매장 배정은 다음 라운드 지원", "info")
-      return
-    }
     if (!cat || !time || !selectedType || hostessIds.length === 0 || submitting) return
+    if (!storeUuid) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
-      // 본인 매장 — 첫 빈 룸 자동 선택, 없으면 첫 룸의 active session 재사용
-      const rs = rooms.data?.rooms ?? []
-      const emptyRoom = rs.find((r) => !r.session && r.is_active !== false)
-      const fallbackRoom = rs.find((r) => r.is_active !== false)
-      const targetRoom = emptyRoom ?? fallbackRoom
-      if (!targetRoom) throw new Error("사용 가능한 룸 없음")
+      if (isMyStore) {
+        // 본인 매장 — 첫 빈 룸 자동 선택, 없으면 첫 룸의 active session 재사용
+        const rs = rooms.data?.rooms ?? []
+        const emptyRoom = rs.find((r) => !r.session && r.is_active !== false)
+        const fallbackRoom = rs.find((r) => r.is_active !== false)
+        const targetRoom = emptyRoom ?? fallbackRoom
+        if (!targetRoom) throw new Error("사용 가능한 룸 없음")
 
-      let sessionId: string | null = null
-      if (targetRoom.session) {
-        sessionId = targetRoom.session.id
-      } else {
-        const res = await apiFetch("/api/sessions/checkin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room_uuid: targetRoom.id,
-            manager_membership_id: me.data?.membership_id,
-            manager_name: me.data?.full_name ?? "",
-          }),
-        })
-        if (!res.ok) {
-          if (res.status === 409) {
-            invalidateApi("/api/rooms")
-            await rooms.refresh()
-            const again = (rooms.data?.rooms ?? []).find((r) => r.id === targetRoom.id)?.session
-            if (again) sessionId = again.id
-            else throw new Error("세션 확보 실패 (race)")
-          } else {
-            throw new Error(`체크인 실패 HTTP ${res.status}`)
-          }
+        let sessionId: string | null = null
+        if (targetRoom.session) {
+          sessionId = targetRoom.session.id
         } else {
-          const j = await res.json()
-          sessionId = j.session_id
+          const res = await apiFetch("/api/sessions/checkin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              room_uuid: targetRoom.id,
+              manager_membership_id: me.data?.membership_id,
+              manager_name: me.data?.full_name ?? "",
+            }),
+          })
+          if (!res.ok) {
+            if (res.status === 409) {
+              invalidateApi("/api/rooms")
+              await rooms.refresh()
+              const again = (rooms.data?.rooms ?? []).find((r) => r.id === targetRoom.id)?.session
+              if (again) sessionId = again.id
+              else throw new Error("세션 확보 실패 (race)")
+            } else {
+              throw new Error(`체크인 실패 HTTP ${res.status}`)
+            }
+          } else {
+            const j = await res.json()
+            sessionId = j.session_id
+          }
         }
-      }
-      if (!sessionId) throw new Error("session_id 없음")
+        if (!sessionId) throw new Error("session_id 없음")
 
-      for (const mid of hostessIds) {
-        await apiFetch("/api/sessions/participants", {
+        for (const mid of hostessIds) {
+          await apiFetch("/api/sessions/participants", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              membership_id: mid,
+              role: "hostess",
+              category: cat,
+              time_minutes: selectedType.time_minutes,
+              time_type: time,
+              manager_deduction: selectedType.manager_deduction,
+              greeting_confirmed: cat === "셔츠" ? true : undefined,
+            }),
+          })
+        }
+        toast(`${hostessIds.length}명 배정 완료 — ${targetRoom.room_name || `룸 ${targetRoom.room_no}`}`, "success")
+      } else {
+        // 타 매장 — cross-store dispatch endpoint 호출 (서버가 세션 + 참여자 일괄 처리)
+        const res = await apiFetch("/api/cross-store/dispatch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            session_id: sessionId,
-            membership_id: mid,
-            role: "hostess",
+            target_store_uuid: storeUuid,
+            hostess_membership_ids: hostessIds,
             category: cat,
-            time_minutes: selectedType.time_minutes,
             time_type: time,
-            manager_deduction: selectedType.manager_deduction,
-            greeting_confirmed: cat === "셔츠" ? true : undefined,
           }),
         })
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          message?: string
+          error?: string
+          participants_created?: number
+          room?: { room_no?: string; room_name?: string | null }
+          target_store?: { name?: string }
+        }
+        if (!res.ok || !j.ok) {
+          throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
+        }
+        const roomLabel = j.room?.room_name || (j.room?.room_no ? `룸 ${j.room.room_no}` : "")
+        toast(`${j.participants_created ?? hostessIds.length}명 → ${j.target_store?.name ?? "타매장"} ${roomLabel} 배정 완료`, "success")
       }
-      toast(`${hostessIds.length}명 배정 완료 — ${targetRoom.room_name || `룸 ${targetRoom.room_no}`}`, "success")
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/settlement/summary")
       onClose()
@@ -279,8 +303,8 @@ export function AssignFlowSheet({
       {step === "service" && (
         <>
           {!isMyStore && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11px] font-semibold text-amber-800 mb-3">
-              타 매장 배정은 다음 라운드 지원 — 본인 매장 ({me.data?.store_name ?? ""}) 만 즉시 체크인 가능
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-[11px] font-semibold text-blue-800 mb-3">
+              타 매장 배정 — 대상 매장에 자동으로 세션 개설 + 식구 등록 (origin_store 자동 기록)
             </div>
           )}
           <div className="grid grid-cols-3 gap-2.5">
