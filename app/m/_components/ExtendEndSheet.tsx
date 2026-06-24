@@ -32,6 +32,7 @@ export function ExtendEndSheet({
   category,
   storeName,
   remainingMinutes,
+  startedAt,
 }: {
   open: boolean
   onClose: () => void
@@ -42,6 +43,8 @@ export function ExtendEndSheet({
   category: string | null
   storeName: string | null
   remainingMinutes: number | null
+  /** 시작 시각 — 경과시간 계산용 */
+  startedAt?: string | null
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -102,11 +105,47 @@ export function ExtendEndSheet({
     }
   }
 
-  async function endNow() {
+  /**
+   * 종료 처리. final_time_type 이 주어지면 leave 직전에 participant 의 time_type /
+   * time_minutes / price_amount 를 그 기준으로 PATCH 후 leave.
+   */
+  async function endWithType(finalTimeType: TimeKey | null) {
     if (submitting) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
+      // 1. 정산 옵션 변경 (옵션)
+      if (finalTimeType) {
+        const info = priceMap.get(finalTimeType)
+        if (info) {
+          const patchRes = await apiFetch(`/api/sessions/participants/${encodeURIComponent(participantId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: finalTimeType === "기본" ? "apply_wanti" : finalTimeType === "반티" ? "apply_banti" : "apply_cha3",
+              time_minutes: info.time_minutes,
+              price_amount: info.price,
+            }),
+          })
+          if (!patchRes.ok) {
+            const j = await patchRes.json().catch(() => ({}))
+            // 일부 환경에서 action 미지원 — 일반 PATCH 로 fallback
+            const fallback = await apiFetch(`/api/sessions/participants/${encodeURIComponent(participantId)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                category,
+                time_minutes: info.time_minutes,
+                price_amount: info.price,
+              }),
+            })
+            if (!fallback.ok) {
+              throw new Error(j?.message ?? `정산 변경 실패 HTTP ${patchRes.status}`)
+            }
+          }
+        }
+      }
+      // 2. leave
       const res = await apiFetch(`/api/sessions/participants/${encodeURIComponent(participantId)}/leave`, {
         method: "POST",
       })
@@ -114,7 +153,8 @@ export function ExtendEndSheet({
       if (!res.ok || !j.ok) {
         throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
       }
-      toast(`${hostessName} 종료${j.session_closed ? " (세션 닫힘)" : ""}`, "success")
+      const tag = finalTimeType ? ` (${finalTimeType === "기본" ? "완티" : finalTimeType})` : ""
+      toast(`${hostessName} 종료${tag}${j.session_closed ? " · 세션 닫힘" : ""}`, "success")
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/hostesses")
       invalidateApi("/api/manager/settlement/summary")
@@ -178,16 +218,92 @@ export function ExtendEndSheet({
 
       {/* 종료 섹션 */}
       <div className="text-[10px] font-extrabold text-red-700 uppercase tracking-wider mb-2">
-        🚪 종료
+        🚪 종료 (시간에 따라 정산 옵션 선택)
       </div>
+      <EndOptions
+        category={category}
+        priceMap={priceMap}
+        elapsedMinutes={elapsedMinutes(startedAt)}
+        submitting={submitting}
+        onEnd={endWithType}
+      />
       <button
         type="button"
         disabled={submitting}
-        onClick={endNow}
-        className="w-full bg-red-50 border-2 border-red-300 text-red-700 rounded-2xl py-3 text-[13px] font-extrabold active:scale-[0.98] transition-transform disabled:opacity-40"
+        onClick={() => endWithType(null)}
+        className="w-full mt-2 bg-white border border-[#D8D2C8] text-[#7A746A] rounded-xl py-2.5 text-[11px] font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
       >
-        지금 종료 — {hostessName}
+        그대로 종료 (현재 정산 유지)
       </button>
     </Sheet>
+  )
+}
+
+function elapsedMinutes(startedAt?: string | null): number | null {
+  if (!startedAt) return null
+  const ms = new Date(startedAt).getTime()
+  if (Number.isNaN(ms)) return null
+  return Math.max(0, Math.round((Date.now() - ms) / 60_000))
+}
+
+/**
+ * 종료 옵션 — 시간 비례 가용 옵션 표시.
+ *   - 완티: elapsed >= 기본 시간 면 활성, 미만 면 disabled (또는 강제 선택 가능)
+ *   - 반티: elapsed >= 반티 시간 (= 기본/2) 면 활성
+ *   - 차3:  elapsed >= 차3 시간 (15분) 면 활성
+ *   - 사용자 재량으로 시간 미달이어도 선택 가능. disabled 는 시각적 힌트.
+ */
+function EndOptions({
+  category,
+  priceMap,
+  elapsedMinutes,
+  submitting,
+  onEnd,
+}: {
+  category: string | null
+  priceMap: Map<TimeKey, { time_minutes: number; price: number; manager_deduction: number }>
+  elapsedMinutes: number | null
+  submitting: boolean
+  onEnd: (t: TimeKey) => void
+}) {
+  if (!category) return null
+  const opts: Array<{ key: TimeKey; label: string }> = [
+    { key: "기본", label: "완티 종료" },
+    { key: "반티", label: "반티 종료" },
+    { key: "차3", label: "차3 종료" },
+  ]
+  return (
+    <div className="space-y-2">
+      {opts.map((o) => {
+        const info = priceMap.get(o.key)
+        if (!info) return null
+        const recommended = elapsedMinutes != null && elapsedMinutes >= info.time_minutes
+        return (
+          <button
+            key={o.key}
+            type="button"
+            disabled={submitting}
+            onClick={() => onEnd(o.key)}
+            className={`w-full rounded-xl border-2 px-3 py-2.5 text-left flex items-center justify-between active:scale-[0.98] transition-transform disabled:opacity-40 ${
+              recommended ? "bg-red-50 border-red-400" : "bg-white border-[#D8D2C8]"
+            }`}
+          >
+            <div>
+              <div className="text-[13px] font-extrabold text-[#2D2B26]">
+                {o.label} {recommended && <span className="text-[10px] font-bold text-red-600 ml-1">✓ 시간 충분</span>}
+              </div>
+              <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                {info.time_minutes}분 기준 · {elapsedMinutes != null && (
+                  <span>경과 {elapsedMinutes}분 / 기준 {info.time_minutes}분</span>
+                )}
+              </div>
+            </div>
+            <div className="text-[14px] font-extrabold text-red-700">
+              {(info.price / 10000).toFixed(0)}만원
+            </div>
+          </button>
+        )
+      })}
+    </div>
   )
 }

@@ -10,6 +10,8 @@ import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
 import { useMe, useHostesses, useChatRooms, useRooms, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
+import { invalidateApi } from "../_hooks/useApi"
+import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../_lib/cn"
 
 /**
@@ -31,7 +33,7 @@ export default function HomePage() {
   const rooms = useRooms()
 
   const [chatCollapsed, setChatCollapsed] = useState(false)
-  const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "rest" | null>(null)
+  const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "total" | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
 
   // 10분 초과 자동 종료 + 최근 30분 자동 종료된 식구 목록
@@ -99,7 +101,7 @@ export default function HomePage() {
     }
     const total = all.length
     const waiting = Math.max(0, total - working)
-    return { working, waiting, rest: 0, total, endingSoon }
+    return { working, waiting, total, endingSoon }
   }, [hostesses.data, remainingMinutesOf])
 
   // 필터 적용된 식구 목록
@@ -108,7 +110,8 @@ export default function HomePage() {
     if (!activeFilter) return all
     if (activeFilter === "working") return all.filter((h) => h.is_working)
     if (activeFilter === "waiting") return all.filter((h) => !h.is_working)
-    return [] // rest 는 아직 미구현
+    if (activeFilter === "total") return all // 총인원 — 전체 (출근 토글 모드)
+    return all
   }, [hostesses.data, activeFilter])
 
   return (
@@ -215,7 +218,7 @@ export default function HomePage() {
         <StatusCells
           working={stats.working}
           waiting={stats.waiting}
-          rest={stats.rest}
+          total={stats.total}
           active={activeFilter}
           onClick={(s) => setActiveFilter((prev) => (prev === s ? null : s))}
           endingSoonCount={stats.endingSoon}
@@ -236,7 +239,7 @@ export default function HomePage() {
             내 식구 {hostesses.data?.hostesses.length ?? 0}명
             {activeFilter && (
               <span className="text-[10px] font-bold text-[#A87D45] ml-1.5">
-                · {activeFilter === "working" ? "일하는 중" : activeFilter === "waiting" ? "대기" : "휴식"} {filteredHostesses.length}명
+                · {activeFilter === "working" ? "일하는 중" : activeFilter === "waiting" ? "대기" : "전체 (총인원)"} {filteredHostesses.length}명
               </span>
             )}
           </div>
@@ -258,7 +261,7 @@ export default function HomePage() {
         {hostesses.error && <ErrLine msg="식구 목록을 불러올 수 없습니다" />}
         {hostesses.data && filteredHostesses.length === 0 && (
           <div className="text-center text-[11px] text-[#7A746A] py-6 font-semibold">
-            {activeFilter === "working" ? "지금 일하는 식구 없음" : activeFilter === "waiting" ? "대기 중인 식구 없음" : "휴식 중인 식구 없음"}
+            {activeFilter === "working" ? "지금 일하는 식구 없음" : activeFilter === "waiting" ? "대기 중인 식구 없음" : "등록된 식구 없음"}
           </div>
         )}
         {hostesses.data && filteredHostesses.length > 0 && (
@@ -347,19 +350,53 @@ export default function HomePage() {
           <div className="text-[12px] font-extrabold text-[#2D2B26]">
             {selectedIds.size}명 선택
           </div>
-          <button
-            type="button"
-            disabled={selectedIds.size === 0}
-            onClick={() => {
-              const list = (hostesses.data?.hostesses ?? []).filter((h) => selectedIds.has(h.membership_id))
-              setPendingIds(list.map((h) => h.membership_id))
-              setPendingNames(list.map((h) => h.hostess_name))
-              setSheetOpen(true)
-            }}
-            className="bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white rounded-xl px-4 py-2 text-[12px] font-extrabold disabled:opacity-40"
-          >
-            묶어서 배정 →
-          </button>
+          {(() => {
+            const all = hostesses.data?.hostesses ?? []
+            const selectedList = all.filter((h) => selectedIds.has(h.membership_id))
+            const workingSelected = selectedList.filter((h) => h.is_working)
+            const waitingSelected = selectedList.filter((h) => !h.is_working)
+            // 일하는 식구 1+ 선택 시 \"묶음 종료\" 버튼 추가 표시
+            return (
+              <>
+                {waitingSelected.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingIds(waitingSelected.map((h) => h.membership_id))
+                      setPendingNames(waitingSelected.map((h) => h.hostess_name))
+                      setSheetOpen(true)
+                    }}
+                    className="bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white rounded-xl px-3 py-2 text-[11px] font-extrabold"
+                  >
+                    배정 ({waitingSelected.length})
+                  </button>
+                )}
+                {workingSelected.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // 묶음 종료 — 각각 leave (정산 옵션 없이 그대로)
+                      for (const h of workingSelected) {
+                        if (!h.working_participant_id) continue
+                        try {
+                          await apiFetch(`/api/sessions/participants/${encodeURIComponent(h.working_participant_id)}/leave`, {
+                            method: "POST",
+                          })
+                        } catch { /* best-effort */ }
+                      }
+                      invalidateApi("/api/manager/hostesses")
+                      invalidateApi("/api/rooms")
+                      setSelectMode(false)
+                      setSelectedIds(new Set())
+                    }}
+                    className="bg-red-50 border-2 border-red-300 text-red-700 rounded-xl px-3 py-2 text-[11px] font-extrabold"
+                  >
+                    종료 ({workingSelected.length})
+                  </button>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -391,6 +428,7 @@ export default function HomePage() {
           category={extendTarget.working_category ?? null}
           storeName={extendTarget.working_store_name ?? null}
           remainingMinutes={remainingMinutesOf(extendTarget)}
+          startedAt={extendTarget.working_entered_at ?? null}
         />
       )}
 
