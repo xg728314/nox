@@ -90,19 +90,22 @@ export function useApi<T>(
     }
   }, [url, opts.init, opts.ttl])
 
+  // fetcher ref — opts 가 매 렌더 새 객체라도 subscription 은 stable 하게 유지
+  const fetcherRef = useRef(fetcher)
+  useEffect(() => { fetcherRef.current = fetcher }, [fetcher])
+
   useEffect(() => {
+    if (!url) return
     aliveRef.current = true
-    fetcher()
-    const unsub = url
-      ? subscribe(url, () => {
-          if (aliveRef.current) fetcher()
-        })
-      : null
+    fetcherRef.current()
+    const unsub = subscribe(url, () => {
+      if (aliveRef.current) fetcherRef.current()
+    })
     return () => {
       aliveRef.current = false
-      unsub?.()
+      unsub()
     }
-  }, [fetcher, url])
+  }, [url])
 
   const refresh = useCallback(async () => {
     if (url) CACHE.delete(url)
