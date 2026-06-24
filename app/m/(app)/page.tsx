@@ -1,13 +1,13 @@
 "use client"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { TabBar } from "../_components/TabBar"
 import { StatusCells } from "../_components/StatusCells"
 import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
-import { useMe, useHostesses, useChatRooms, useRooms } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useChatRooms, useRooms, type HostessPreview } from "../_hooks/useMobileData"
 import { cn } from "../_lib/cn"
 
 /**
@@ -44,17 +44,55 @@ export default function HomePage() {
   const chatPreview = useMemo(() => (chats.data?.rooms ?? []).slice(0, 4), [chats.data])
   const chatVisible = chatCollapsed ? chatPreview.slice(0, 1) : chatPreview
 
+  // 1초마다 갱신되는 \"now\" — 남은 시간 / 임박 카운트용
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000) // 30초 주기 충분
+    return () => clearInterval(id)
+  }, [])
+
+  // 식구별 남은 분 (entered_at + time_minutes 기준)
+  const remainingMinutesOf = useMemo(() => {
+    const fn = (h: HostessPreview): number | null => {
+      if (!h.is_working || !h.working_entered_at || !h.working_time_minutes) return null
+      const enteredMs = new Date(h.working_entered_at).getTime()
+      if (Number.isNaN(enteredMs)) return null
+      const endMs = enteredMs + h.working_time_minutes * 60_000
+      return Math.max(0, Math.round((endMs - nowTick) / 60_000))
+    }
+    return fn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowTick])
+
   // 스태프 통계 (active session 기준 — cross-store 포함)
   //   2026-06-24 R-cross-store-working: 본 매장 룸 카운트 대신
   //   hostess.is_working (서버에서 모든 매장의 active 세션 참여 여부) 사용.
   //   → 마블 식구가 아우라에서 일해도 working 으로 잡힘.
+  //   2026-06-25 R-status-filter: endingSoon (10분 이내 종료) 카운트 추가.
   const stats = useMemo(() => {
     const all = hostesses.data?.hostesses ?? []
-    const working = all.reduce((acc, h) => acc + (h.is_working ? 1 : 0), 0)
+    let working = 0
+    let endingSoon = 0
+    for (const h of all) {
+      if (h.is_working) {
+        working++
+        const rem = remainingMinutesOf(h)
+        if (rem !== null && rem <= 10) endingSoon++
+      }
+    }
     const total = all.length
     const waiting = Math.max(0, total - working)
-    return { working, waiting, rest: 0, total }
-  }, [hostesses.data])
+    return { working, waiting, rest: 0, total, endingSoon }
+  }, [hostesses.data, remainingMinutesOf])
+
+  // 필터 적용된 식구 목록
+  const filteredHostesses = useMemo(() => {
+    const all = hostesses.data?.hostesses ?? []
+    if (!activeFilter) return all
+    if (activeFilter === "working") return all.filter((h) => h.is_working)
+    if (activeFilter === "waiting") return all.filter((h) => !h.is_working)
+    return [] // rest 는 아직 미구현
+  }, [hostesses.data, activeFilter])
 
   return (
     <div className="flex flex-col min-h-full text-[#2D2B26]">
@@ -134,6 +172,7 @@ export default function HomePage() {
           rest={stats.rest}
           active={activeFilter}
           onClick={(s) => setActiveFilter((prev) => (prev === s ? null : s))}
+          endingSoonCount={stats.endingSoon}
         />
         <div className="flex items-center justify-between mt-3 text-[10px] text-[#7A746A] font-semibold">
           <div>
@@ -147,16 +186,38 @@ export default function HomePage() {
       {/* 스태프 그리드 (4-col 컴팩트) */}
       <section className="px-5 mb-4">
         <div className="flex items-center justify-between mb-2">
-          <div className="text-[13px] font-extrabold">내 식구 {hostesses.data?.hostesses.length ?? 0}명</div>
-          <Link href="/m/staff" className="text-[11px] font-bold text-[#A87D45] no-underline">
-            전체 →
-          </Link>
+          <div className="text-[13px] font-extrabold">
+            내 식구 {hostesses.data?.hostesses.length ?? 0}명
+            {activeFilter && (
+              <span className="text-[10px] font-bold text-[#A87D45] ml-1.5">
+                · {activeFilter === "working" ? "일하는 중" : activeFilter === "waiting" ? "대기" : "휴식"} {filteredHostesses.length}명
+              </span>
+            )}
+          </div>
+          {activeFilter ? (
+            <button
+              type="button"
+              onClick={() => setActiveFilter(null)}
+              className="text-[11px] font-bold text-[#A87D45] no-underline"
+            >
+              ✕ 필터 해제
+            </button>
+          ) : (
+            <Link href="/m/staff" className="text-[11px] font-bold text-[#A87D45] no-underline">
+              전체 →
+            </Link>
+          )}
         </div>
         {hostesses.isLoading && <SkelGrid />}
         {hostesses.error && <ErrLine msg="식구 목록을 불러올 수 없습니다" />}
-        {hostesses.data && (
+        {hostesses.data && filteredHostesses.length === 0 && (
+          <div className="text-center text-[11px] text-[#7A746A] py-6 font-semibold">
+            {activeFilter === "working" ? "지금 일하는 식구 없음" : activeFilter === "waiting" ? "대기 중인 식구 없음" : "휴식 중인 식구 없음"}
+          </div>
+        )}
+        {hostesses.data && filteredHostesses.length > 0 && (
           <div className="grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5">
-            {hostesses.data.hostesses.slice(0, 12).map((h) => (
+            {filteredHostesses.slice(0, 12).map((h) => (
               <StaffCard
                 key={h.membership_id}
                 membershipId={h.membership_id}
@@ -164,7 +225,11 @@ export default function HomePage() {
                 isMyStore
                 storeLabel={me.data?.store_name ?? undefined}
                 status={h.is_working ? "working" : "waiting"}
-                subInfo={h.is_working && h.working_store_uuid && h.working_store_uuid !== me.data?.store_uuid ? "타매장 근무중" : undefined}
+                workingDetail={h.is_working ? {
+                  storeName: h.working_store_name,
+                  category: h.working_category,
+                  remainingMinutes: remainingMinutesOf(h),
+                } : undefined}
                 selected={selectMode && selectedIds.has(h.membership_id)}
                 onTap={() => {
                   if (selectMode) {

@@ -16,6 +16,12 @@ export type HostessPreview = {
   is_working: boolean
   /** 현재 근무 중인 매장 (있으면) */
   working_store_uuid: string | null
+  /** R-working-detail (2026-06-25): UI 표시용 세션 상세 */
+  working_store_name: string | null
+  working_category: string | null
+  working_time_minutes: number | null
+  /** entered_at — 남은 시간 계산용 (end_at = entered_at + time_minutes) */
+  working_entered_at: string | null
 }
 
 /** R-사전등록 (2026-06-08): 아직 NOX 가입 안 된 사전등록 row. */
@@ -155,24 +161,54 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
   // R-cross-store-working: 현재 active session 참여 중 hostess 추출.
   //   session_participants (status='active') JOIN room_sessions (status='active')
   //   타매장 dispatch 로 다른 매장에서 일하는 식구도 잡힘.
-  const workingMap = new Map<string, string>() // membership_id → working_store_uuid
+  //   R-working-detail (2026-06-25): 세션 상세 (category, time_minutes,
+  //   entered_at) 도 같이 가져옴 → UI 에서 \"남은 시간\" 계산.
+  type WorkInfo = {
+    store_uuid: string
+    category: string | null
+    time_minutes: number | null
+    entered_at: string | null
+  }
+  const workingMap = new Map<string, WorkInfo>()
+  const workingStoreUuids = new Set<string>()
   {
     const { data: parts } = await supabase
       .from("session_participants")
-      .select("membership_id, store_uuid, session_id, room_sessions!inner(status)")
+      .select("membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status)")
       .in("membership_id", hostessIds)
       .eq("status", "active")
       .is("deleted_at", null)
     type PartRow = {
       membership_id: string
       store_uuid: string
+      category: string | null
+      time_minutes: number | null
+      entered_at: string | null
       room_sessions: { status: string } | { status: string }[] | null
     }
     for (const p of ((parts ?? []) as PartRow[])) {
       const sess = Array.isArray(p.room_sessions) ? p.room_sessions[0] : p.room_sessions
       if (sess?.status === "active" && !workingMap.has(p.membership_id)) {
-        workingMap.set(p.membership_id, p.store_uuid)
+        workingMap.set(p.membership_id, {
+          store_uuid: p.store_uuid,
+          category: p.category,
+          time_minutes: p.time_minutes,
+          entered_at: p.entered_at,
+        })
+        workingStoreUuids.add(p.store_uuid)
       }
+    }
+  }
+
+  // working store 이름 매핑 (id → store_name)
+  const storeNameMap = new Map<string, string>()
+  if (workingStoreUuids.size > 0) {
+    const { data: storeRows } = await supabase
+      .from("stores")
+      .select("id, store_name")
+      .in("id", Array.from(workingStoreUuids))
+    for (const s of ((storeRows ?? []) as { id: string; store_name: string }[])) {
+      storeNameMap.set(s.id, s.store_name)
     }
   }
 
@@ -197,7 +233,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     role: auth.role,
     hostesses: (hostesses ?? []).map((h: Row) => {
       const extras = hostessExtras.get(h.id) ?? { manager_membership_id: null, origin_store_uuid: null }
-      const workingStore = workingMap.get(h.id) ?? null
+      const workInfo = workingMap.get(h.id) ?? null
       return {
         hostess_id: h.id,
         hostess_name: pickFullName(h.profiles),
@@ -207,8 +243,12 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
         status: h.status,
         manager_membership_id: extras.manager_membership_id,
         origin_store_uuid: extras.origin_store_uuid,
-        is_working: workingStore !== null,
-        working_store_uuid: workingStore,
+        is_working: workInfo !== null,
+        working_store_uuid: workInfo?.store_uuid ?? null,
+        working_store_name: workInfo ? (storeNameMap.get(workInfo.store_uuid) ?? null) : null,
+        working_category: workInfo?.category ?? null,
+        working_time_minutes: workInfo?.time_minutes ?? null,
+        working_entered_at: workInfo?.entered_at ?? null,
       }
     }),
     pre_registrations: preRegistrations,

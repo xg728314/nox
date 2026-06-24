@@ -34,6 +34,11 @@ export type HostessPreview = {
   /** R-cross-store-working (2026-06-24): 어디서든 active session 참여 중. */
   is_working?: boolean
   working_store_uuid?: string | null
+  /** R-working-detail (2026-06-25): UI 상세 표시용 */
+  working_store_name?: string | null
+  working_category?: string | null
+  working_time_minutes?: number | null
+  working_entered_at?: string | null
 }
 /** 사전등록 row (가입 대기) */
 export type PreRegistrationPreview = {

@@ -22,6 +22,12 @@ export type StaffCardProps = {
   onTap?: () => void
   /** 길게 눌러서 selection 모드 진입 */
   onLongPress?: () => void
+  /** R-working-detail (2026-06-25): 일하는 식구의 세션 상세 표시 */
+  workingDetail?: {
+    storeName?: string | null
+    category?: string | null
+    remainingMinutes?: number | null
+  }
 }
 
 export function StaffCard({
@@ -38,8 +44,8 @@ export function StaffCard({
   selected = false,
   onTap,
   onLongPress,
+  workingDetail,
 }: StaffCardProps) {
-  const isStatusCard = status !== "working"
   const topBg =
     status === "waiting"
       ? "bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8]"
@@ -58,48 +64,47 @@ export function StaffCard({
   const statusDotColor =
     status === "waiting" ? "bg-[#C49B61]" : status === "rest" ? "bg-[#F59E0B]" : status === "off" ? "bg-[#94A3B8]" : "bg-green-500"
 
+  // R-card-compact (2026-06-25): 카드 높이 절반. 하단 영역 제거, 상단만 사용.
+  //   - aspect 1/0.55 (이전 1/0.95 + 하단 영역) → 약 ½ 높이
+  //   - 일하는 식구: workingDetail 로 매장/종목/남은시간 표시 (subInfo 대체)
+  const detailLine = status === "working" && workingDetail
+    ? formatWorkingDetail(workingDetail)
+    : subInfo
   const cardInner = (
-    <>
-      <div className={cn("relative aspect-[1/0.95] p-[7px_5px] flex flex-col", topBg)}>
+    <div className={cn("relative aspect-[1/0.55] p-[6px_5px] flex flex-col rounded-2xl overflow-hidden", topBg)}>
+      <span
+        className={cn("absolute top-[5px] left-[5px] w-[6px] h-[6px] rounded-full border-[1.5px] border-white z-[2]", statusDotColor)}
+      />
+      {/* 선택 모드 체크 표시 */}
+      {selected && (
+        <span className="absolute inset-0 bg-gradient-to-br from-[#C49B61]/30 to-[#A87D45]/40 z-[1] flex items-center justify-center">
+          <span className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white flex items-center justify-center text-[14px] font-extrabold shadow-lg">
+            ✓
+          </span>
+        </span>
+      )}
+      {storeLabel && (
         <span
-          className={cn("absolute top-[5px] left-[5px] w-[6px] h-[6px] rounded-full border-[1.5px] border-white", statusDotColor)}
-        />
-        {/* 선택 모드 체크 표시 */}
-        {selected && (
-          <span className="absolute inset-0 bg-gradient-to-br from-[#C49B61]/30 to-[#A87D45]/40 z-[1] flex items-center justify-center">
-            <span className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white flex items-center justify-center text-[16px] font-extrabold shadow-lg">
-              ✓
-            </span>
-          </span>
-        )}
-        {storeLabel && (
-          <span
-            className={cn(
-              "absolute top-1 right-1 px-[5px] py-[1px] text-[8px] font-extrabold rounded-full backdrop-blur-sm shadow-sm max-w-[75%] truncate",
-              isMyStore ? "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white" : "bg-white/95 text-[#2D2B26]",
-            )}
-          >
-            {storeLabel}
-          </span>
-        )}
-        <div className="mt-auto text-center text-[14px] font-extrabold tracking-[-0.04em] leading-none">{name}</div>
-        {subInfo && <div className="text-center text-[7px] font-bold text-[#2D2B26]/60 mt-[2px] truncate px-[2px]">{subInfo}</div>}
-      </div>
-      <div className="px-[6px] py-[5px] pb-[6px]">
-        <div className="flex items-baseline justify-between gap-[3px]">
-          <div
-            className={cn(
-              "font-extrabold tracking-tight truncate",
-              isStatusCard ? "text-[9px] text-[#A87D45]" : "text-[11px]",
-            )}
-          >
-            {earnings != null ? fmtMoney(earnings) : isStatusCard ? "대기 중" : "—"}
-          </div>
-          {count != null && <div className="text-[8px] font-bold text-[#C49B61]">{count}건</div>}
+          className={cn(
+            "absolute top-1 right-1 px-[5px] py-[1px] text-[8px] font-extrabold rounded-full backdrop-blur-sm shadow-sm max-w-[75%] truncate z-[2]",
+            isMyStore ? "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white" : "bg-white/95 text-[#2D2B26]",
+          )}
+        >
+          {storeLabel}
+        </span>
+      )}
+      <div className="mt-auto text-center text-[13px] font-extrabold tracking-[-0.04em] leading-tight">{name || initialOf(name)}</div>
+      {detailLine && (
+        <div className="text-center text-[8px] font-bold text-[#2D2B26]/70 mt-[1px] truncate px-[2px] leading-tight">
+          {detailLine}
         </div>
-        <div className="text-[8px] font-semibold text-[#7A746A] mt-[2px] truncate">{initialOf(name)} · {subInfo ?? ""}</div>
-      </div>
-    </>
+      )}
+      {earnings != null && (
+        <div className="text-center text-[9px] font-extrabold text-[#A87D45] mt-[1px] truncate">
+          {fmtMoney(earnings)}{count != null && ` · ${count}건`}
+        </div>
+      )}
+    </div>
   )
 
   const baseClass = cn(
@@ -179,4 +184,20 @@ function TappableCard({
       {children}
     </button>
   )
+}
+
+/**
+ * R-working-detail (2026-06-25): 일하는 식구 카드의 상세 라인 포맷.
+ *   "라이브 · 셔츠 · 23분"  /  "마블 · 퍼블릭 · 곧 종료"
+ */
+function formatWorkingDetail(d: { storeName?: string | null; category?: string | null; remainingMinutes?: number | null }): string {
+  const parts: string[] = []
+  if (d.storeName) parts.push(d.storeName)
+  if (d.category) parts.push(d.category)
+  if (typeof d.remainingMinutes === "number") {
+    if (d.remainingMinutes <= 0) parts.push("종료")
+    else if (d.remainingMinutes <= 10) parts.push(`⏰ ${d.remainingMinutes}분`)
+    else parts.push(`${d.remainingMinutes}분`)
+  }
+  return parts.join(" · ")
 }
