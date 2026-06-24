@@ -6,6 +6,7 @@ import { StatusCells } from "../_components/StatusCells"
 import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
+import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
 import { useMe, useHostesses, useChatRooms, useRooms, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
@@ -44,6 +45,10 @@ export default function HomePage() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [pendingIds, setPendingIds] = useState<string[]>([])
   const [pendingNames, setPendingNames] = useState<string[]>([])
+
+  // 일하는 식구 탭 시 연장/종료 시트
+  const [extendOpen, setExtendOpen] = useState(false)
+  const [extendTarget, setExtendTarget] = useState<HostessPreview | null>(null)
 
   // 채팅 미리보기 (최대 4개)
   //   2026-06-25 R-chat-collapse: 접기 = 매장 전체 (type=global) 채팅 1개만 표시.
@@ -284,8 +289,12 @@ export default function HomePage() {
                       if (n.size === 0) setSelectMode(false)
                       return n
                     })
+                  } else if (h.is_working && h.working_participant_id && h.working_session_id) {
+                    // 일하는 식구 → 연장/종료 시트
+                    setExtendTarget(h)
+                    setExtendOpen(true)
                   } else {
-                    // 단일 클릭 — 1명 시트
+                    // 대기 식구 → 배정 시트
                     setPendingIds([h.membership_id])
                     setPendingNames([h.hostess_name])
                     setSheetOpen(true)
@@ -367,6 +376,23 @@ export default function HomePage() {
         hostessIds={pendingIds}
         hostessNames={pendingNames}
       />
+
+      {extendTarget && extendTarget.working_participant_id && extendTarget.working_session_id && (
+        <ExtendEndSheet
+          open={extendOpen}
+          onClose={() => {
+            setExtendOpen(false)
+            setExtendTarget(null)
+          }}
+          membershipId={extendTarget.membership_id}
+          hostessName={extendTarget.hostess_name}
+          participantId={extendTarget.working_participant_id}
+          sessionId={extendTarget.working_session_id}
+          category={extendTarget.working_category ?? null}
+          storeName={extendTarget.working_store_name ?? null}
+          remainingMinutes={remainingMinutesOf(extendTarget)}
+        />
+      )}
 
       <TabBar
         chatUnread={(chats.data?.rooms ?? []).some((c) => c.unread_count > 0)}

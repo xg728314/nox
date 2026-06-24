@@ -22,6 +22,9 @@ export type HostessPreview = {
   working_time_minutes: number | null
   /** entered_at — 남은 시간 계산용 (end_at = entered_at + time_minutes) */
   working_entered_at: string | null
+  /** R-extend-end (2026-06-25): 일하는 식구의 현재 participant + session ID — 연장/종료 액션용 */
+  working_participant_id: string | null
+  working_session_id: string | null
 }
 
 /** R-사전등록 (2026-06-08): 아직 NOX 가입 안 된 사전등록 row. */
@@ -168,17 +171,21 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     category: string | null
     time_minutes: number | null
     entered_at: string | null
+    participant_id: string
+    session_id: string
   }
   const workingMap = new Map<string, WorkInfo>()
   const workingStoreUuids = new Set<string>()
   {
     const { data: parts } = await supabase
       .from("session_participants")
-      .select("membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status)")
+      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status)")
       .in("membership_id", hostessIds)
       .eq("status", "active")
       .is("deleted_at", null)
     type PartRow = {
+      id: string
+      session_id: string
       membership_id: string
       store_uuid: string
       category: string | null
@@ -194,6 +201,8 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
           category: p.category,
           time_minutes: p.time_minutes,
           entered_at: p.entered_at,
+          participant_id: p.id,
+          session_id: p.session_id,
         })
         workingStoreUuids.add(p.store_uuid)
       }
@@ -249,6 +258,8 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
         working_category: workInfo?.category ?? null,
         working_time_minutes: workInfo?.time_minutes ?? null,
         working_entered_at: workInfo?.entered_at ?? null,
+        working_participant_id: workInfo?.participant_id ?? null,
+        working_session_id: workInfo?.session_id ?? null,
       }
     }),
     pre_registrations: preRegistrations,

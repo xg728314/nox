@@ -39,6 +39,9 @@ export type HostessPreview = {
   working_category?: string | null
   working_time_minutes?: number | null
   working_entered_at?: string | null
+  /** R-extend-end (2026-06-25): 연장/종료 시트용 식별자 */
+  working_participant_id?: string | null
+  working_session_id?: string | null
 }
 /** 사전등록 row (가입 대기) */
 export type PreRegistrationPreview = {
