@@ -18,6 +18,32 @@ type ApiState<T> = {
 const CACHE = new Map<string, { ts: number; data: unknown }>()
 const TTL_MS = 5000
 
+// R-realtime-invalidate (2026-06-25): mount 된 컴포넌트가 invalidate 신호를
+//   받고 즉시 re-fetch 하도록 pub/sub. 이전엔 캐시만 비우고 통지 안 해서
+//   다음 mount 까지 stale state 유지 → 화면 새로고침 필요했음.
+const SUBSCRIBERS = new Map<string, Set<() => void>>()
+function subscribe(url: string, cb: () => void): () => void {
+  let set = SUBSCRIBERS.get(url)
+  if (!set) {
+    set = new Set()
+    SUBSCRIBERS.set(url, set)
+  }
+  set.add(cb)
+  return () => {
+    set!.delete(cb)
+    if (set!.size === 0) SUBSCRIBERS.delete(url)
+  }
+}
+function notifyMatching(urlPrefix: string | undefined) {
+  if (!urlPrefix) {
+    for (const set of SUBSCRIBERS.values()) set.forEach((cb) => cb())
+    return
+  }
+  for (const [url, set] of SUBSCRIBERS) {
+    if (url.startsWith(urlPrefix)) set.forEach((cb) => cb())
+  }
+}
+
 export function useApi<T>(
   url: string | null,
   opts: { ttl?: number; init?: RequestInit } = {},
@@ -67,10 +93,16 @@ export function useApi<T>(
   useEffect(() => {
     aliveRef.current = true
     fetcher()
+    const unsub = url
+      ? subscribe(url, () => {
+          if (aliveRef.current) fetcher()
+        })
+      : null
     return () => {
       aliveRef.current = false
+      unsub?.()
     }
-  }, [fetcher])
+  }, [fetcher, url])
 
   const refresh = useCallback(async () => {
     if (url) CACHE.delete(url)
@@ -80,13 +112,15 @@ export function useApi<T>(
   return { ...state, refresh }
 }
 
-/** 캐시 비우기 (mutation 후 호출) */
+/** 캐시 비우기 + mount 된 컴포넌트 즉시 re-fetch (mutation 후 호출) */
 export function invalidateApi(urlPrefix?: string) {
   if (!urlPrefix) {
     CACHE.clear()
+    notifyMatching(undefined)
     return
   }
   for (const k of CACHE.keys()) {
     if (k.startsWith(urlPrefix)) CACHE.delete(k)
   }
+  notifyMatching(urlPrefix)
 }
