@@ -8,7 +8,7 @@ import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
-import { useMe, useHostesses, useChatRooms, useRooms, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
@@ -31,6 +31,16 @@ export default function HomePage() {
   const hostesses = useHostesses()
   const chats = useChatRooms()
   const rooms = useRooms()
+  const attendance = useAttendance()
+
+  // 출근 membership_id 집합 (status='present' 이거나 명시적 'absent' 아닌 것)
+  const attendedSet = useMemo(() => {
+    const s = new Set<string>()
+    for (const a of attendance.data?.attendance ?? []) {
+      if (a.status === "present") s.add(a.membership_id)
+    }
+    return s
+  }, [attendance.data])
 
   const [chatCollapsed, setChatCollapsed] = useState(false)
   const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "total" | null>(null)
@@ -257,6 +267,12 @@ export default function HomePage() {
             </Link>
           )}
         </div>
+        {activeFilter === "total" && (
+          <div className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1.5 mb-2 leading-snug">
+            👉 카드를 탭하면 출근/결근 토글 — 출근 {attendedSet.size}명 / 총 {stats.total}명
+            <br />· 일하는 중인 식구는 자동 출근으로 처리됨 (탭으로 결근 불가, 먼저 세션 종료)
+          </div>
+        )}
         {hostesses.isLoading && <SkelGrid />}
         {hostesses.error && <ErrLine msg="식구 목록을 불러올 수 없습니다" />}
         {hostesses.data && filteredHostesses.length === 0 && (
@@ -272,8 +288,16 @@ export default function HomePage() {
                 membershipId={h.membership_id}
                 name={h.hostess_name}
                 isMyStore
-                storeLabel={me.data?.store_name ?? undefined}
-                status={h.is_working ? "working" : "waiting"}
+                storeLabel={
+                  activeFilter === "total"
+                    ? (h.is_working ? "출근" : attendedSet.has(h.membership_id) ? "출근" : "결근")
+                    : me.data?.store_name ?? undefined
+                }
+                status={
+                  activeFilter === "total"
+                    ? (h.is_working || attendedSet.has(h.membership_id) ? "working" : "off")
+                    : (h.is_working ? "working" : "waiting")
+                }
                 workingDetail={h.is_working ? {
                   storeName: h.working_store_name,
                   category: h.working_category,
@@ -282,7 +306,7 @@ export default function HomePage() {
                   timeMinutes: h.working_time_minutes,
                 } : undefined}
                 selected={selectMode && selectedIds.has(h.membership_id)}
-                onTap={() => {
+                onTap={async () => {
                   if (selectMode) {
                     // 토글
                     setSelectedIds((prev) => {
@@ -292,6 +316,26 @@ export default function HomePage() {
                       if (n.size === 0) setSelectMode(false)
                       return n
                     })
+                  } else if (activeFilter === "total") {
+                    // 출근 모드 — 카드 탭으로 출근/결근 토글
+                    //   일하는 중인 식구는 toggle 금지 (먼저 종료 후 결근)
+                    if (h.is_working) {
+                      return
+                    }
+                    const isAttended = attendedSet.has(h.membership_id)
+                    try {
+                      const res = await apiFetch("/api/attendance", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          membership_id: h.membership_id,
+                          action: isAttended ? "checkout" : "checkin",
+                        }),
+                      })
+                      if (res.ok) {
+                        invalidateApi("/api/attendance")
+                      }
+                    } catch { /* swallow */ }
                   } else if (h.is_working && h.working_participant_id && h.working_session_id) {
                     // 일하는 식구 → 연장/종료 시트
                     setExtendTarget(h)
