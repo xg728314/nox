@@ -246,6 +246,7 @@ export async function getManagerSettlementSummary(
         tc_amount: null,
         manager_amount: null,
         hostess_amount: null,
+        tc_count: 0,
       })),
     }
   }
