@@ -7,6 +7,7 @@ import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
+import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
 import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
@@ -62,6 +63,9 @@ export default function HomePage() {
   // 일하는 식구 탭 시 연장/종료 시트
   const [extendOpen, setExtendOpen] = useState(false)
   const [extendTarget, setExtendTarget] = useState<HostessPreview | null>(null)
+
+  // 외부 식구 추가 시트
+  const [externalAddOpen, setExternalAddOpen] = useState(false)
 
   // 채팅 미리보기 (최대 4개)
   //   2026-06-25 R-chat-collapse: 접기 = 매장 전체 (type=global) 채팅 1개만 표시.
@@ -372,9 +376,18 @@ export default function HomePage() {
             <div className="text-[13px] font-extrabold">
               🔄 우리 매장 외부 식구 {totalCount}명
             </div>
-            <Link href="/m/settle" className="text-[11px] font-bold text-[#A87D45] no-underline">
-              정산보기 →
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setExternalAddOpen(true)}
+                className="text-[10px] font-extrabold bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white rounded-full px-2.5 py-1"
+              >
+                + 추가
+              </button>
+              <Link href="/m/settle" className="text-[11px] font-bold text-[#A87D45] no-underline">
+                정산보기 →
+              </Link>
+            </div>
           </div>
           <div className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1.5 mb-2 leading-snug">
             타매장 식구가 우리 매장에서 일하면 여기 표시. 줄돈 = 원소속 매장 정산액.
@@ -601,6 +614,11 @@ export default function HomePage() {
           startedAt={extendTarget.working_entered_at ?? null}
         />
       )}
+
+      <ExternalStaffAddSheet
+        open={externalAddOpen}
+        onClose={() => setExternalAddOpen(false)}
+      />
 
       <TabBar
         chatUnread={(chats.data?.rooms ?? []).some((c) => c.unread_count > 0)}

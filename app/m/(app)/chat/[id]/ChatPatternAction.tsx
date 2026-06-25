@@ -145,6 +145,7 @@ export function ChatPatternAction({
 
   // 3. 서버 임시 등록 상태 조회 (3초 polling — 채팅 polling 과 별도)
   const fetchDispatches = useCallback(async () => {
+    if (!chatMessageId) return // guard — 400 방지
     try {
       const res = await apiFetch(`/api/chat/pattern-dispatch?chat_message_id=${encodeURIComponent(chatMessageId)}`)
       if (!res.ok) return
@@ -218,6 +219,30 @@ export function ChatPatternAction({
     }
   }
 
+  // 6. 수신측 매니저 — 임시 등록 취소 (잘못 기재 인지)
+  async function rejectOne(dispatchId: string) {
+    if (submitting) return
+    setSubmitting(true)
+    haptic([10, 30, 10])
+    try {
+      const res = await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(dispatchId)}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "이름/매장 잘못 기재 — 재등록 필요" }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string; dispatches?: ServerDispatch[] }
+      if (!res.ok || !j.ok) {
+        throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
+      }
+      setServerDispatches(j.dispatches ?? [])
+      toast("취소됨 — 발신자 재등록 가능", "info")
+    } catch (e) {
+      toast(`취소 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   // 카드는 store/cat/time 인식되면 항상 표시
   if (resolvedEntries.length === 0) return null
 
@@ -279,16 +304,27 @@ export function ChatPatternAction({
                 </div>
               </div>
               <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${badgeCls}`}>{badge}</span>
-              {/* 수신측 확인 버튼 — pending + 본 매장 target + 아직 미확인 */}
+              {/* 수신측 확인/취소 버튼 — pending + 본 매장 target + 아직 미확인 */}
               {isMyTarget && matchedDispatch && !dConfirmed && dStatus === "pending" && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => confirmOne(matchedDispatch.id)}
-                  className="text-[9px] font-extrabold bg-[#C49B61] text-white px-2 py-1 rounded-full disabled:opacity-40"
-                >
-                  ✓ 확인
-                </button>
+                <>
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => confirmOne(matchedDispatch.id)}
+                    className="text-[9px] font-extrabold bg-[#C49B61] text-white px-2 py-1 rounded-full disabled:opacity-40"
+                  >
+                    ✓ 확인
+                  </button>
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => rejectOne(matchedDispatch.id)}
+                    className="text-[9px] font-extrabold bg-red-50 text-red-700 border border-red-300 px-2 py-1 rounded-full disabled:opacity-40"
+                    title="잘못 기재 — 취소"
+                  >
+                    ✕
+                  </button>
+                </>
               )}
             </div>
           )
