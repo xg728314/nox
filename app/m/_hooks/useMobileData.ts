@@ -147,6 +147,11 @@ export function useChatRooms() {
 }
 
 /** 정산 요약 — 서버 응답 형태에 맞춤 (lib/server/queries/manager/settlementSummary.ts) */
+export type SettlementStoreBreakdown = {
+  store_uuid: string
+  store_name: string
+  count: number
+}
 export type SettlementSummaryRow = {
   hostess_id: string
   hostess_name: string
@@ -158,6 +163,10 @@ export type SettlementSummaryRow = {
   hostess_amount: number | null
   /** R-settle-display (2026-06-24): 세션 카운트 — 백엔드 추가 후 채워짐. */
   tc_count?: number
+  /** R-settle-breakdown (2026-06-26): 매장별 타임 카운트 */
+  store_breakdown?: SettlementStoreBreakdown[]
+  /** R-deduction-default (2026-06-26): 1타임당 실장수익 기본값 */
+  default_manager_deduction?: number
 }
 export type SettlementSummary = {
   store_uuid: string

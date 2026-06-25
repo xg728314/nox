@@ -286,8 +286,13 @@ export default function HomePage() {
           </div>
         )}
         {hostesses.data && filteredHostesses.length > 0 && (
-          <div className="grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5">
-            {filteredHostesses.slice(0, 12).map((h) => (
+          <div
+            className={cn(
+              "grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5",
+              activeFilter && "max-h-[60vh] overflow-y-auto pr-1 -mr-1 pb-2",
+            )}
+          >
+            {(activeFilter ? filteredHostesses : filteredHostesses.slice(0, 12)).map((h) => (
               <StaffCard
                 key={h.membership_id}
                 membershipId={h.membership_id}

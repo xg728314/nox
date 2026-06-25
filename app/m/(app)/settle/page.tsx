@@ -57,6 +57,12 @@ export default function SettlePage() {
   const count = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.tc_count ?? 0), 0)
   const byHostess = withSettlement
 
+  // R-settle-truth (2026-06-26): "내 장부" = 실장이 가져가는 금액 합계 (manager_amount).
+  //   이전엔 +34만 하드코딩으로 실데이터와 무관했음. 정산값 오차의 주범.
+  const myProfit = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
+  // 식구 지급 합계 (총 지급 의무)
+  const totalHostessPayout = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+
   async function verifyAndReset() {
     const pw = password.trim()
     if (!pw || verifying) return
@@ -178,21 +184,23 @@ export default function SettlePage() {
           </div>
         </div>
 
-        {/* 내 장부 — 어제 / 이번 주 */}
+        {/* 내 장부 — 오늘 실데이터 (manager_amount 합계) */}
         <div className="bg-gradient-to-br from-[#2D2B26] to-[#1a1813] rounded-3xl p-5 mb-4 text-white shadow-lg relative overflow-hidden">
           <div className="absolute -top-10 -right-10 w-36 h-36 bg-[#C49B61]/25 rounded-full blur-2xl pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between mb-1.5">
               <div className="text-[10px] font-extrabold text-[#E4C99A] uppercase tracking-widest">📒 내 장부</div>
-              <div className="text-[9px] font-bold text-white/50">실장 본인 순수익</div>
+              <div className="text-[9px] font-bold text-white/50">오늘 실장 순수익</div>
             </div>
             <div className="flex items-baseline gap-1 mb-4">
-              <span className="text-[38px] font-extrabold tracking-tighter text-[#E4C99A]">+34</span>
+              <span className="text-[38px] font-extrabold tracking-tighter text-[#E4C99A]">
+                +{fmtMoney(myProfit, { unit: false })}
+              </span>
               <span className="text-[16px] text-white/70 font-bold">만원</span>
             </div>
             <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/15">
-              <Card v="+29만" l="어제" />
-              <Card v="+280만" l="이번 주" />
+              <Card v={fmtMoneyWon(total)} l="오늘 매출" />
+              <Card v={fmtMoneyWon(totalHostessPayout)} l="식구 지급" />
             </div>
           </div>
         </div>
@@ -218,24 +226,57 @@ export default function SettlePage() {
         )}
         {byHostess.length > 0 && (
           <div className="bg-white rounded-2xl overflow-hidden border border-[#D8D2C8]/60">
-            {byHostess.map((h, i) => (
-              <div
-                key={h.hostess_id}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3",
-                  i > 0 && "border-t border-[#D8D2C8]/40",
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-extrabold tracking-tight">{h.hostess_name}</div>
-                  <div className="text-[10px] font-semibold text-[#7A746A]">{h.tc_count ?? 0}건 메이드</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[14px] font-extrabold tracking-tight">{fmtMoneyWon(h.gross_total ?? 0)}</div>
-                  <div className="text-[9px] font-semibold text-[#A87D45]">지급 {fmtMoney(h.hostess_amount ?? 0)}</div>
-                </div>
+            {byHostess.map((h, i) => {
+              const breakdown = h.store_breakdown ?? []
+              const breakdownText = breakdown
+                .map((b) => `${b.store_name} ${b.count}`)
+                .join(" · ")
+              const gross = h.gross_total ?? 0
+              const payout = h.hostess_amount ?? 0
+              const sameAmount = gross === payout
+              return (
+                <Link
+                  key={h.hostess_id}
+                  href={`/m/staff/${encodeURIComponent(h.hostess_id)}`}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 no-underline active:bg-[#FAF5EC] transition-colors",
+                    i > 0 && "border-t border-[#D8D2C8]/40",
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
+                      {h.hostess_name}
+                      <span className="text-[10px] font-bold text-[#A87D45] ml-1.5">
+                        {h.tc_count ?? 0}타임
+                      </span>
+                    </div>
+                    {breakdownText && (
+                      <div className="text-[10px] font-semibold text-[#7A746A] truncate mt-0.5">
+                        {breakdownText}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">
+                      {fmtMoneyWon(gross)}
+                    </div>
+                    {sameAmount ? (
+                      <div className="text-[9px] font-semibold text-[#7A746A]">공제 0원</div>
+                    ) : (
+                      <div className="text-[9px] font-extrabold text-[#A87D45]">
+                        지급 {(payout / 10000).toFixed(payout % 10000 === 0 ? 0 : 1)}만원
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              )
+            })}
+            <div className="px-4 py-3 bg-[#FAF5EC] border-t-2 border-[#C49B61]/30 flex items-center justify-between">
+              <div className="text-[11px] font-extrabold text-[#2D2B26]">총 지급해야 할 금액</div>
+              <div className="text-[15px] font-extrabold text-[#A87D45]">
+                {fmtMoneyWon(totalHostessPayout)}
               </div>
-            ))}
+            </div>
           </div>
         )}
 

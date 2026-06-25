@@ -2,6 +2,11 @@ import type { AuthContext } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 
+export type StoreBreakdownItem = {
+  store_uuid: string
+  store_name: string
+  count: number
+}
 export type SummaryRow = {
   hostess_id: string
   hostess_name: string
@@ -13,6 +18,10 @@ export type SummaryRow = {
   hostess_amount: number | null
   /** R-settle-display (2026-06-24): 세션 카운트 — UI 의 "건수" 표시용 */
   tc_count: number
+  /** R-settle-breakdown (2026-06-26): 어느 매장에서 몇 타임 일했는지 */
+  store_breakdown: StoreBreakdownItem[]
+  /** R-deduction-default (2026-06-26): 1타임당 실장수익 기본값 (UI 표시용) */
+  default_manager_deduction: number
 }
 
 export type ManagerSettlementSummaryResponse = {
@@ -203,6 +212,12 @@ export async function getManagerSettlementSummary(
     .eq("store_uuid", auth.store_uuid)
     .in("membership_id", hostessIds)
 
+  // R-settle-breakdown (2026-06-26): 식구별 default_manager_deduction 매핑.
+  const membershipsP = supabase
+    .from("store_memberships")
+    .select("id, default_manager_deduction")
+    .in("id", hostessIds)
+
   // R-cross-store-settlement (2026-06-25): 본 매장 세션 + 본 매장 식구가
   //   타 매장에서 일한 cross-store 참여 둘 다 합산.
   //   CLAUDE.md "정산은 무조건 origin_store_uuid 기준" — 식구가 어디서 일하든
@@ -227,9 +242,10 @@ export async function getManagerSettlementSummary(
     .in("membership_id", hostessIds)
     .is("deleted_at", null)
 
-  const [hstsRes, participationsRes] = await Promise.all([
+  const [hstsRes, participationsRes, membershipsRes] = await Promise.all([
     hstsP,
     participationsP,
+    membershipsP,
   ])
   console.log(JSON.stringify({
     tag: "perf.settlement.summary.phase.derive",
@@ -239,6 +255,28 @@ export async function getManagerSettlementSummary(
   const nameMap = new Map<string, string>()
   for (const h of (hstsRes.data ?? []) as { membership_id: string; name: string }[]) {
     nameMap.set(h.membership_id, h.name)
+  }
+
+  // R-settle-breakdown (2026-06-26): default_manager_deduction 맵
+  const deductionMap = new Map<string, number>()
+  for (const m of (membershipsRes.data ?? []) as { id: string; default_manager_deduction: number | null }[]) {
+    deductionMap.set(m.id, Number(m.default_manager_deduction ?? 0))
+  }
+
+  // R-settle-breakdown (2026-06-26): 매장 이름 매핑 (store_breakdown 표시용)
+  const allStoreUuids = new Set<string>()
+  for (const raw of (participationsRes.data ?? []) as { store_uuid: string }[]) {
+    allStoreUuids.add(raw.store_uuid)
+  }
+  let storeNameMap = new Map<string, string>()
+  if (allStoreUuids.size > 0) {
+    const { data: storeRows } = await supabase
+      .from("stores")
+      .select("id, name")
+      .in("id", Array.from(allStoreUuids))
+    for (const s of (storeRows ?? []) as { id: string; name: string }[]) {
+      storeNameMap.set(s.id, s.name)
+    }
   }
 
   // R-per-participant-agg: 본 매장 세션 0 이어도 cross-store 참여가 있을 수
@@ -270,6 +308,8 @@ export async function getManagerSettlementSummary(
         manager_amount: null,
         hostess_amount: null,
         tc_count: 0,
+        store_breakdown: [],
+        default_manager_deduction: deductionMap.get(hostessId) ?? 0,
       }
     }
 
@@ -279,6 +319,7 @@ export async function getManagerSettlementSummary(
     const seenSessions = new Set<string>()
     let finalizedCount = 0
     let draftCount = 0
+    const storeCounts = new Map<string, number>()
 
     for (const p of parts) {
       totalGross += Number(p.price_amount ?? 0)
@@ -288,6 +329,7 @@ export async function getManagerSettlementSummary(
       const receipt = receiptMap.get(p.session_id)
       if (receipt?.status === "finalized") finalizedCount++
       else if (receipt?.status === "draft") draftCount++
+      storeCounts.set(p.store_uuid, (storeCounts.get(p.store_uuid) ?? 0) + 1)
     }
 
     const hasSettlement = parts.length > 0
@@ -295,6 +337,14 @@ export async function getManagerSettlementSummary(
     if (finalizedCount > 0 && draftCount === 0) aggregateStatus = "finalized"
     else if (draftCount > 0 || finalizedCount > 0) aggregateStatus = "draft"
     else aggregateStatus = "active" // 아직 receipt 없음 — 진행 중
+
+    const breakdown: StoreBreakdownItem[] = Array.from(storeCounts.entries())
+      .map(([uuid, count]) => ({
+        store_uuid: uuid,
+        store_name: storeNameMap.get(uuid) ?? "—",
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
 
     return {
       hostess_id: hostessId,
@@ -306,6 +356,8 @@ export async function getManagerSettlementSummary(
       manager_amount: hasSettlement ? totalManager : null,
       hostess_amount: hasSettlement ? totalHostess : null,
       tc_count: seenSessions.size,
+      store_breakdown: breakdown,
+      default_manager_deduction: deductionMap.get(hostessId) ?? 0,
     }
   })
 
