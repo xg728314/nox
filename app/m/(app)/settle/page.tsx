@@ -377,6 +377,19 @@ function IncomingStaffSection({
   grandPrice: number
   grandHostess: number
 }) {
+  // R-incoming-collapse (2026-06-26): 매장별 접기/펼치기 — 기본 접힘.
+  //   전부 펼치면 화면 길어져 매장간 비교 불편.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  function toggle(key: string) {
+    setExpanded((prev) => {
+      const n = new Set(prev)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+  }
+
   if (isLoading) {
     return (
       <div className="mt-6 mb-2">
@@ -387,6 +400,8 @@ function IncomingStaffSection({
   }
   if (groups.length === 0) return null
 
+  const allExpanded = groups.length > 0 && expanded.size === groups.length
+
   return (
     <div className="mt-6 mb-2">
       <div className="flex items-baseline justify-between mb-2">
@@ -395,64 +410,96 @@ function IncomingStaffSection({
           총 매출 {fmtMoneyWon(grandPrice)} · <span className="text-red-700">줄돈 {fmtMoneyWon(grandHostess)}</span>
         </div>
       </div>
-      <div className="text-[10px] font-semibold text-[#7A746A] mb-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 leading-snug">
-        본 매장에서 일하는 타매장 식구는 줄돈 (= 매출의 식구 몫) 을 원소속 매장에 정산해야 합니다.
-        매니저별로 분리 표시 — 매장간 정산 오차 확인용.
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] font-semibold text-[#7A746A] bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 leading-snug flex-1 mr-2">
+          본 매장에서 일하는 타매장 식구는 줄돈을 원소속 매장에 정산해야 합니다.
+          <br />매장 카드를 탭하면 세부내역이 펼쳐집니다.
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (allExpanded) setExpanded(new Set())
+            else {
+              const all = new Set<string>()
+              groups.forEach((g, idx) => all.add(`${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`))
+              setExpanded(all)
+            }
+          }}
+          className="shrink-0 text-[10px] font-extrabold border border-[#D8D2C8] rounded-full px-2.5 py-1.5 text-[#7A746A] bg-white"
+        >
+          {allExpanded ? "▴ 전부 접기" : "▾ 전부 펼치기"}
+        </button>
       </div>
       <div className="space-y-2">
-        {groups.map((g, idx) => (
-          <div key={`${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`}
-            className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden"
-          >
-            {/* 그룹 헤더 */}
-            <div className="px-4 py-2.5 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
-                  {g.origin_store_name} <span className="text-[10px] text-[#7A746A] font-bold">· {g.origin_manager_name ?? "미배정"} 실장</span>
-                </div>
-                <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
-                  진행 {g.active_count} / 종료 {g.finished_count}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-[12px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(g.total_price)}</div>
-                <div className="text-[9px] font-bold text-red-700">줄돈 {fmtMoneyWon(g.total_hostess_payout)}</div>
-              </div>
-            </div>
-            {/* 참여자 목록 */}
-            <div className="divide-y divide-[#D8D2C8]/40">
-              {g.participants.map((p) => (
-                <div key={p.participant_id} className="flex items-center justify-between px-4 py-2 gap-2">
-                  <div className="min-w-0 flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "w-1.5 h-1.5 rounded-full shrink-0",
-                        p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
-                      )}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
-                        {p.hostess_name}
-                        <span className="text-[9px] font-bold text-[#A87D45] ml-1.5">
-                          {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
-                        </span>
-                      </div>
-                      <div className="text-[9px] font-semibold text-[#7A746A]">
-                        {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
-                        {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
-                        {p.left_at && ` → ${formatClockTime(p.left_at)}`}
-                      </div>
+        {groups.map((g, idx) => {
+          const key = `${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`
+          const isOpen = expanded.has(key)
+          return (
+            <div key={key} className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden">
+              {/* 그룹 헤더 — 클릭 시 토글 */}
+              <button
+                type="button"
+                onClick={() => toggle(key)}
+                className="w-full px-4 py-2.5 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-between gap-2 text-left active:bg-[#F0E8D8]"
+              >
+                <div className="min-w-0 flex items-center gap-2">
+                  <span className={cn(
+                    "text-[12px] font-extrabold text-[#A87D45] transition-transform",
+                    isOpen && "rotate-90",
+                  )}>
+                    ▸
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
+                      {g.origin_store_name} <span className="text-[10px] text-[#7A746A] font-bold">· {g.origin_manager_name ?? "미배정"} 실장</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                      진행 {g.active_count} / 종료 {g.finished_count} · 총 {g.participants.length}타임
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[11px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(p.price_amount)}</div>
-                    <div className="text-[9px] font-bold text-red-700">줄 {fmtMoney(p.hostess_payout_amount)}</div>
-                  </div>
                 </div>
-              ))}
+                <div className="text-right shrink-0">
+                  <div className="text-[12px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(g.total_price)}</div>
+                  <div className="text-[9px] font-bold text-red-700">줄돈 {fmtMoneyWon(g.total_hostess_payout)}</div>
+                </div>
+              </button>
+              {/* 참여자 목록 — expanded 시만 */}
+              {isOpen && (
+                <div className="divide-y divide-[#D8D2C8]/40">
+                  {g.participants.map((p) => (
+                    <div key={p.participant_id} className="flex items-center justify-between px-4 py-2 gap-2">
+                      <div className="min-w-0 flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
+                          )}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
+                            {p.hostess_name}
+                            <span className="text-[9px] font-bold text-[#A87D45] ml-1.5">
+                              {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
+                            </span>
+                          </div>
+                          <div className="text-[9px] font-semibold text-[#7A746A]">
+                            {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
+                            {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
+                            {p.left_at && ` → ${formatClockTime(p.left_at)}`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-[11px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(p.price_amount)}</div>
+                        <div className="text-[9px] font-bold text-red-700">줄 {fmtMoney(p.hostess_payout_amount)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
