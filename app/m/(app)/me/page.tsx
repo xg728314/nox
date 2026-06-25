@@ -65,7 +65,7 @@ export default function MePage() {
 
         <Group title="계정 보안">
           <Row
-            href="/security"
+            href="/me/security"
             label={`MFA ${data?.mfa_enabled ? "활성" : "비활성"}`}
             icon="🔐"
             badge={data?.mfa_enabled ? "ON" : "OFF"}

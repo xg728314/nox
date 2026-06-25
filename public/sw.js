@@ -26,7 +26,20 @@ self.addEventListener("install", (event) => {
 })
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim())
+  // R-sw-purge (2026-06-26): 활성 시 모든 cache 삭제. 사용자 브라우저에 캐시된
+  //   옛 SW 의 staleWhileRevalidate 가 Response body 재사용 → "clone on Response"
+  //   TypeError 폭발 (콘솔 54+9건). 이번 SW 가 install 되면 옛 캐시 정리.
+  event.waitUntil(
+    (async () => {
+      try {
+        const keys = await self.caches.keys()
+        await Promise.all(keys.map((k) => self.caches.delete(k)))
+      } catch (e) {
+        // best-effort
+      }
+      await self.clients.claim()
+    })(),
+  )
 })
 
 // fetch handler 미등록 — 모든 요청 network 통과.
