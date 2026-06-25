@@ -228,7 +228,7 @@ function MessageBubble({ msg, myStoreUuid, patternEnabled }: { msg: ChatMessage;
         {/* R-chat-pattern (2026-06-25): 메시지 자동 파싱 → 확인 버튼.
             운영자가 토글한 채팅방 (pattern_enabled=true) 에서만 렌더. */}
         {patternEnabled && (
-          <ChatPatternAction content={msg.content} myStoreUuid={myStoreUuid} />
+          <ChatPatternAction content={msg.content} chatMessageId={msg.id} myStoreUuid={myStoreUuid} />
         )}
         <div className={cn("text-[9px] text-[#7A746A] mt-0.5", isMine ? "text-right" : "text-left", "px-1")}>
           {fmtHM(msg.created_at)}

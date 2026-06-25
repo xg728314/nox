@@ -1,24 +1,25 @@
 "use client"
-import { useMemo, useState } from "react"
-import { parseStaffChat } from "@/app/counter/helpers/staffChatParser"
+import { useEffect, useMemo, useState, useCallback } from "react"
+import { parseStaffChat, type ParsedStaffEntry } from "@/app/counter/helpers/staffChatParser"
 import { apiFetch } from "@/lib/apiFetch"
 import { useBuildingHostesses, useBuildingStores } from "../../../_hooks/useMobileData"
 import { useToast, haptic } from "../../../_components/Toast"
 
 /**
- * R-chat-pattern (2026-06-25): 채팅 메시지 자동 파싱 → "✓ 확인" 버튼.
+ * R-chat-pattern-mutual (2026-06-26): 채팅 메시지 자동 파싱 → 임시 등록 +
+ *   다자간 교차 확인 시스템.
  *
- *   메시지 예: "택헌 희주 버닝 지수 퍼 완메"
- *     → parseStaffChat → entries:
- *         { name: "택헌", store: null, category: "퍼블릭", ticket_type: "완티" }
- *         { name: "희주", store: "버닝", category: "퍼블릭", ticket_type: "완티" }
- *         { name: "지수", store: "버닝", category: "퍼블릭", ticket_type: "완티" }
- *     → store / category / ticket 모두 식별되고 hostess 1+ 매칭되면 버튼 노출
- *     → 클릭 시 /api/cross-store/dispatch (target_store + hostesses + category +
- *        time_type)
+ * 흐름:
+ *   1. 메시지 \"버 지수 신 지연 파 은비 하 완메\" → parseStaffChat → 3 entries
+ *      (각각 다른 origin_store_name)
+ *   2. 발신자 \"✓ 확인 (3개 매장 임시 등록)\" → POST /api/chat/pattern-dispatch
+ *      → chat_pattern_dispatches 에 3 row 생성 (status=pending)
+ *   3. 각 target 매장 매니저는 자기 row 의 \"확인\" 버튼 클릭 →
+ *      target_confirmed_by/at 채움
+ *   4. 모든 row 확인 완료 시 자동 실제 dispatch (session + participant 생성)
+ *   5. 카드 \"임시 등록 X/N 확인됨\" → \"✓ 모두 확인 — 배정 완료\"
  *
- *   초성 지원: 1글자 한글 초성 (ㅍㅎㅅ 등) → 매칭. 명단 hostess.name 의 첫 글자
- *     초성과 일치하면 후보.
+ * 카드 단일/멀티 store 처리 동일.
  */
 
 type Cat = "퍼블릭" | "셔츠" | "하퍼"
@@ -29,16 +30,13 @@ const CAT_FROM_LABEL: Record<string, Cat> = {
   셔츠: "셔츠",
   하퍼: "하퍼",
 }
-
-// 완티 = 기본 / 반티 / 차3 / 반차3 매핑
 const TIME_FROM_TICKET: Record<string, TimeKey> = {
   완티: "기본",
   반티: "반티",
   차3: "차3",
-  반차3: "반티", // 반차3 은 반티 시간 + 차3 추가 — 기본은 반티로 처리
+  반차3: "반티",
 }
 
-/** 1글자 한글 → 초성 (ㄱㄴㄷ...). 안 매칭이면 빈 문자열. */
 function getInitial(char: string): string {
   const cp = char.charCodeAt(0)
   if (cp < 0xac00 || cp > 0xd7a3) return char
@@ -47,66 +45,79 @@ function getInitial(char: string): string {
   return initials[idx] ?? char
 }
 
+type ServerDispatch = {
+  id: string
+  target_store_uuid: string
+  hostess_membership_id: string
+  category: string
+  time_type: string
+  status: string
+  target_confirmed_by: string | null
+  target_confirmed_at?: string | null
+  executed_session_id?: string | null
+}
+
 export function ChatPatternAction({
   content,
+  chatMessageId,
   myStoreUuid,
 }: {
   content: string
+  chatMessageId: string
   myStoreUuid: string | null
 }) {
   const buildingH = useBuildingHostesses()
   const buildingS = useBuildingStores()
   const toast = useToast()
   const [submitting, setSubmitting] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
+  const [serverDispatches, setServerDispatches] = useState<ServerDispatch[]>([])
 
+  // 1. parseStaffChat 으로 entries 추출
   const parsed = useMemo(() => {
-    try {
-      const r = parseStaffChat(content, null)
-      // entries 중 하나라도 (이름 + store + category + ticket) 모두 있으면 OK
-      const ok = r.entries.filter((e) => e.name && e.origin_store_name && e.category && e.ticket_type)
-      return { ok, raw: r }
-    } catch {
-      return { ok: [], raw: { entries: [], warnings: [] } }
-    }
+    try { return parseStaffChat(content, null) } catch { return { entries: [], warnings: [] } }
   }, [content])
 
-  const resolved = useMemo(() => {
-    if (parsed.ok.length === 0) return null
+  // entries 중 (이름, store, category, ticket) 모두 있는 것만
+  const validEntries = useMemo(
+    () => parsed.entries.filter((e) => e.name && e.origin_store_name && e.category && e.ticket_type),
+    [parsed.entries],
+  )
+
+  // 2. 각 entry → resolve target_store_uuid + hostess_membership_id + cat + time
+  type ResolvedEntry = {
+    target_store_uuid: string
+    target_store_name: string
+    hostess_membership_id: string | null
+    hostess_name: string
+    category: Cat
+    time_type: TimeKey
+    origin_label: string
+    unmatched?: string
+  }
+  const resolvedEntries = useMemo<ResolvedEntry[]>(() => {
+    if (validEntries.length === 0) return []
     const allHostesses = buildingH.data?.hostesses ?? []
     const allStores = buildingS.data?.stores ?? []
-    // 첫 entry 의 store / category / ticket 으로 그룹 (line-wide invariant)
-    const e0 = parsed.ok[0]
-    const store = allStores.find((s) => s.store_name === e0.origin_store_name)
-    const cat = CAT_FROM_LABEL[e0.category!] ?? null
-    const time = TIME_FROM_TICKET[e0.ticket_type!] ?? null
-    if (!store || !cat || !time) return null
+    const out: ResolvedEntry[] = []
+    for (const e of validEntries) {
+      // validEntries 필터에서 모두 non-null 보장됨
+      if (!e.origin_store_name || !e.category || !e.ticket_type || !e.name) continue
+      const store = allStores.find((s) => s.store_name === e.origin_store_name)
+      const cat = CAT_FROM_LABEL[e.category] as Cat | undefined
+      const time = TIME_FROM_TICKET[e.ticket_type] as TimeKey | undefined
+      if (!store || !cat || !time) continue
+      const eName = e.name
 
-    // 이름 매칭 — 정확 일치 → prefix → contains → 1글자 초성 순.
-    // 후보 1명일 때만 채택 (애매하면 미매칭 분류).
-    //
-    // 본 매장 식구 우선 → 못 찾으면 target store (origin_store) 식구 우선
-    // → 그래도 못 찾으면 전체에서 검색.
-    const matchedIds: string[] = []
-    const matchedNames: string[] = []
-    const unmatched: string[] = []
-    for (const ent of parsed.ok) {
-      const nm = ent.name.trim()
-      if (!nm) continue
-      const inStore = allHostesses.filter((h) => h.store_uuid === store.store_uuid)
-
-      // 매칭 시도 ladder
-      const candidatesIn = (pool: typeof allHostesses): typeof allHostesses => {
-        // 1. 정확 일치
+      // 이름 매칭 (target store → 본 매장 → 전체)
+      const candidates = (pool: typeof allHostesses): typeof allHostesses => {
+        const nm = eName.trim()
+        if (!nm) return []
         const exact = pool.filter((h) => (h.hostess_name ?? "").trim() === nm)
         if (exact.length === 1) return exact
-        // 2. prefix (이름이 입력으로 시작) — \"지수\" → \"지수01\"
         const prefix = pool.filter((h) => (h.hostess_name ?? "").startsWith(nm))
         if (prefix.length === 1) return prefix
-        // 3. contains
         const contains = pool.filter((h) => (h.hostess_name ?? "").includes(nm))
         if (contains.length === 1) return contains
-        // 4. 1글자 초성 매칭 (입력 1글자일 때만)
         if (nm.length === 1) {
           const target = getInitial(nm)
           const ini = pool.filter((h) => getInitial((h.hostess_name ?? "").charAt(0)) === target)
@@ -114,113 +125,196 @@ export function ChatPatternAction({
         }
         return []
       }
+      let found = candidates(allHostesses.filter((h) => h.store_uuid === store.store_uuid))[0]
+      if (!found) found = candidates(allHostesses.filter((h) => h.store_uuid === myStoreUuid))[0]
+      if (!found) found = candidates(allHostesses)[0]
 
-      // 우선순위: target store 안 → 본 매장 → 건물 전체
-      let found = candidatesIn(inStore)[0]
-      if (!found) {
-        const inMyStore = allHostesses.filter((h) => h.store_uuid === myStoreUuid)
-        found = candidatesIn(inMyStore)[0]
-      }
-      if (!found) found = candidatesIn(allHostesses)[0]
-
-      if (found) {
-        matchedIds.push(found.membership_id)
-        matchedNames.push(found.hostess_name)
-      } else {
-        unmatched.push(nm)
-      }
+      out.push({
+        target_store_uuid: store.store_uuid,
+        target_store_name: store.store_name,
+        hostess_membership_id: found?.membership_id ?? null,
+        hostess_name: found?.hostess_name ?? eName,
+        category: cat,
+        time_type: time,
+        origin_label: `${store.store_name} · ${cat} · ${time === "기본" ? "완티" : time}`,
+        unmatched: found ? undefined : eName,
+      })
     }
+    return out
+  }, [validEntries, buildingH.data, buildingS.data, myStoreUuid])
 
-    return {
-      store,
-      cat,
-      time,
-      matchedIds,
-      matchedNames,
-      unmatched,
+  // 3. 서버 임시 등록 상태 조회 (3초 polling — 채팅 polling 과 별도)
+  const fetchDispatches = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/chat/pattern-dispatch?chat_message_id=${encodeURIComponent(chatMessageId)}`)
+      if (!res.ok) return
+      const j = (await res.json()) as { dispatches?: ServerDispatch[] }
+      setServerDispatches(j.dispatches ?? [])
+    } catch { /* swallow */ }
+  }, [chatMessageId])
+  useEffect(() => {
+    fetchDispatches()
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") fetchDispatches()
+    }, 4000)
+    return () => clearInterval(id)
+  }, [fetchDispatches])
+
+  // 4. 발신자 — \"확인\" 클릭 → 임시 등록 생성
+  async function createPending() {
+    if (submitting || resolvedEntries.length === 0) return
+    const matched = resolvedEntries.filter((e) => e.hostess_membership_id)
+    if (matched.length === 0) {
+      toast("매칭된 식구 없음", "error")
+      return
     }
-  }, [parsed.ok, buildingH.data, buildingS.data])
-
-  // 카드는 store + cat + time 이 인식되면 항상 표시. 매칭 0명이어도 사용자에게
-  // \"인식은 됐는데 식구 못 찾음\" 정보 제공 → \"왜 안 떠?\" 혼란 방지.
-  if (!resolved) return null
-
-  async function confirm() {
-    if (!resolved || submitting || confirmed) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
-      const sameStore = resolved.store.store_uuid === myStoreUuid
-      // 본 매장이든 타 매장이든 dispatch endpoint 가 단일 처리 (server side 동일 분기 X)
-      const res = await apiFetch("/api/cross-store/dispatch", {
+      const res = await apiFetch("/api/chat/pattern-dispatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          target_store_uuid: resolved.store.store_uuid,
-          hostess_membership_ids: resolved.matchedIds,
-          category: resolved.cat,
-          time_type: resolved.time,
+          chat_message_id: chatMessageId,
+          entries: matched.map((e) => ({
+            target_store_uuid: e.target_store_uuid,
+            hostess_membership_id: e.hostess_membership_id,
+            category: e.category,
+            time_type: e.time_type,
+          })),
         }),
       })
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        message?: string
-        error?: string
-        participants_created?: number
-        errors?: string[]
-      }
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string; dispatches?: ServerDispatch[]; already?: boolean }
       if (!res.ok || !j.ok) {
         throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
       }
-      const created = j.participants_created ?? 0
-      const tag = sameStore ? "본 매장" : resolved.store.store_name
-      if (created === 0) {
-        throw new Error(j.errors?.[0] ?? "참여자 등록 실패 (이유 불명)")
-      }
-      toast(`${created}명 → ${tag} 배정 완료`, "success")
-      setConfirmed(true)
+      setServerDispatches(j.dispatches ?? [])
+      toast(j.already ? "이미 등록됨" : `임시 등록 ${(j.dispatches ?? []).length}건 — 상대 매장 확인 대기`, "success")
     } catch (e) {
-      toast(`배정 실패: ${(e as Error).message}`, "error")
+      toast(`등록 실패: ${(e as Error).message}`, "error")
     } finally {
       setSubmitting(false)
     }
   }
 
-  const ticketLabel = resolved.time === "기본" ? "완티" : resolved.time
+  // 5. 수신측 매니저 — 자기 store 의 dispatch 확인
+  async function confirmOne(dispatchId: string) {
+    if (submitting) return
+    setSubmitting(true)
+    haptic([10, 30, 10])
+    try {
+      const res = await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(dispatchId)}/confirm`, { method: "POST" })
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string; all_confirmed?: boolean; executed?: boolean; dispatches?: ServerDispatch[] }
+      if (!res.ok || !j.ok) {
+        throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
+      }
+      setServerDispatches(j.dispatches ?? [])
+      if (j.executed) toast("모든 확인 완료 — 배정 실행됨", "success")
+      else toast("확인됨 (대기 중)", "success")
+    } catch (e) {
+      toast(`확인 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // 카드는 store/cat/time 인식되면 항상 표시
+  if (resolvedEntries.length === 0) return null
+
+  const isPending = serverDispatches.length > 0
+  const confirmedCount = serverDispatches.filter((d) => d.target_confirmed_by != null).length
+  const approvedAll = serverDispatches.length > 0 && serverDispatches.every((d) => d.status === "approved")
 
   return (
     <div className="mt-1 rounded-xl border-2 border-[#C49B61]/40 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] p-2.5">
       <div className="text-[10px] font-extrabold text-[#A87D45] mb-1.5">
-        🎯 자동 인식 — {resolved.store.store_name} · {resolved.cat} · {ticketLabel}
-      </div>
-      <div className="text-[11px] font-bold text-[#2D2B26] leading-snug mb-2">
-        {resolved.matchedNames.length > 0 && (
-          <span>👉 {resolved.matchedNames.join(", ")}</span>
-        )}
-        {resolved.unmatched.length > 0 && (
-          <span className="text-red-700"> · 미매칭: {resolved.unmatched.join(", ")}</span>
+        🎯 자동 인식 — {resolvedEntries.length}건
+        {isPending && (
+          <span className={`ml-2 ${approvedAll ? "text-green-700" : "text-red-700"}`}>
+            · {approvedAll ? "✓ 모두 확인됨" : `확인 ${confirmedCount}/${serverDispatches.length}`}
+          </span>
         )}
       </div>
-      <button
-        type="button"
-        disabled={submitting || confirmed || resolved.matchedIds.length === 0}
-        onClick={confirm}
-        className={`w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 ${
-          confirmed
-            ? "bg-green-500/20 text-green-700 border border-green-300"
-            : resolved.matchedIds.length === 0
-              ? "bg-[#EFEBE3] text-[#7A746A] border border-[#D8D2C8]"
-              : "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
-        }`}
-      >
-        {confirmed
-          ? "✓ 배정 완료"
-          : submitting
-            ? "배정 중..."
-            : resolved.matchedIds.length === 0
-              ? "⚠ 매칭된 식구 없음 — 이름 확인"
-              : `✓ 확인 (${resolved.matchedIds.length}명 배정)`}
-      </button>
+      {/* entry 목록 — 매장별 상태 */}
+      <div className="space-y-1 mb-2">
+        {resolvedEntries.map((e, idx) => {
+          const matchedDispatch = serverDispatches.find(
+            (d) => d.target_store_uuid === e.target_store_uuid && d.hostess_membership_id === e.hostess_membership_id,
+          )
+          const isMyTarget = e.target_store_uuid === myStoreUuid
+          const dStatus = matchedDispatch?.status ?? null
+          const dConfirmed = matchedDispatch?.target_confirmed_by != null
+
+          let badge: string
+          let badgeCls: string
+          if (e.unmatched) {
+            badge = "미매칭"
+            badgeCls = "bg-red-100 text-red-700"
+          } else if (dStatus === "approved") {
+            badge = "✓ 배정"
+            badgeCls = "bg-green-100 text-green-700"
+          } else if (dStatus === "rejected") {
+            badge = "✗ 거절"
+            badgeCls = "bg-red-100 text-red-700"
+          } else if (dConfirmed) {
+            badge = "✓ 확인"
+            badgeCls = "bg-blue-100 text-blue-700"
+          } else if (isPending) {
+            badge = "대기"
+            badgeCls = "bg-amber-100 text-amber-800"
+          } else {
+            badge = "—"
+            badgeCls = "bg-[#EFEBE3] text-[#7A746A]"
+          }
+
+          return (
+            <div key={idx} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg px-2 py-1.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-extrabold text-[#2D2B26] truncate">
+                  {e.target_store_name} <span className="text-[#7A746A] font-bold">·</span> {e.hostess_name}
+                  {e.unmatched && <span className="text-red-700 ml-1">({e.unmatched})</span>}
+                </div>
+                <div className="text-[9px] font-bold text-[#7A746A]">
+                  {e.category} · {e.time_type === "기본" ? "완티" : e.time_type}
+                </div>
+              </div>
+              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${badgeCls}`}>{badge}</span>
+              {/* 수신측 확인 버튼 — pending + 본 매장 target + 아직 미확인 */}
+              {isMyTarget && matchedDispatch && !dConfirmed && dStatus === "pending" && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => confirmOne(matchedDispatch.id)}
+                  className="text-[9px] font-extrabold bg-[#C49B61] text-white px-2 py-1 rounded-full disabled:opacity-40"
+                >
+                  ✓ 확인
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {/* 발신자 — 아직 임시 등록 안 만들었으면 \"임시 등록\" 버튼 */}
+      {!isPending && (
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={createPending}
+          className="w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
+        >
+          {submitting ? "등록 중..." : `📝 임시 등록 (${resolvedEntries.filter((e) => !e.unmatched).length}건)`}
+        </button>
+      )}
+      {isPending && approvedAll && (
+        <div className="w-full rounded-xl py-2 text-center text-[12px] font-extrabold bg-green-500/20 text-green-700 border border-green-300">
+          ✓ 모든 확인 완료 — 배정 실행됨
+        </div>
+      )}
+      {isPending && !approvedAll && (
+        <div className="text-center text-[10px] font-bold text-[#7A746A]">
+          상대 매장 매니저 확인 대기 중 — {confirmedCount}/{serverDispatches.length}
+        </div>
+      )}
     </div>
   )
 }
