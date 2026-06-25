@@ -362,22 +362,33 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* 🔄 외부 식구 — 타매장 식구가 본 매장에서 일하고 있는 내역 */}
-      {incoming.data && incoming.data.groups.length > 0 && (
+      {/* 🔄 외부 식구 — 타매장 식구가 본 매장에서 일하고 있는 내역 (항상 표시) */}
+      {(() => {
+        const groups = incoming.data?.groups ?? []
+        const totalCount = groups.reduce((a, g) => a + g.participants.length, 0)
+        return (
         <section className="px-5 mb-4">
           <div className="flex items-baseline justify-between mb-2">
             <div className="text-[13px] font-extrabold">
-              🔄 우리 매장 외부 식구 {incoming.data.groups.reduce((a, g) => a + g.participants.length, 0)}명
+              🔄 우리 매장 외부 식구 {totalCount}명
             </div>
             <Link href="/m/settle" className="text-[11px] font-bold text-[#A87D45] no-underline">
               정산보기 →
             </Link>
           </div>
           <div className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1.5 mb-2 leading-snug">
-            타매장 식구가 우리 매장에서 일하고 있음. 줄돈 = 원소속 매장에 정산해야 할 금액.
+            타매장 식구가 우리 매장에서 일하면 여기 표시. 줄돈 = 원소속 매장 정산액.
           </div>
+          {groups.length === 0 && (
+            <div className="bg-white border border-[#D8D2C8]/60 rounded-2xl px-4 py-6 text-center">
+              <div className="text-[14px] font-extrabold text-[#7A746A]">— 외부 식구 없음 —</div>
+              <div className="text-[10px] font-semibold text-[#7A746A] mt-1">
+                채팅에서 다른 매장 실장이 식구 보내면 자동 표시됩니다
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
-            {incoming.data.groups.map((g) => (
+            {groups.map((g) => (
               <div
                 key={`${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}`}
                 className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden"
@@ -432,7 +443,8 @@ export default function HomePage() {
             ))}
           </div>
         </section>
-      )}
+        )
+      })()}
 
       <div className="flex-1" />
 
