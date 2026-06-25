@@ -8,7 +8,7 @@ import { StaffCard } from "../_components/StaffCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
-import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
@@ -32,6 +32,7 @@ export default function HomePage() {
   const chats = useChatRooms()
   const rooms = useRooms()
   const attendance = useAttendance()
+  const incoming = useIncomingStaff()
 
   // 출근 membership_id 집합 (status='present' 이거나 명시적 'absent' 아닌 것)
   const attendedSet = useMemo(() => {
@@ -360,6 +361,78 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      {/* 🔄 외부 식구 — 타매장 식구가 본 매장에서 일하고 있는 내역 */}
+      {incoming.data && incoming.data.groups.length > 0 && (
+        <section className="px-5 mb-4">
+          <div className="flex items-baseline justify-between mb-2">
+            <div className="text-[13px] font-extrabold">
+              🔄 우리 매장 외부 식구 {incoming.data.groups.reduce((a, g) => a + g.participants.length, 0)}명
+            </div>
+            <Link href="/m/settle" className="text-[11px] font-bold text-[#A87D45] no-underline">
+              정산보기 →
+            </Link>
+          </div>
+          <div className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1.5 mb-2 leading-snug">
+            타매장 식구가 우리 매장에서 일하고 있음. 줄돈 = 원소속 매장에 정산해야 할 금액.
+          </div>
+          <div className="space-y-2">
+            {incoming.data.groups.map((g) => (
+              <div
+                key={`${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}`}
+                className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden"
+              >
+                <div className="px-3 py-2 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-extrabold tracking-tight text-[#2D2B26]">
+                      {g.origin_store_name}
+                      <span className="text-[9px] text-[#7A746A] font-bold ml-1.5">
+                        · {g.origin_manager_name ?? "미배정"} 실장
+                      </span>
+                    </div>
+                    <div className="text-[9px] font-bold text-[#7A746A] mt-0.5">
+                      진행 {g.active_count} / 종료 {g.finished_count}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] font-bold text-red-700">
+                      줄돈 {(g.total_hostess_payout / 10000).toFixed(0)}만
+                    </div>
+                  </div>
+                </div>
+                <div className="divide-y divide-[#D8D2C8]/40">
+                  {g.participants.slice(0, 6).map((p) => (
+                    <div key={p.participant_id} className="flex items-center justify-between px-3 py-1.5 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
+                          )}
+                        />
+                        <div className="text-[11px] font-extrabold text-[#2D2B26] truncate">
+                          {p.hostess_name}
+                          <span className="text-[9px] font-bold text-[#A87D45] ml-1">
+                            {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-[9px] font-bold text-red-700 shrink-0">
+                        {(p.hostess_payout_amount / 10000).toFixed(0)}만
+                      </div>
+                    </div>
+                  ))}
+                  {g.participants.length > 6 && (
+                    <div className="text-center text-[9px] font-bold text-[#7A746A] py-1">
+                      외 {g.participants.length - 6}명
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="flex-1" />
 
