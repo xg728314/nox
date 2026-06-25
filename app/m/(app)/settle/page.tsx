@@ -33,6 +33,35 @@ export default function SettlePage() {
   const [resetAt, setResetAt] = useState<Date | null>(null)
   // R-staff-payout (2026-06-26): 스태프 row 클릭 → 정산/보관/팁 시트
   const [payoutTarget, setPayoutTarget] = useState<{ id: string; name: string } | null>(null)
+  // R-quick-payout (2026-06-26): row 우측 [✓완료] [📦보관] 빠른 액션
+  //   - 누르면 즉시 PATCH 호출, 시트 안 띄움.
+  //   - 로컬 state 로 처리 표시 (서버 응답 후 invalidate).
+  const [quickBusy, setQuickBusy] = useState<string | null>(null)
+  const [quickStatus, setQuickStatus] = useState<Map<string, "paid" | "held">>(new Map())
+
+  async function quickPayout(hostessId: string, status: "paid" | "held") {
+    if (quickBusy) return
+    setQuickBusy(hostessId)
+    haptic([10, 20, 10])
+    try {
+      const res = await apiFetch(`/api/manager/staff-payout/${encodeURIComponent(hostessId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.message ?? `HTTP ${res.status}`)
+      }
+      setQuickStatus((m) => { const n = new Map(m); n.set(hostessId, status); return n })
+      toast(status === "paid" ? "✓ 정산완료" : "📦 보관 처리", "success")
+      invalidateApi("/api/manager/settlement/summary")
+    } catch (e) {
+      toast(`처리 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setQuickBusy(null)
+    }
+  }
 
   // localStorage 에서 초기화 시각 로드 + 만료 (7일) 자동 정리
   useEffect(() => {
@@ -239,42 +268,100 @@ export default function SettlePage() {
               const gross = h.gross_total ?? 0
               const payout = h.hostess_amount ?? 0
               const sameAmount = gross === payout
+              const qs = quickStatus.get(h.hostess_id)
+              const isPaid = qs === "paid"
+              const isHeld = qs === "held"
+              const busy = quickBusy === h.hostess_id
               return (
-                <button
-                  type="button"
+                <div
                   key={h.hostess_id}
-                  onClick={() => setPayoutTarget({ id: h.hostess_id, name: h.hostess_name })}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 text-left active:bg-[#FAF5EC] transition-colors",
+                    "px-4 py-3",
                     i > 0 && "border-t border-[#D8D2C8]/40",
+                    isPaid && "bg-green-50/60",
+                    isHeld && "bg-amber-50/60",
                   )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
-                      {h.hostess_name}
-                      <span className="text-[10px] font-bold text-[#A87D45] ml-1.5">
-                        {h.tc_count ?? 0}타임
-                      </span>
-                    </div>
-                    {breakdownText && (
-                      <div className="text-[10px] font-semibold text-[#7A746A] truncate mt-0.5">
-                        {breakdownText}
+                  {/* 상단 영역 — 클릭 시 상세 시트 */}
+                  <button
+                    type="button"
+                    onClick={() => setPayoutTarget({ id: h.hostess_id, name: h.hostess_name })}
+                    className="w-full flex items-center gap-3 text-left active:opacity-60 transition-opacity"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26] flex items-center gap-1.5 flex-wrap">
+                        <span>{h.hostess_name}</span>
+                        <span className="text-[10px] font-bold text-[#A87D45]">
+                          {h.tc_count ?? 0}타임
+                        </span>
+                        {isPaid && (
+                          <span className="text-[9px] font-extrabold text-green-700 bg-green-200/70 px-1.5 py-0.5 rounded-full border border-green-300">
+                            ✓ 정산완료
+                          </span>
+                        )}
+                        {isHeld && (
+                          <span className="text-[9px] font-extrabold text-amber-700 bg-amber-200/70 px-1.5 py-0.5 rounded-full border border-amber-300">
+                            📦 보관
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">
-                      {fmtMoneyWon(gross)}
+                      {breakdownText && (
+                        <div className="text-[10px] font-semibold text-[#7A746A] truncate mt-0.5">
+                          {breakdownText}
+                        </div>
+                      )}
                     </div>
-                    {sameAmount ? (
-                      <div className="text-[9px] font-semibold text-[#7A746A]">공제 0원</div>
-                    ) : (
-                      <div className="text-[9px] font-extrabold text-[#A87D45]">
-                        지급 {(payout / 10000).toFixed(payout % 10000 === 0 ? 0 : 1)}만원
+                    <div className="text-right shrink-0">
+                      <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">
+                        {fmtMoneyWon(gross)}
                       </div>
-                    )}
+                      {sameAmount ? (
+                        <div className="text-[9px] font-semibold text-[#7A746A]">공제 0원</div>
+                      ) : (
+                        <div className="text-[9px] font-extrabold text-[#A87D45]">
+                          지급 {(payout / 10000).toFixed(payout % 10000 === 0 ? 0 : 1)}만원
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                  {/* 빠른 액션 버튼 — 즉시 PATCH */}
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); quickPayout(h.hostess_id, "paid") }}
+                      className={cn(
+                        "flex-1 rounded-lg py-1.5 text-[11px] font-extrabold border-2 transition-all disabled:opacity-40",
+                        isPaid
+                          ? "bg-green-100 border-green-400 text-green-700"
+                          : "bg-white border-green-300 text-green-700 active:bg-green-50",
+                      )}
+                    >
+                      {busy && !isPaid ? "..." : isPaid ? "✓ 정산완료 (해제하려면 상세)" : "✓ 정산완료"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); quickPayout(h.hostess_id, "held") }}
+                      className={cn(
+                        "flex-1 rounded-lg py-1.5 text-[11px] font-extrabold border-2 transition-all disabled:opacity-40",
+                        isHeld
+                          ? "bg-amber-100 border-amber-400 text-amber-700"
+                          : "bg-white border-amber-300 text-amber-700 active:bg-amber-50",
+                      )}
+                    >
+                      {busy && !isHeld ? "..." : isHeld ? "📦 보관됨" : "📦 보관"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setPayoutTarget({ id: h.hostess_id, name: h.hostess_name }) }}
+                      className="rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold border-2 border-[#D8D2C8] text-[#7A746A] bg-white active:bg-[#FAF5EC]"
+                      title="팁 / 메모 / 상세 입력"
+                    >
+                      💸
+                    </button>
                   </div>
-                </button>
+                </div>
               )
             })}
             <div className="px-4 py-3 bg-[#FAF5EC] border-t-2 border-[#C49B61]/30 flex items-center justify-between">
