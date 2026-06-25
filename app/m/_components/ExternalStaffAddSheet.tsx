@@ -56,9 +56,12 @@ export function ExternalStaffAddSheet({ open, onClose }: { open: boolean; onClos
   const searchResults = useMemo(() => {
     const nm = q.trim().toLowerCase()
     if (!nm) return []
+    // R-null-guard (2026-06-26): me.data.store_uuid 미확정 시 빈 결과 — 잘못된 매장
+    //   비교로 본 매장 식구가 외부로 노출되는 사고 방지.
+    const myStore = me.data?.store_uuid
+    if (!myStore) return []
     const all = buildingH.data?.hostesses ?? []
-    // 본 매장 식구 제외 — 외부 식구만 검색
-    const external = all.filter((h) => h.store_uuid !== me.data?.store_uuid)
+    const external = all.filter((h) => h.store_uuid !== myStore)
     return external
       .filter((h) => (h.hostess_name ?? "").toLowerCase().includes(nm))
       .slice(0, 20)

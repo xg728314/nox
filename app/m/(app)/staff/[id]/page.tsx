@@ -192,23 +192,23 @@ export default function StaffDetailPage() {
               )}
             </Section>
 
-            {/* 정산 상태 */}
-            <Section title="정산 상태">
-              <div className="px-4 py-3 flex items-center justify-between">
-                <span className="text-[12px] font-bold text-[#7A746A]">상태</span>
-                {totalCount === 0 ? (
-                  <span className="text-[12px] font-extrabold text-[#7A746A]">— (활동 없음)</span>
-                ) : finalized ? (
-                  <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">
-                    ✓ 정산 완료
-                  </span>
-                ) : (
-                  <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300">
-                    ⏳ 진행 중 / 미확정
-                  </span>
-                )}
-              </div>
-            </Section>
+            {/* 정산 상태 — 활동 있을 때만 의미 있음 */}
+            {totalCount > 0 && (
+              <Section title="정산 상태">
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-[12px] font-bold text-[#7A746A]">상태</span>
+                  {finalized ? (
+                    <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">
+                      ✓ 정산 완료
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300">
+                      ⏳ 진행 중 / 미확정
+                    </span>
+                  )}
+                </div>
+              </Section>
+            )}
 
             {/* 1타임당 실장수익 */}
             <Section title="1타임당 실장수익 (지급 공제)">

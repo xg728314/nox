@@ -17,6 +17,8 @@ type ChatMessage = {
   sender_name: string | null
   content: string
   created_at: string
+  /** R-mine-flag (2026-06-26): 서버가 계산한 본인 여부 — sender_name 부재로 본인 판단하던 버그 제거 */
+  is_mine?: boolean
 }
 
 export default function ChatRoomPage() {
@@ -96,9 +98,11 @@ export default function ChatRoomPage() {
       }
     }
     fetchMessages(true)
+    // R-chat-polling-relief (2026-06-26): 3초 → 5초. 100명 동시 × 3초 = 33 QPS 였음.
+    //   5초로 → 20 QPS. 메시지 전송 즉시는 setMessages 로 local 반영하므로 UX 동일.
     const id = setInterval(() => {
       if (document.visibilityState === "visible") fetchMessages(false)
-    }, 3000)
+    }, 5000)
     const onVisible = () => {
       if (document.visibilityState === "visible") fetchMessages(false)
     }
@@ -169,6 +173,7 @@ export default function ChatRoomPage() {
             <MessageBubble
               key={m.id}
               msg={m}
+              myMembershipId={me.data?.membership_id ?? null}
               myStoreUuid={me.data?.store_uuid ?? null}
               patternEnabled={patternEnabled}
             />
@@ -208,10 +213,11 @@ export default function ChatRoomPage() {
   )
 }
 
-function MessageBubble({ msg, myStoreUuid, patternEnabled }: { msg: ChatMessage; myStoreUuid: string | null; patternEnabled: boolean }) {
-  // sender_membership_id 가 본인이면 우측 정렬 — 본인 판단은 me 와 비교 필요하나
-  //   여기서는 sender_name 가 없으면 본인으로 처리 (보낸 직후)
-  const isMine = !msg.sender_name
+function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { msg: ChatMessage; myMembershipId: string | null; myStoreUuid: string | null; patternEnabled: boolean }) {
+  // R-mine-flag-fix (2026-06-26): 본인 판단을 sender_name 부재가 아닌 명시적 비교로.
+  //   이전: 다른 매장 sender 의 nameMap lookup 실패 시 sender_name=null → "본인" 으로 오판.
+  //   현재: 서버 is_mine flag 우선, 없으면 sender_membership_id 비교.
+  const isMine = msg.is_mine === true || (myMembershipId != null && msg.sender_membership_id === myMembershipId)
   return (
     <div className={cn("flex", isMine ? "justify-end" : "justify-start")}>
       <div className="max-w-[78%]">

@@ -219,7 +219,9 @@ export type IncomingStaffResponse = {
   grand_total_manager_payout: number
 }
 export function useIncomingStaff() {
-  return useApi<IncomingStaffResponse>("/api/manager/incoming-staff", { ttl: 5000 })
+  // R-load-relief (2026-06-26): 5초 → 15초. 정산완료 토글 / 종료는 invalidateApi 로
+  //   즉시 갱신되므로 polling 으로 자주 fetch 필요 없음. 100명 동시 접속 시 부하 1/3.
+  return useApi<IncomingStaffResponse>("/api/manager/incoming-staff", { ttl: 15000 })
 }
 
 /** 출근 상태 */

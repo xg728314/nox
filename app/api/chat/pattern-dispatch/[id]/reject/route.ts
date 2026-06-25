@@ -44,7 +44,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const nowIso = new Date().toISOString()
-    const { error: updErr } = await supabase
+    // R-reject-batch (2026-06-26): 같은 chat_message 의 모든 pending row 일괄 reject.
+    //   이전: 단일 row 만 update → 다른 매장 row 가 "대기 중" 으로 남아 혼란.
+    //   의도: 잘못 기재면 전체 무효 → 발신자가 새로 등록.
+    const { data: rejectedRows, error: updErr } = await supabase
       .from("chat_pattern_dispatches")
       .update({
         status: "rejected",
@@ -53,20 +56,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         target_confirmed_at: nowIso,
         updated_at: nowIso,
       })
-      .eq("id", id)
+      .eq("chat_message_id", r.chat_message_id)
       .eq("status", "pending")
+      .is("deleted_at", null)
+      .select("id")
     if (updErr) {
       return NextResponse.json({ error: "UPDATE_FAILED", message: updErr.message }, { status: 500 })
     }
 
-    // 같은 chat_message 의 다른 row 도 함께 reject (전체 일괄 취소 — 잘못 기재면 전부 무효)
+    // 최신 상태 조회 (UI 즉시 반영)
     const { data: latest } = await supabase
       .from("chat_pattern_dispatches")
       .select("id, target_store_uuid, hostess_membership_id, category, time_type, status, target_confirmed_by")
       .eq("chat_message_id", r.chat_message_id)
       .is("deleted_at", null)
 
-    return NextResponse.json({ ok: true, dispatches: latest ?? [] })
+    return NextResponse.json({
+      ok: true,
+      rejected_count: rejectedRows?.length ?? 0,
+      dispatches: latest ?? [],
+    })
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: e.type, message: e.message }, { status: e.status })

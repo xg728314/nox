@@ -17,14 +17,31 @@ export default function StaffListPage() {
   const all = data?.hostesses ?? []
   // 2026-06-12 R-phantom-immediate: 사전등록도 즉시 정식 식구가 됨 →
   //   pre_registrations 별도 섹션 표시 불필요. all 에 다 포함됨.
+  // 2026-06-26 R-filter-fix: working/waiting 필터 실제 적용 — 이전엔 상태만 저장하고
+  //   필터링 안 했음. is_working 기준. (rest 는 데이터 모델 없음 — UI 만 표시).
+  // 2026-06-26 R-search-fix: 한글은 toLowerCase 무의미하지만 includes 는 작동. 다만
+  //   매장/종목 검색도 지원하도록 search field 확장 (placeholder 가 이미 "이름/매장/종목").
+  const counts = useMemo(() => {
+    let w = 0, wt = 0
+    for (const h of all) { if (h.is_working) w++; else wt++ }
+    return { all: all.length, working: w, waiting: wt, rest: 0 }
+  }, [all])
   const filtered = useMemo(() => {
     let list = all
+    if (filter === "working") list = list.filter((h) => h.is_working)
+    else if (filter === "waiting") list = list.filter((h) => !h.is_working)
+    // rest 는 미구현 — UI 만 표시
     if (q.trim()) {
       const needle = q.trim().toLowerCase()
-      list = list.filter((h) => (h.hostess_name ?? "").toLowerCase().includes(needle))
+      list = list.filter((h) => {
+        const name = (h.hostess_name ?? "").toLowerCase()
+        const cat = (h.working_category ?? "").toLowerCase()
+        const store = (h.working_store_name ?? "").toLowerCase()
+        return name.includes(needle) || cat.includes(needle) || store.includes(needle)
+      })
     }
     return list
-  }, [all, q])
+  }, [all, q, filter])
 
   return (
     <div className="flex flex-col min-h-full">
@@ -55,10 +72,9 @@ export default function StaffListPage() {
         <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
           {(
             [
-              { k: "all", lbl: "전체", n: all.length },
-              { k: "working", lbl: "일하는 중", n: 0 },
-              { k: "waiting", lbl: "대기", n: 0 },
-              { k: "rest", lbl: "휴식", n: 0 },
+              { k: "all", lbl: "전체", n: counts.all },
+              { k: "working", lbl: "일하는 중", n: counts.working },
+              { k: "waiting", lbl: "대기", n: counts.waiting },
             ] as const
           ).map((c) => (
             <button
