@@ -89,12 +89,25 @@ export function ExtendEndSheet({
         }),
       })
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
+        const j = await res.json().catch(() => ({})) as { error?: string; message?: string }
+        // R-extend-stale-fix (2026-06-26): 세션이 이미 종료된 경우 — 보통 자동종료(10분
+        //   초과 cron) 후 클라이언트 캐시가 stale 일 때 발생. 친절 메시지 + 강제 invalidate.
+        if (j?.error === "SESSION_NOT_ACTIVE") {
+          toast("이미 종료된 세션입니다. 화면을 갱신합니다.", "info")
+          invalidateApi("/api/rooms")
+          invalidateApi("/api/manager/hostesses")
+          invalidateApi("/api/manager/incoming-staff")
+          invalidateApi("/api/manager/settlement/summary")
+          onClose()
+          router.refresh()
+          return
+        }
         throw new Error(j?.message ?? `HTTP ${res.status}`)
       }
       toast(`${hostessName} 연장 ${timeType}`, "success")
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/manager/incoming-staff")
       invalidateApi("/api/manager/settlement/summary")
       onClose()
       router.refresh()
