@@ -264,18 +264,20 @@ export async function getManagerSettlementSummary(
   }
 
   // R-settle-breakdown (2026-06-26): 매장 이름 매핑 (store_breakdown 표시용)
+  //   R-store-name-col-fix (2026-06-26): stores 컬럼명은 'store_name' — 'name' 잘못된
+  //   select 로 매장명 — (대시) 표시되던 버그. /api/manager/hostesses/[id]/info 와 동일.
   const allStoreUuids = new Set<string>()
   for (const raw of (participationsRes.data ?? []) as { store_uuid: string }[]) {
     allStoreUuids.add(raw.store_uuid)
   }
-  let storeNameMap = new Map<string, string>()
+  const storeNameMap = new Map<string, string>()
   if (allStoreUuids.size > 0) {
     const { data: storeRows } = await supabase
       .from("stores")
-      .select("id, name")
+      .select("id, store_name")
       .in("id", Array.from(allStoreUuids))
-    for (const s of (storeRows ?? []) as { id: string; name: string }[]) {
-      storeNameMap.set(s.id, s.name)
+    for (const s of (storeRows ?? []) as { id: string; store_name: string }[]) {
+      storeNameMap.set(s.id, s.store_name)
     }
   }
 

@@ -86,10 +86,10 @@ export async function GET(request: Request) {
     if (storeIds.length > 0) {
       const { data: storeRows } = await supabase
         .from("stores")
-        .select("id, name")
+        .select("id, store_name")
         .in("id", storeIds)
-      for (const s of (storeRows ?? []) as Array<{ id: string; name: string }>) {
-        storeNameMap.set(s.id, s.name)
+      for (const s of (storeRows ?? []) as Array<{ id: string; store_name: string }>) {
+        storeNameMap.set(s.id, s.store_name)
       }
     }
 
