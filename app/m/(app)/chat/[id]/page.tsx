@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { PageHeader } from "../../../_components/PageHeader"
+import { TabBar } from "../../../_components/TabBar"
 import { apiFetch } from "@/lib/apiFetch"
 import { useToast } from "../../../_components/Toast"
 import { useMe } from "../../../_hooks/useMobileData"
@@ -201,6 +202,8 @@ export default function ChatRoomPage() {
           ↑
         </button>
       </div>
+
+      <TabBar />
     </div>
   )
 }
