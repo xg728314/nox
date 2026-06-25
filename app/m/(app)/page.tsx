@@ -1,5 +1,6 @@
 "use client"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { TabBar } from "../_components/TabBar"
 import { StatusCells } from "../_components/StatusCells"
@@ -9,7 +10,7 @@ import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
-import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, useBuildingStores, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, useBuildingStores, useActiveRoomChats, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
@@ -35,6 +36,7 @@ export default function HomePage() {
   const attendance = useAttendance()
   const incoming = useIncomingStaff()
   const buildingStores = useBuildingStores()
+  const roomChats = useActiveRoomChats()
 
   // 출근 membership_id 집합 (status='present' 이거나 명시적 'absent' 아닌 것)
   const attendedSet = useMemo(() => {
@@ -245,6 +247,20 @@ export default function HomePage() {
             <div className="text-center text-[11px] text-[#7A746A] py-4">진행 중인 채팅 없음</div>
           )}
         </div>
+
+        {/* R-room-chats (2026-06-26): 방번호별 채팅 — 각 방의 식구 + 외부 식구 + 담당 매니저 */}
+        {!chatCollapsed && (roomChats.data?.rooms?.length ?? 0) > 0 && (
+          <div className="mt-3">
+            <div className="text-[10px] font-bold text-[#7A746A] uppercase tracking-wider mb-1.5 flex items-center gap-1">
+              🚪 방별 채팅 (실시간 활성 룸)
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {(roomChats.data?.rooms ?? []).map((r) => (
+                <RoomChatCard key={r.session_id} room={r} />
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* 오늘 우리 스태프 */}
@@ -695,6 +711,79 @@ function SkelGrid() {
 }
 function ErrLine({ msg }: { msg: string }) {
   return <div className="text-center text-[11px] text-red-600 py-3 font-semibold">{msg}</div>
+}
+
+/**
+ * R-room-chats (2026-06-26): 방별 채팅 카드. 클릭 → /m/chat/{chat_room_id}
+ *   (chat_room_id 없으면 POST 로 자동 생성 후 이동)
+ */
+function RoomChatCard({ room }: { room: import("../_hooks/useMobileData").ActiveRoomChat }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const ext = room.participants.filter((p) => p.is_external)
+  const own = room.participants.filter((p) => !p.is_external)
+  async function open() {
+    if (busy) return
+    if (room.chat_room_id) {
+      router.push(`/m/chat/${encodeURIComponent(room.chat_room_id)}`)
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await apiFetch("/api/chat/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "room_session", session_id: room.session_id }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (res.ok && j?.chat_room_id) {
+        router.push(`/m/chat/${encodeURIComponent(j.chat_room_id)}`)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
+      className="w-full bg-white border border-[#D8D2C8]/60 rounded-xl px-3 py-2 flex items-center gap-2 text-left active:bg-[#FAF5EC] transition-colors disabled:opacity-60"
+    >
+      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-center shrink-0">
+        <span className="text-[10px] font-extrabold text-[#A87D45]">
+          {room.room_no ?? room.room_name.slice(0, 2)}
+        </span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[12px] font-extrabold text-[#2D2B26] truncate flex items-center gap-1">
+          {room.room_name}
+          <span className="text-[9px] text-[#7A746A] font-bold">
+            · {room.participants.length}명
+          </span>
+          {ext.length > 0 && (
+            <span className="text-[9px] font-extrabold text-[#A87D45] bg-[#C49B61]/15 px-1.5 py-0.5 rounded-full">
+              외부 {ext.length}
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] font-semibold text-[#7A746A] truncate mt-0.5">
+          {own.length > 0 && `우리 ${own.map((p) => p.hostess_name).join(", ")}`}
+          {ext.length > 0 && own.length > 0 && " · "}
+          {ext.length > 0 && (
+            <span className="text-[#A87D45]">
+              {ext.map((p) => `${p.origin_store_name ?? "?"} ${p.hostess_name}`).join(", ")}
+            </span>
+          )}
+        </div>
+      </div>
+      {room.unread_count > 0 && (
+        <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-extrabold flex items-center justify-center">
+          {room.unread_count > 99 ? "99+" : room.unread_count}
+        </span>
+      )}
+    </button>
+  )
 }
 
 // 출근중 카운트 placeholder — 실제 attendance API 연동은 next round

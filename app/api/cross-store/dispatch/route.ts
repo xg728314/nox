@@ -37,6 +37,7 @@ import { createServiceClient } from "@/lib/session/createServiceClient"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
+import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
 
 type Cat = "퍼블릭" | "셔츠" | "하퍼"
 type TimeType = "기본" | "반티" | "차3"
@@ -370,6 +371,17 @@ export async function POST(request: Request) {
         errors,
       },
     }).catch(() => { /* best-effort */ })
+
+    // R-room-chat-sync (2026-06-26): 외부 식구 + 본 매장 식구 + 담당 실장을
+    //   방 채팅(room_session) 에 자동 참여. 사용자 요구: "방번호로 분류".
+    //   background fire — 실패해도 dispatch 응답 막지 않음.
+    if (createdCount > 0) {
+      void syncRoomSessionChat(supabase, {
+        session_id: sessionId,
+        store_uuid: target_store_uuid,
+        actor_membership_id: auth.membership_id,
+      }).catch(() => { /* best-effort */ })
+    }
 
     return NextResponse.json({
       ok: true,

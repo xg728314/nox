@@ -224,6 +224,31 @@ export function useIncomingStaff() {
   return useApi<IncomingStaffResponse>("/api/manager/incoming-staff", { ttl: 15000 })
 }
 
+/** R-room-chats (2026-06-26): 본 매장 active 룸 채팅 목록 (방번호별 분리). */
+export type ActiveRoomChatParticipant = {
+  membership_id: string
+  hostess_name: string
+  is_external: boolean
+  origin_store_name: string | null
+}
+export type ActiveRoomChat = {
+  session_id: string
+  room_uuid: string
+  room_name: string
+  room_no: string | null
+  chat_room_id: string | null
+  unread_count: number
+  participants: ActiveRoomChatParticipant[]
+  manager_name: string | null
+  started_at: string | null
+}
+export function useActiveRoomChats() {
+  return useApi<{ business_day_id: string | null; rooms: ActiveRoomChat[] }>(
+    "/api/manager/active-room-chats",
+    { ttl: 10000 },
+  )
+}
+
 /** 출근 상태 */
 export type AttendanceRow = {
   membership_id: string

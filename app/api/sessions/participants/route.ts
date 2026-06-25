@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/session/createServiceClient"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
+import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
 import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { lookupServiceType, lookupCategoryPricing } from "@/lib/session/services/pricingLookup"
@@ -341,6 +342,13 @@ export async function POST(request: Request) {
       // eslint-disable-next-line no-console
       console.warn("[participants] audit write failed:", e instanceof Error ? e.message : e)
     })
+    // R-room-chat-sync (2026-06-26): 신규 식구 + 담당 매니저 자동으로 룸 채팅방 참여.
+    //   본 매장 + 외부 식구 동일 흐름. 사용자 요구: "방번호로 분류 + 스태프 섞이면 안됨".
+    void syncRoomSessionChat(supabase, {
+      session_id,
+      store_uuid: authContext.store_uuid,
+      actor_membership_id: authContext.membership_id,
+    }).catch(() => { /* best-effort */ })
     invalidateCache("monitor")
     // 2026-05-06: room_participants scope 도 invalidate.
     //   기존: 빠짐 → 8s TTL 동안 server cache 가 추가 전 empty 응답 → 클라
