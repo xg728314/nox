@@ -164,6 +164,18 @@ export function ExtendEndSheet({
       })
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string; session_closed?: boolean }
       if (!res.ok || !j.ok) {
+        // R-leave-stale-fix (2026-06-26): 이미 종료된 row — 친절 메시지 + 강제 invalidate.
+        //   클라이언트 cache stale 로 사용자가 종료 버튼 재시도 시 발생.
+        if (j.error === "ALREADY_LEFT") {
+          toast("이미 종료된 스태프입니다. 화면을 갱신합니다.", "info")
+          invalidateApi("/api/rooms")
+          invalidateApi("/api/manager/hostesses")
+          invalidateApi("/api/manager/incoming-staff")
+          invalidateApi("/api/manager/settlement/summary")
+          onClose()
+          router.refresh()
+          return
+        }
         throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
       }
       const tag = finalTimeType ? ` (${finalTimeType === "기본" ? "완티" : finalTimeType})` : ""
