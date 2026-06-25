@@ -9,7 +9,7 @@ import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
 import { fmtDateKo, fmtMoney } from "../_lib/format"
-import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useChatRooms, useRooms, useAttendance, useIncomingStaff, useBuildingStores, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
@@ -34,6 +34,7 @@ export default function HomePage() {
   const rooms = useRooms()
   const attendance = useAttendance()
   const incoming = useIncomingStaff()
+  const buildingStores = useBuildingStores()
 
   // 출근 membership_id 집합 (status='present' 이거나 명시적 'absent' 아닌 것)
   const attendedSet = useMemo(() => {
@@ -119,15 +120,39 @@ export default function HomePage() {
     return { working, waiting, total, endingSoon }
   }, [hostesses.data, remainingMinutesOf])
 
+  // 매장 → 층 매핑 (정렬용)
+  const floorByStore = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of buildingStores.data?.stores ?? []) {
+      if (s.floor != null) m.set(s.store_uuid, s.floor)
+    }
+    return m
+  }, [buildingStores.data])
+
   // 필터 적용된 식구 목록
+  //   R-sort-working (2026-06-26): "일하는 중" 필터 시 정렬 — 곧 끝나는 식구 맨 앞,
+  //   동률이면 working_store 의 층 오름차순 (5→8층).
   const filteredHostesses = useMemo(() => {
     const all = hostesses.data?.hostesses ?? []
     if (!activeFilter) return all
-    if (activeFilter === "working") return all.filter((h) => h.is_working)
+    if (activeFilter === "working") {
+      const filtered = all.filter((h) => h.is_working)
+      return [...filtered].sort((a, b) => {
+        const ra = remainingMinutesOf(a)
+        const rb = remainingMinutesOf(b)
+        // null 은 맨뒤 — 시간 정보 없는 식구는 곧 끝남 예측 불가
+        const ka = ra ?? Number.POSITIVE_INFINITY
+        const kb = rb ?? Number.POSITIVE_INFINITY
+        if (ka !== kb) return ka - kb
+        const fa = a.working_store_uuid ? (floorByStore.get(a.working_store_uuid) ?? 99) : 99
+        const fb = b.working_store_uuid ? (floorByStore.get(b.working_store_uuid) ?? 99) : 99
+        return fa - fb
+      })
+    }
     if (activeFilter === "waiting") return all.filter((h) => !h.is_working)
     if (activeFilter === "total") return all // 총인원 — 전체 (출근 토글 모드)
     return all
-  }, [hostesses.data, activeFilter])
+  }, [hostesses.data, activeFilter, remainingMinutesOf, floorByStore])
 
   return (
     <div className="flex flex-col min-h-full text-[#2D2B26]">
@@ -301,7 +326,8 @@ export default function HomePage() {
                 storeLabel={
                   activeFilter === "total"
                     ? (h.is_working ? "출근" : attendedSet.has(h.membership_id) ? "출근" : "결근")
-                    : me.data?.store_name ?? undefined
+                    : undefined  /* R-no-self-store-label (2026-06-26): 본 매장 식구는
+                                    모두 같은 매장이라 라벨 불필요 — 정보 가림 방지 */
                 }
                 status={
                   activeFilter === "total"

@@ -50,8 +50,16 @@ export function StaffCard({
   onLongPress,
   workingDetail,
 }: StaffCardProps) {
-  const topBg =
-    status === "waiting"
+  // R-urgent-bg (2026-06-26): 임박(≤10분) 시 배경을 빨간 톤으로 — 한눈에 띄도록.
+  //   기존엔 ring 만 빨갰는데 "반짝" 효과가 약했음.
+  const _isUrgentBg =
+    status === "working" &&
+    workingDetail?.remainingMinutes != null &&
+    workingDetail.remainingMinutes > 0 &&
+    workingDetail.remainingMinutes <= 10
+  const topBg = _isUrgentBg
+    ? "bg-gradient-to-br from-red-200 to-red-300"
+    : status === "waiting"
       ? "bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8]"
       : status === "rest"
         ? "bg-gradient-to-br from-[#FEF3C7] to-[#FDE68A]"
