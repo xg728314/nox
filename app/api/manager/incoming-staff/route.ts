@@ -46,6 +46,7 @@ type ParticipantRow = {
   status: string
   entered_at: string | null
   left_at: string | null
+  payout_settled_at: string | null
 }
 
 export async function GET(request: Request) {
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
     // 3. 타매장 origin 참여자 (cross-store incoming)
     const { data: partsRaw } = await supabase
       .from("session_participants")
-      .select("id, session_id, membership_id, store_uuid, origin_store_uuid, category, time_minutes, price_amount, hostess_payout_amount, manager_payout_amount, status, entered_at, left_at")
+      .select("id, session_id, membership_id, store_uuid, origin_store_uuid, category, time_minutes, price_amount, hostess_payout_amount, manager_payout_amount, status, entered_at, left_at, payout_settled_at")
       .eq("store_uuid", auth.store_uuid)
       .in("session_id", sessionIds)
       .not("origin_store_uuid", "is", null)
@@ -163,6 +164,10 @@ export async function GET(request: Request) {
       total_manager_payout: number
       active_count: number
       finished_count: number
+      /** R-cross-payout-settle (2026-06-26): 그룹 정산 상태 */
+      settlement_status: "all_settled" | "partial" | "none"
+      settled_count: number
+      unsettled_count: number
       participants: Array<{
         participant_id: string
         membership_id: string
@@ -177,6 +182,8 @@ export async function GET(request: Request) {
         left_at: string | null
         /** R-extend-end (2026-06-25): 외부 식구 카드 클릭 → ExtendEndSheet 용 */
         session_id: string
+        /** R-cross-payout-settle (2026-06-26): 개별 정산 완료 시점 */
+        payout_settled_at: string | null
       }>
     }
     const groups = new Map<string, Group>() // key = origin_store + ":" + origin_manager
@@ -198,6 +205,9 @@ export async function GET(request: Request) {
           total_manager_payout: 0,
           active_count: 0,
           finished_count: 0,
+          settlement_status: "none",
+          settled_count: 0,
+          unsettled_count: 0,
           participants: [],
         }
         groups.set(key, g)
@@ -210,6 +220,8 @@ export async function GET(request: Request) {
       g.total_manager_payout += mpay
       if (p.status === "active") g.active_count++
       else g.finished_count++
+      if (p.payout_settled_at) g.settled_count++
+      else g.unsettled_count++
       g.participants.push({
         participant_id: p.id,
         membership_id: p.membership_id,
@@ -223,7 +235,14 @@ export async function GET(request: Request) {
         entered_at: p.entered_at,
         left_at: p.left_at,
         session_id: p.session_id,
+        payout_settled_at: p.payout_settled_at,
       })
+    }
+    // settlement_status 계산
+    for (const g of groups.values()) {
+      if (g.settled_count > 0 && g.unsettled_count === 0) g.settlement_status = "all_settled"
+      else if (g.settled_count > 0) g.settlement_status = "partial"
+      else g.settlement_status = "none"
     }
 
     const groupsArr = [...groups.values()].sort((a, b) =>

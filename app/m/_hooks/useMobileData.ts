@@ -192,6 +192,8 @@ export type IncomingStaffParticipant = {
   entered_at: string | null
   left_at: string | null
   session_id?: string
+  /** R-cross-payout-settle (2026-06-26): 개별 정산 시점 */
+  payout_settled_at?: string | null
 }
 export type IncomingStaffGroup = {
   origin_store_uuid: string
@@ -203,6 +205,10 @@ export type IncomingStaffGroup = {
   total_manager_payout: number
   active_count: number
   finished_count: number
+  /** R-cross-payout-settle (2026-06-26): 그룹 정산 상태 */
+  settlement_status?: "all_settled" | "partial" | "none"
+  settled_count?: number
+  unsettled_count?: number
   participants: IncomingStaffParticipant[]
 }
 export type IncomingStaffResponse = {

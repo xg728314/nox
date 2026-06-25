@@ -5,10 +5,12 @@ import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { Sheet } from "../../_components/Sheet"
 import { useToast, haptic } from "../../_components/Toast"
-import { useSettlement, useMe, useIncomingStaff, type IncomingStaffGroup } from "../../_hooks/useMobileData"
+import { useSettlement, useMe, useIncomingStaff, type IncomingStaffGroup, type IncomingStaffParticipant } from "../../_hooks/useMobileData"
 import { fmtMoney, fmtMoneyWon, fmtRelative } from "../../_lib/format"
 import { cn } from "../../_lib/cn"
 import { apiFetch } from "@/lib/apiFetch"
+import { invalidateApi } from "../../_hooks/useApi"
+import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
 
 type Period = "today" | "week"
 
@@ -380,6 +382,11 @@ function IncomingStaffSection({
   // R-incoming-collapse (2026-06-26): 매장별 접기/펼치기 — 기본 접힘.
   //   전부 펼치면 화면 길어져 매장간 비교 불편.
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // R-cross-payout-settle (2026-06-26): 정산완료 토글 busy state (그룹 단위)
+  const [settling, setSettling] = useState<string | null>(null)
+  // R-edit-participant (2026-06-26): 수정 시트 타겟
+  const [editTarget, setEditTarget] = useState<IncomingStaffParticipant | null>(null)
+  const toast = useToast()
 
   function toggle(key: string) {
     setExpanded((prev) => {
@@ -388,6 +395,30 @@ function IncomingStaffSection({
       else n.add(key)
       return n
     })
+  }
+
+  async function toggleSettlement(g: IncomingStaffGroup, key: string, settled: boolean) {
+    if (settling) return
+    setSettling(key)
+    try {
+      const res = await apiFetch("/api/cross-store/settle-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin_store_uuid: g.origin_store_uuid,
+          origin_manager_membership_id: g.origin_manager_membership_id,
+          settled,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.message ?? `HTTP ${res.status}`)
+      toast(settled ? "정산완료 표시됨" : "정산완료 해제됨", "success")
+      invalidateApi("/api/manager/incoming-staff")
+    } catch (e) {
+      toast(`처리 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setSettling(null)
+    }
   }
 
   if (isLoading) {
@@ -434,13 +465,29 @@ function IncomingStaffSection({
         {groups.map((g, idx) => {
           const key = `${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`
           const isOpen = expanded.has(key)
+          const status = g.settlement_status ?? "none"
+          const isAllSettled = status === "all_settled"
+          const isPartial = status === "partial"
           return (
-            <div key={key} className="bg-white rounded-2xl border border-[#D8D2C8]/60 overflow-hidden">
+            <div
+              key={key}
+              className={cn(
+                "rounded-2xl border overflow-hidden transition-colors",
+                isAllSettled
+                  ? "bg-green-50/60 border-green-300"
+                  : "bg-white border-[#D8D2C8]/60",
+              )}
+            >
               {/* 그룹 헤더 — 클릭 시 토글 */}
               <button
                 type="button"
                 onClick={() => toggle(key)}
-                className="w-full px-4 py-2.5 bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] flex items-center justify-between gap-2 text-left active:bg-[#F0E8D8]"
+                className={cn(
+                  "w-full px-4 py-2.5 flex items-center justify-between gap-2 text-left",
+                  isAllSettled
+                    ? "bg-gradient-to-br from-green-100 to-green-50 active:bg-green-100"
+                    : "bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] active:bg-[#F0E8D8]",
+                )}
               >
                 <div className="min-w-0 flex items-center gap-2">
                   <span className={cn(
@@ -450,8 +497,19 @@ function IncomingStaffSection({
                     ▸
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26]">
-                      {g.origin_store_name} <span className="text-[10px] text-[#7A746A] font-bold">· {g.origin_manager_name ?? "미배정"} 실장</span>
+                    <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26] flex items-center gap-1.5 flex-wrap">
+                      <span>{g.origin_store_name}</span>
+                      <span className="text-[10px] text-[#7A746A] font-bold">· {g.origin_manager_name ?? "미배정"} 실장</span>
+                      {isAllSettled && (
+                        <span className="text-[9px] font-extrabold text-green-700 bg-green-200/70 px-1.5 py-0.5 rounded-full border border-green-300">
+                          ✓ 정산완료
+                        </span>
+                      )}
+                      {isPartial && (
+                        <span className="text-[9px] font-extrabold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full border border-amber-300">
+                          ⚠ {g.settled_count ?? 0}/{(g.settled_count ?? 0) + (g.unsettled_count ?? 0)} 정산
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
                       진행 {g.active_count} / 종료 {g.finished_count} · 총 {g.participants.length}타임
@@ -460,47 +518,113 @@ function IncomingStaffSection({
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-[12px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(g.total_price)}</div>
-                  <div className="text-[9px] font-bold text-red-700">줄돈 {fmtMoneyWon(g.total_hostess_payout)}</div>
+                  <div className={cn(
+                    "text-[9px] font-bold",
+                    isAllSettled ? "text-green-700 line-through" : "text-red-700",
+                  )}>
+                    줄돈 {fmtMoneyWon(g.total_hostess_payout)}
+                  </div>
                 </div>
               </button>
-              {/* 참여자 목록 — expanded 시만 */}
+              {/* 참여자 목록 + 정산완료 버튼 — expanded 시만 */}
               {isOpen && (
-                <div className="divide-y divide-[#D8D2C8]/40">
-                  {g.participants.map((p) => (
-                    <div key={p.participant_id} className="flex items-center justify-between px-4 py-2 gap-2">
-                      <div className="min-w-0 flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "w-1.5 h-1.5 rounded-full shrink-0",
-                            p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
-                          )}
-                        />
-                        <div className="min-w-0">
-                          <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
-                            {p.hostess_name}
-                            <span className="text-[9px] font-bold text-[#A87D45] ml-1.5">
-                              {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
-                            </span>
+                <>
+                  <div className="divide-y divide-[#D8D2C8]/40">
+                    {g.participants.map((p) => {
+                      const pSettled = !!p.payout_settled_at
+                      return (
+                        <div key={p.participant_id} className="flex items-center justify-between px-4 py-2 gap-2">
+                          <div className="min-w-0 flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "w-1.5 h-1.5 rounded-full shrink-0",
+                                p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
+                              )}
+                            />
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
+                                {p.hostess_name}
+                                <span className="text-[9px] font-bold text-[#A87D45] ml-1.5">
+                                  {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
+                                </span>
+                                {pSettled && <span className="text-[9px] text-green-700 ml-1">✓</span>}
+                              </div>
+                              <div className="text-[9px] font-semibold text-[#7A746A]">
+                                {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
+                                {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
+                                {p.left_at && ` → ${formatClockTime(p.left_at)}`}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[9px] font-semibold text-[#7A746A]">
-                            {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
-                            {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
-                            {p.left_at && ` → ${formatClockTime(p.left_at)}`}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="text-right">
+                              <div className="text-[11px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(p.price_amount)}</div>
+                              <div className={cn(
+                                "text-[9px] font-bold",
+                                pSettled ? "text-green-700 line-through" : "text-red-700",
+                              )}>
+                                줄 {fmtMoney(p.hostess_payout_amount)}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setEditTarget(p) }}
+                              className="text-[14px] px-1.5 py-1 rounded-md hover:bg-[#FAF5EC] active:bg-[#F0E8D8] text-[#A87D45]"
+                              aria-label="수정"
+                              title="시간/금액 수정"
+                            >
+                              ✏️
+                            </button>
                           </div>
                         </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-[11px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(p.price_amount)}</div>
-                        <div className="text-[9px] font-bold text-red-700">줄 {fmtMoney(p.hostess_payout_amount)}</div>
-                      </div>
+                      )
+                    })}
+                  </div>
+                  {/* 정산완료 토글 영역 */}
+                  <div className="px-4 py-2.5 bg-[#FAF5EC]/60 border-t border-[#D8D2C8]/40 flex items-center justify-between gap-2">
+                    <div className="text-[10px] font-bold text-[#7A746A]">
+                      원소속({g.origin_store_name})에 줄돈 전달 완료?
                     </div>
-                  ))}
-                </div>
+                    {isAllSettled ? (
+                      <button
+                        type="button"
+                        disabled={settling === key}
+                        onClick={() => toggleSettlement(g, key, false)}
+                        className="text-[11px] font-extrabold bg-white text-green-700 border-2 border-green-400 rounded-full px-3 py-1.5 disabled:opacity-40"
+                      >
+                        ✓ 정산완료 (해제)
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={settling === key}
+                        onClick={() => toggleSettlement(g, key, true)}
+                        className="text-[11px] font-extrabold bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full px-3 py-1.5 disabled:opacity-40 shadow-sm"
+                      >
+                        💰 정산완료 표시
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )
         })}
       </div>
+
+      {/* 수정 시트 */}
+      {editTarget && (
+        <EditParticipantSheet
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          participantId={editTarget.participant_id}
+          hostessName={editTarget.hostess_name}
+          category={editTarget.category}
+          timeMinutes={editTarget.time_minutes}
+          priceAmount={editTarget.price_amount}
+          managerPayout={editTarget.manager_payout_amount}
+        />
+      )}
     </div>
   )
 }
