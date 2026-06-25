@@ -11,6 +11,7 @@ import { cn } from "../../_lib/cn"
 import { apiFetch } from "@/lib/apiFetch"
 import { invalidateApi } from "../../_hooks/useApi"
 import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
+import { StaffPayoutSheet } from "../../_components/StaffPayoutSheet"
 
 type Period = "today" | "week"
 
@@ -30,6 +31,8 @@ export default function SettlePage() {
   const [password, setPassword] = useState("")
   const [verifying, setVerifying] = useState(false)
   const [resetAt, setResetAt] = useState<Date | null>(null)
+  // R-staff-payout (2026-06-26): 스태프 row 클릭 → 정산/보관/팁 시트
+  const [payoutTarget, setPayoutTarget] = useState<{ id: string; name: string } | null>(null)
 
   // localStorage 에서 초기화 시각 로드 + 만료 (7일) 자동 정리
   useEffect(() => {
@@ -237,11 +240,12 @@ export default function SettlePage() {
               const payout = h.hostess_amount ?? 0
               const sameAmount = gross === payout
               return (
-                <Link
+                <button
+                  type="button"
                   key={h.hostess_id}
-                  href={`/m/staff/${encodeURIComponent(h.hostess_id)}`}
+                  onClick={() => setPayoutTarget({ id: h.hostess_id, name: h.hostess_name })}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3 no-underline active:bg-[#FAF5EC] transition-colors",
+                    "w-full flex items-center gap-3 px-4 py-3 text-left active:bg-[#FAF5EC] transition-colors",
                     i > 0 && "border-t border-[#D8D2C8]/40",
                   )}
                 >
@@ -270,7 +274,7 @@ export default function SettlePage() {
                       </div>
                     )}
                   </div>
-                </Link>
+                </button>
               )
             })}
             <div className="px-4 py-3 bg-[#FAF5EC] border-t-2 border-[#C49B61]/30 flex items-center justify-between">
@@ -292,6 +296,16 @@ export default function SettlePage() {
       </div>
 
       <TabBar />
+
+      {/* 스태프별 정산 시트 — 정산완료 / 보관 / 팁 */}
+      {payoutTarget && (
+        <StaffPayoutSheet
+          open={!!payoutTarget}
+          onClose={() => setPayoutTarget(null)}
+          hostessId={payoutTarget.id}
+          hostessName={payoutTarget.name}
+        />
+      )}
 
       {/* 정산 초기화 모달 (비밀번호 확인) */}
       <Sheet
