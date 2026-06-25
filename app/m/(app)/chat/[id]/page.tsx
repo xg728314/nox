@@ -73,7 +73,10 @@ export default function ChatRoomPage() {
       try {
         const r = await apiFetch(`/api/chat/messages?chat_room_id=${encodeURIComponent(roomId)}&limit=50`)
         const j = await r.json()
-        const next = Array.isArray(j?.messages) ? (j.messages as ChatMessage[]) : []
+        // 서버가 created_at DESC 반환 → UI 는 오래된 위/최신 아래.
+        // 한 번에 reverse (in-place 아님, 새 배열).
+        const raw = Array.isArray(j?.messages) ? (j.messages as ChatMessage[]) : []
+        const next = [...raw].sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
         if (cancelled) return
         // 중복 제거 — id 기준 (서버는 동일 데이터 반환 가능)
         setMessages((prev) => {
