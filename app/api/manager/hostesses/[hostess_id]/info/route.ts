@@ -176,14 +176,18 @@ export async function GET(
       }
 
       // 매장 이름 (cross-store working store names)
+      // R-store-name-col (2026-06-26): 컬럼명 'name' → 'store_name' fix. 이전 select
+      //   가 없는 컬럼이라 storeMap 항상 비어 매장명 "—" 표시되는 버그.
       const storeUuids = Array.from(new Set(allParts.map((p) => p.store_uuid)))
       const storeMap = new Map<string, string>()
       if (storeUuids.length > 0) {
         const { data: stores } = await supabase
           .from("stores")
-          .select("id, name")
+          .select("id, store_name")
           .in("id", storeUuids)
-        for (const s of stores ?? []) storeMap.set(s.id, s.name)
+        for (const s of (stores ?? []) as { id: string; store_name: string }[]) {
+          storeMap.set(s.id, s.store_name)
+        }
       }
 
       // 영수증 상태 (본 매장 세션만 가능 — cross-store 는 working store 의 receipt)
