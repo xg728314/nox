@@ -175,6 +175,8 @@ export async function GET(request: Request) {
         status: string
         entered_at: string | null
         left_at: string | null
+        /** R-extend-end (2026-06-25): 외부 식구 카드 클릭 → ExtendEndSheet 용 */
+        session_id: string
       }>
     }
     const groups = new Map<string, Group>() // key = origin_store + ":" + origin_manager
@@ -220,6 +222,7 @@ export async function GET(request: Request) {
         status: p.status,
         entered_at: p.entered_at,
         left_at: p.left_at,
+        session_id: p.session_id,
       })
     }
 

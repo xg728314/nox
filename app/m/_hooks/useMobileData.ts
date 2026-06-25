@@ -182,6 +182,7 @@ export type IncomingStaffParticipant = {
   status: string
   entered_at: string | null
   left_at: string | null
+  session_id?: string
 }
 export type IncomingStaffGroup = {
   origin_store_uuid: string

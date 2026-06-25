@@ -206,7 +206,30 @@ export async function POST(request: Request) {
     //    필요합니다" 를 만족하기 위해 transfer_request 자동 생성 (즉시 approved).
     let createdCount = 0
     const errors: string[] = []
+
+    // 재입실 방지 — 이미 active 상태인 식구는 reject.
+    //   시간상 불가능한 중복 배정 (1타임 종료 안 했는데 새 세션 입실) 차단.
+    //   end 버튼으로 명시적 종료 후 재배정 가능.
+    const { data: activeRows } = await supabase
+      .from("session_participants")
+      .select("membership_id, store_uuid")
+      .in("membership_id", hostess_membership_ids)
+      .eq("status", "active")
+      .is("deleted_at", null)
+    const alreadyActive = new Set(((activeRows ?? []) as { membership_id: string }[]).map((r) => r.membership_id))
+
     for (const hmid of hostess_membership_ids) {
+      if (alreadyActive.has(hmid)) {
+        // hostess 이름 조회 시도 (간단 lookup)
+        const { data: nameRow } = await supabase
+          .from("hostesses")
+          .select("name")
+          .eq("membership_id", hmid)
+          .maybeSingle()
+        const nm = (nameRow as { name?: string } | null)?.name ?? hmid.slice(0, 8)
+        errors.push(`${nm}: 이미 다른 세션에서 일하는 중 — 먼저 종료해야 재배정 가능`)
+        continue
+      }
       // hostess 정보 — origin_store_uuid 추적.
       // 1차 시도: origin_store_uuid 컬럼 포함. 컬럼 없으면 42703 → 재시도.
       type HostessRow = { store_uuid: string; name: string; origin_store_uuid?: string | null }

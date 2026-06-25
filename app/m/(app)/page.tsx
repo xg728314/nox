@@ -412,27 +412,68 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="divide-y divide-[#D8D2C8]/40">
-                  {g.participants.slice(0, 6).map((p) => (
-                    <div key={p.participant_id} className="flex items-center justify-between px-3 py-1.5 gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span
-                          className={cn(
-                            "w-1.5 h-1.5 rounded-full shrink-0",
-                            p.status === "active" ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
-                          )}
-                        />
-                        <div className="text-[11px] font-extrabold text-[#2D2B26] truncate">
-                          {p.hostess_name}
-                          <span className="text-[9px] font-bold text-[#A87D45] ml-1">
-                            {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
-                          </span>
+                  {g.participants.slice(0, 6).map((p) => {
+                    const sameHostessActiveCount = g.participants.filter(
+                      (x) => x.membership_id === p.membership_id && x.status === "active",
+                    ).length
+                    const isActive = p.status === "active"
+                    return (
+                      <button
+                        type="button"
+                        key={p.participant_id}
+                        onClick={() => {
+                          if (!isActive) return
+                          // 외부 식구 active row 클릭 → ExtendEndSheet 오픈
+                          //   working_session_id 는 incoming-staff 응답에 없어 별도 lookup 필요.
+                          //   여기선 HostessPreview 가 아닌 minimal 타겟 구성.
+                          setExtendTarget({
+                            hostess_id: p.membership_id,
+                            membership_id: p.membership_id,
+                            hostess_name: p.hostess_name,
+                            profile_id: null,
+                            role: "hostess",
+                            status: "approved",
+                            manager_membership_id: g.origin_manager_membership_id,
+                            origin_store_uuid: g.origin_store_uuid,
+                            is_working: true,
+                            working_store_uuid: me.data?.store_uuid ?? null,
+                            working_store_name: me.data?.store_name ?? null,
+                            working_category: p.category,
+                            working_time_minutes: p.time_minutes,
+                            working_entered_at: p.entered_at,
+                            working_participant_id: p.participant_id,
+                            working_session_id: p.session_id ?? "",
+                          })
+                          setExtendOpen(true)
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 gap-2 text-left active:bg-[#FAF5EC] transition-colors disabled:opacity-60"
+                        disabled={!isActive}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full shrink-0",
+                              isActive ? "bg-green-500 animate-pulse" : "bg-[#94A3B8]",
+                            )}
+                          />
+                          <div className="text-[11px] font-extrabold text-[#2D2B26] truncate">
+                            {p.hostess_name}
+                            {sameHostessActiveCount > 1 && (
+                              <span className="text-[9px] font-extrabold text-red-600 ml-1">
+                                ×{sameHostessActiveCount}연장
+                              </span>
+                            )}
+                            <span className="text-[9px] font-bold text-[#A87D45] ml-1">
+                              {p.category}{p.time_minutes != null && ` ${p.time_minutes}분`}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-[9px] font-bold text-red-700 shrink-0">
-                        {(p.hostess_payout_amount / 10000).toFixed(0)}만
-                      </div>
-                    </div>
-                  ))}
+                        <div className="text-[9px] font-bold text-red-700 shrink-0">
+                          {(p.hostess_payout_amount / 10000).toFixed(0)}만
+                        </div>
+                      </button>
+                    )
+                  })}
                   {g.participants.length > 6 && (
                     <div className="text-center text-[9px] font-bold text-[#7A746A] py-1">
                       외 {g.participants.length - 6}명
