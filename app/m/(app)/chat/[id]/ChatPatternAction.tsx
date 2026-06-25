@@ -82,23 +82,47 @@ export function ChatPatternAction({
     const time = TIME_FROM_TICKET[e0.ticket_type!] ?? null
     if (!store || !cat || !time) return null
 
-    // 이름 매칭 — 정확 일치 우선, 없으면 초성 매칭
+    // 이름 매칭 — 정확 일치 → prefix → contains → 1글자 초성 순.
+    // 후보 1명일 때만 채택 (애매하면 미매칭 분류).
+    //
+    // 본 매장 식구 우선 → 못 찾으면 target store (origin_store) 식구 우선
+    // → 그래도 못 찾으면 전체에서 검색.
     const matchedIds: string[] = []
     const matchedNames: string[] = []
     const unmatched: string[] = []
     for (const ent of parsed.ok) {
-      const nm = ent.name
-      // 1차: 정확 일치 (대소문자 무관)
-      let found = allHostesses.find((h) => (h.hostess_name ?? "").trim() === nm)
-      // 2차: 초성 매칭 (입력이 1글자 + 한글 초성)
-      if (!found && nm.length === 1) {
-        const target = getInitial(nm)
-        const candidates = allHostesses.filter((h) => {
-          const first = (h.hostess_name ?? "").charAt(0)
-          return getInitial(first) === target
-        })
-        if (candidates.length === 1) found = candidates[0]
+      const nm = ent.name.trim()
+      if (!nm) continue
+      const inStore = allHostesses.filter((h) => h.store_uuid === store.store_uuid)
+
+      // 매칭 시도 ladder
+      const candidatesIn = (pool: typeof allHostesses): typeof allHostesses => {
+        // 1. 정확 일치
+        const exact = pool.filter((h) => (h.hostess_name ?? "").trim() === nm)
+        if (exact.length === 1) return exact
+        // 2. prefix (이름이 입력으로 시작) — \"지수\" → \"지수01\"
+        const prefix = pool.filter((h) => (h.hostess_name ?? "").startsWith(nm))
+        if (prefix.length === 1) return prefix
+        // 3. contains
+        const contains = pool.filter((h) => (h.hostess_name ?? "").includes(nm))
+        if (contains.length === 1) return contains
+        // 4. 1글자 초성 매칭 (입력 1글자일 때만)
+        if (nm.length === 1) {
+          const target = getInitial(nm)
+          const ini = pool.filter((h) => getInitial((h.hostess_name ?? "").charAt(0)) === target)
+          if (ini.length === 1) return ini
+        }
+        return []
       }
+
+      // 우선순위: target store 안 → 본 매장 → 건물 전체
+      let found = candidatesIn(inStore)[0]
+      if (!found) {
+        const inMyStore = allHostesses.filter((h) => h.store_uuid === myStoreUuid)
+        found = candidatesIn(inMyStore)[0]
+      }
+      if (!found) found = candidatesIn(allHostesses)[0]
+
       if (found) {
         matchedIds.push(found.membership_id)
         matchedNames.push(found.hostess_name)
@@ -117,7 +141,9 @@ export function ChatPatternAction({
     }
   }, [parsed.ok, buildingH.data, buildingS.data])
 
-  if (!resolved || resolved.matchedIds.length === 0) return null
+  // 카드는 store + cat + time 이 인식되면 항상 표시. 매칭 0명이어도 사용자에게
+  // \"인식은 됐는데 식구 못 찾음\" 정보 제공 → \"왜 안 떠?\" 혼란 방지.
+  if (!resolved) return null
 
   async function confirm() {
     if (!resolved || submitting || confirmed) return
@@ -173,15 +199,23 @@ export function ChatPatternAction({
       </div>
       <button
         type="button"
-        disabled={submitting || confirmed}
+        disabled={submitting || confirmed || resolved.matchedIds.length === 0}
         onClick={confirm}
         className={`w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 ${
           confirmed
             ? "bg-green-500/20 text-green-700 border border-green-300"
-            : "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
+            : resolved.matchedIds.length === 0
+              ? "bg-[#EFEBE3] text-[#7A746A] border border-[#D8D2C8]"
+              : "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
         }`}
       >
-        {confirmed ? "✓ 배정 완료" : submitting ? "배정 중..." : `✓ 확인 (${resolved.matchedIds.length}명 배정)`}
+        {confirmed
+          ? "✓ 배정 완료"
+          : submitting
+            ? "배정 중..."
+            : resolved.matchedIds.length === 0
+              ? "⚠ 매칭된 식구 없음 — 이름 확인"
+              : `✓ 확인 (${resolved.matchedIds.length}명 배정)`}
       </button>
     </div>
   )
