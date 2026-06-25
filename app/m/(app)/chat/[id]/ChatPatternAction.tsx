@@ -172,8 +172,12 @@ export function ChatPatternAction({
       if (!res.ok || !j.ok) {
         throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
       }
+      const created = j.participants_created ?? 0
       const tag = sameStore ? "본 매장" : resolved.store.store_name
-      toast(`${j.participants_created ?? resolved.matchedIds.length}명 → ${tag} 배정 완료`, "success")
+      if (created === 0) {
+        throw new Error(j.errors?.[0] ?? "참여자 등록 실패 (이유 불명)")
+      }
+      toast(`${created}명 → ${tag} 배정 완료`, "success")
       setConfirmed(true)
     } catch (e) {
       toast(`배정 실패: ${(e as Error).message}`, "error")

@@ -298,7 +298,9 @@ export async function POST(request: Request) {
         greeting_confirmed: cat === "셔츠" ? true : false,
         status: "active",
         store_uuid: target_store_uuid,
-        origin_store_uuid: originStore,
+        // DB check constraint session_participants_origin_not_self —
+        // origin === store 이면 거부. same-store dispatch 시 origin 을 null 로.
+        origin_store_uuid: originStore && originStore !== target_store_uuid ? originStore : null,
         transfer_request_id: transferRequestId,
         entered_at: new Date().toISOString(),
       })
