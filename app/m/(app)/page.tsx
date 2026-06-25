@@ -312,12 +312,12 @@ export default function HomePage() {
         )}
         {hostesses.data && filteredHostesses.length > 0 && (
           <div
-            className={cn(
-              "grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5",
-              activeFilter && "max-h-[60vh] overflow-y-auto pr-1 -mr-1 pb-2",
-            )}
+            className="grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5 max-h-[55vh] overflow-y-auto pr-1 -mr-1 pb-2"
           >
-            {(activeFilter ? filteredHostesses : filteredHostesses.slice(0, 12)).map((h) => (
+            {/* R-grid-scroll (2026-06-26): 필터 여부 무관 항상 max-h + scroll.
+                이전엔 필터 활성 시만 적용 + 12명 slice 라 본 매장 20명 식구
+                중 8명이 안 보였음. 이젠 전부 스크롤로 노출. */}
+            {filteredHostesses.map((h) => (
               <StaffCard
                 key={h.membership_id}
                 membershipId={h.membership_id}
