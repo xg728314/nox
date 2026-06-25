@@ -371,15 +371,37 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* 🔄 외부 식구 — 타매장 식구가 본 매장에서 일하고 있는 내역 (항상 표시) */}
+      {/* 🔄 외부 식구 — 타매장 식구가 본 매장에서 일하고 있는 내역 (실시간 모니터링).
+          R-incoming-active-only (2026-06-26): 홈은 실시간 화면 — 종료된(status!='active')
+          row 와 그 그룹이 전부 종료된 경우 제외. 정산 페이지(/m/settle)는 종료/정산 추적이
+          필요하므로 그대로 전체 표시. */}
       {(() => {
-        const groups = incoming.data?.groups ?? []
+        const rawGroups = incoming.data?.groups ?? []
+        // active 참여자만 남기고, active 없는 그룹 제거
+        const groups = rawGroups
+          .map((g) => {
+            const activeParts = g.participants.filter((p) => p.status === "active")
+            if (activeParts.length === 0) return null
+            const total_price = activeParts.reduce((a, p) => a + p.price_amount, 0)
+            const total_hostess_payout = activeParts.reduce((a, p) => a + p.hostess_payout_amount, 0)
+            const total_manager_payout = activeParts.reduce((a, p) => a + p.manager_payout_amount, 0)
+            return {
+              ...g,
+              participants: activeParts,
+              active_count: activeParts.length,
+              finished_count: 0,
+              total_price,
+              total_hostess_payout,
+              total_manager_payout,
+            }
+          })
+          .filter(Boolean) as typeof rawGroups
         const totalCount = groups.reduce((a, g) => a + g.participants.length, 0)
         return (
         <section className="px-5 mb-4">
           <div className="flex items-baseline justify-between mb-2">
             <div className="text-[13px] font-extrabold">
-              🔄 우리 매장 외부 식구 {totalCount}명
+              🔄 우리 매장 외부 식구 <span className="text-green-600">●</span> {totalCount}명 일하는 중
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -399,9 +421,9 @@ export default function HomePage() {
           </div>
           {groups.length === 0 && (
             <div className="bg-white border border-[#D8D2C8]/60 rounded-2xl px-4 py-6 text-center">
-              <div className="text-[14px] font-extrabold text-[#7A746A]">— 외부 식구 없음 —</div>
+              <div className="text-[14px] font-extrabold text-[#7A746A]">— 일하는 외부 식구 없음 —</div>
               <div className="text-[10px] font-semibold text-[#7A746A] mt-1">
-                채팅에서 다른 매장 실장이 식구 보내면 자동 표시됩니다
+                종료된 식구는 정산 페이지에서 확인
               </div>
             </div>
           )}
@@ -419,8 +441,9 @@ export default function HomePage() {
                         · {g.origin_manager_name ?? "미배정"} 실장
                       </span>
                     </div>
-                    <div className="text-[9px] font-bold text-[#7A746A] mt-0.5">
-                      진행 {g.active_count} / 종료 {g.finished_count}
+                    <div className="text-[9px] font-bold text-green-700 mt-0.5">
+                      <span className="inline-block w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse mr-1 align-middle" />
+                      {g.active_count}명 일하는 중
                     </div>
                   </div>
                   <div className="text-right shrink-0">
