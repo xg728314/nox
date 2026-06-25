@@ -180,8 +180,12 @@ export function ExtendEndSheet({
       }
       const tag = finalTimeType ? ` (${finalTimeType === "기본" ? "완티" : finalTimeType})` : ""
       toast(`${hostessName} 종료${tag}${j.session_closed ? " · 세션 닫힘" : ""}`, "success")
+      // R-leave-incoming-invalidate (2026-06-26): 외부 식구 종료 시 incoming-staff 도
+      //   즉시 갱신되어야 홈/정산 화면에서 사라짐. 이전엔 이게 빠져서 종료가 화면에
+      //   실시간 반영 안 됨 (5s TTL 만료 후에야 사라짐 = "반응이 느리다" 증상).
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/manager/incoming-staff")
       invalidateApi("/api/manager/settlement/summary")
       onClose()
       router.refresh()
