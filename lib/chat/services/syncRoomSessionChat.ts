@@ -114,6 +114,10 @@ export async function syncRoomSessionChat(
   }
   const managerMid = (session as { manager_membership_id?: string | null }).manager_membership_id
   if (managerMid) memSet.add(managerMid)
+  // R-include-actor (2026-06-28): dispatch 호출자(=사용자)도 채팅 참여자에 추가.
+  //   사용자 요구: '마블실장 + 파 지수 + 신 미연 그룹채팅'. 이전엔 세션 매니저만
+  //   추가돼서 사용자가 호출했어도 (다른 매니저가 지정되면) 채팅 목록에 안 떴음.
+  if (actor_membership_id) memSet.add(actor_membership_id)
 
   if (memSet.size === 0) {
     return { chat_room_id: chatRoomId, synced_count: 0 }
