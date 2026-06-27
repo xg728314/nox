@@ -222,14 +222,20 @@ export default function StaffListPage() {
                 <div
                   key={h.membership_id}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3",
+                    "flex items-center gap-2 px-4 py-3",
                     i > 0 && "border-t border-[#D8D2C8]/40",
                     !isAttended && "bg-[#FAFAF7]",
+                    isAttended && !isWorking && "bg-green-50/40",
                   )}
                 >
-                  <Link
-                    href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
-                    className="flex items-center gap-3 flex-1 min-w-0 no-underline text-[#2D2B26] active:opacity-70 transition-opacity"
+                  {/* R-row-tap-toggle (2026-06-27): row 좌측 영역 클릭 = 출근 토글.
+                      이전에 chip 영역만 클릭 가능해서 사용자가 못 알아봄 (POST 0건).
+                      이젠 row 의 아바타+이름 영역도 누르면 토글. */}
+                  <button
+                    type="button"
+                    disabled={busy || isWorking}
+                    onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left active:opacity-60 transition-opacity disabled:cursor-default"
                   >
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#EFEBE3] to-[#DDD5C5] flex items-center justify-center text-[16px] font-extrabold text-[#A87D45] shrink-0">
                       {initialOf(h.hostess_name)}
@@ -242,6 +248,14 @@ export default function StaffListPage() {
                           : `${h.status === "approved" ? "승인됨" : h.status} · ${h.role}`}
                       </div>
                     </div>
+                  </button>
+                  {/* 상세 페이지 이동 (별도 작은 링크) */}
+                  <Link
+                    href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
+                    aria-label="상세"
+                    className="shrink-0 px-2 py-2 rounded-lg text-[#A87D45] no-underline text-[14px] active:bg-[#FAF5EC]"
+                  >
+                    ›
                   </Link>
                   {/* R-attendance-toggle (2026-06-26): 출근 chip — 클릭 시 즉시 PATCH */}
                   <button
@@ -249,7 +263,7 @@ export default function StaffListPage() {
                     disabled={busy}
                     onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
                     className={cn(
-                      "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-extrabold border-2 transition-all disabled:opacity-40",
+                      "shrink-0 rounded-xl px-4 py-2.5 text-[13px] font-extrabold border-2 transition-all disabled:opacity-40 shadow-sm min-w-[88px]",
                       isWorking
                         ? "bg-green-100 border-green-400 text-green-700 cursor-default"
                         : isAttended
@@ -258,7 +272,7 @@ export default function StaffListPage() {
                     )}
                     aria-label={isAttended ? "출근 — 클릭하여 결근" : "결근 — 클릭하여 출근"}
                   >
-                    {busy ? "..." : isWorking ? "🟢 일하는중" : isAttended ? "● 출근" : "○ 결근"}
+                    {busy ? "..." : isWorking ? "🟢 일하는중" : isAttended ? "✓ 출근" : "○ 결근"}
                   </button>
                 </div>
               )
