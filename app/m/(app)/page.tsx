@@ -111,21 +111,32 @@ export default function HomePage() {
   //   hostess.is_working (서버에서 모든 매장의 active 세션 참여 여부) 사용.
   //   → 마블 식구가 아우라에서 일해도 working 으로 잡힘.
   //   2026-06-25 R-status-filter: endingSoon (10분 이내 종료) 카운트 추가.
+  // R-attendance-aware-stats (2026-06-28): 대기 카운트가 attendance 와 무관해서
+  //   퇴근 처리해도 안 줄어드는 버그 → attendance 반영.
+  //   - 일하는중: is_working
+  //   - 대기: 출근(attendedSet) + 일하는중 X — 일할 준비 된 식구
+  //   - 결근(off): 출근 안 함 + 일하는중 X — 퇴근 처리된 식구
+  //   - 총인원(출근): working + waiting (결근 제외)
   const stats = useMemo(() => {
     const all = hostesses.data?.hostesses ?? []
     let working = 0
+    let waiting = 0
+    let off = 0
     let endingSoon = 0
     for (const h of all) {
       if (h.is_working) {
         working++
         const rem = remainingMinutesOf(h)
         if (rem !== null && rem <= 10) endingSoon++
+      } else if (attendedSet.has(h.membership_id)) {
+        waiting++
+      } else {
+        off++
       }
     }
-    const total = all.length
-    const waiting = Math.max(0, total - working)
-    return { working, waiting, total, endingSoon }
-  }, [hostesses.data, remainingMinutesOf])
+    const total = working + waiting  // 총 출근자 (결근 제외)
+    return { working, waiting, total, off, endingSoon }
+  }, [hostesses.data, attendedSet, remainingMinutesOf])
 
   // 매장 → 층 매핑 (정렬용)
   const floorByStore = useMemo(() => {
