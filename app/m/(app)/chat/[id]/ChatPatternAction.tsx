@@ -334,9 +334,17 @@ export function ChatPatternAction({
           return (
             <div key={idx} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg px-2 py-1.5">
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-extrabold text-[#2D2B26] truncate">
-                  {e.target_store_name} <span className="text-[#7A746A] font-bold">·</span> {e.hostess_name}
-                  {e.unmatched && <span className="text-red-700 ml-1">({e.unmatched})</span>}
+                <div className="text-[11px] font-extrabold text-[#2D2B26] truncate flex items-center gap-1 flex-wrap">
+                  {/* R-room-no-badge (2026-06-28): 방번호 prefix 인식됐으면 빨간 배지 */}
+                  {e.room_no && (
+                    <span className="inline-flex items-center text-[9px] font-extrabold px-1.5 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
+                      🚪 {e.room_no}번방
+                    </span>
+                  )}
+                  <span>{e.target_store_name}</span>
+                  <span className="text-[#7A746A] font-bold">·</span>
+                  <span>{e.hostess_name}</span>
+                  {e.unmatched && <span className="text-red-700">({e.unmatched})</span>}
                 </div>
                 <div className="text-[9px] font-bold text-[#7A746A]">
                   {e.category} · {e.time_type === "기본" ? "완티" : e.time_type}
