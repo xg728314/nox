@@ -117,15 +117,23 @@ export function StaffCard({
           {storeLabel}
         </span>
       )}
-      {/* 시작 → 종료 시간 (상단 가운데) */}
-      {timeRow && (
+      {/* R-urgent-countdown (2026-06-27): 임박(≤10분) 시 상단에 큰 카운트다운 + pulse.
+          그 외엔 시작→종료 시간 표시. 사용자 요구: "10분 9분 빤짝" 직관적 카운트다운. */}
+      {isUrgent && remaining != null ? (
+        <div className="text-center text-[18px] font-extrabold text-red-600 leading-none mt-[2px] tabular-nums animate-pulse drop-shadow-[0_1px_2px_rgba(220,38,38,0.4)]">
+          ⏰ {remaining}분
+        </div>
+      ) : timeRow ? (
         <div className="text-center text-[8px] font-bold text-[#2D2B26]/55 leading-none mt-[1px] tabular-nums">
           {timeRow}
         </div>
-      )}
+      ) : null}
       {/* 가운데 — 이름 + 상세 라인 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-[2px] min-w-0">
-        <div className="text-[13px] font-extrabold tracking-[-0.04em] leading-none truncate max-w-full">
+        <div className={cn(
+          "text-[13px] font-extrabold tracking-[-0.04em] leading-none truncate max-w-full",
+          isUrgent && "text-red-700",
+        )}>
           {name || initialOf(name)}
         </div>
         {detailLine && (
@@ -136,12 +144,6 @@ export function StaffCard({
             )}
           >
             {detailLine}
-          </div>
-        )}
-        {/* 임박 강조 — 큰 분 숫자 */}
-        {isUrgent && remaining != null && (
-          <div className="text-[9px] font-extrabold text-red-600 leading-none tabular-nums">
-            ⏰ {remaining}분 남음
           </div>
         )}
       </div>
