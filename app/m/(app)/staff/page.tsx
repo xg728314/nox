@@ -257,22 +257,40 @@ export default function StaffListPage() {
                   >
                     ›
                   </Link>
-                  {/* R-attendance-toggle (2026-06-26): 출근 chip — 클릭 시 즉시 PATCH */}
+                  {/* R-attendance-switch (2026-06-28): iOS 스타일 ON/OFF 토글 스위치.
+                      사용자 요구: '이름 옆에 출근 ON/OFF 기능'. 이전 chip 은 인식 어려움. */}
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || isWorking}
                     onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
+                    aria-label={isAttended ? "출근 ON — 클릭하여 OFF" : "출근 OFF — 클릭하여 ON"}
                     className={cn(
-                      "shrink-0 rounded-xl px-4 py-2.5 text-[13px] font-extrabold border-2 transition-all disabled:opacity-40 shadow-sm min-w-[88px]",
-                      isWorking
-                        ? "bg-green-100 border-green-400 text-green-700 cursor-default"
-                        : isAttended
-                          ? "bg-gradient-to-br from-green-500 to-green-600 border-transparent text-white"
-                          : "bg-white border-[#D8D2C8] text-[#7A746A] active:bg-[#FAF5EC]",
+                      "shrink-0 flex items-center gap-2 transition-all disabled:opacity-60",
                     )}
-                    aria-label={isAttended ? "출근 — 클릭하여 결근" : "결근 — 클릭하여 출근"}
                   >
-                    {busy ? "..." : isWorking ? "🟢 일하는중" : isAttended ? "✓ 출근" : "○ 결근"}
+                    <span className={cn(
+                      "text-[11px] font-extrabold transition-colors",
+                      isAttended ? "text-green-700" : "text-[#7A746A]",
+                    )}>
+                      {busy ? "..." : isWorking ? "일하는중" : isAttended ? "ON" : "OFF"}
+                    </span>
+                    {/* 스위치 트랙 */}
+                    <span className={cn(
+                      "relative inline-block w-[44px] h-[26px] rounded-full transition-colors border-2",
+                      isWorking
+                        ? "bg-green-200 border-green-400"
+                        : isAttended
+                          ? "bg-green-500 border-green-600"
+                          : "bg-[#E5E0D6] border-[#D8D2C8]",
+                    )}>
+                      {/* 스위치 노브 */}
+                      <span
+                        className={cn(
+                          "absolute top-[1px] w-[18px] h-[18px] rounded-full bg-white shadow-md transition-all duration-200",
+                        )}
+                        style={{ left: isAttended ? "20px" : "2px" }}
+                      />
+                    </span>
                   </button>
                 </div>
               )
