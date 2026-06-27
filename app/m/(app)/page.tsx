@@ -59,6 +59,9 @@ export default function HomePage() {
   //   - 길게 누르면 multi-select 모드 → 여러 명 토글 → 하단 액션바 → 시트
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // R-checkout-mode (2026-06-28): 퇴근 일괄 처리 모드. ON 시 카드 클릭 = select,
+  //   selectMode 와 동일한 selectedIds 사용. 하단 액션바에 [퇴근 N명] 표시.
+  const [checkoutMode, setCheckoutMode] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [pendingIds, setPendingIds] = useState<string[]>([])
   const [pendingNames, setPendingNames] = useState<string[]>([])
@@ -286,6 +289,31 @@ export default function HomePage() {
           </div>
           <div>오늘 출근 {stats.working + stats.waiting}명</div>
         </div>
+        {/* R-checkout-button (2026-06-28): 퇴근 일괄 처리 진입 버튼.
+            누르면 checkoutMode ON → 식구 카드 클릭으로 선택 → 하단 액션바 [퇴근 N명]. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (checkoutMode) {
+              setCheckoutMode(false)
+              setSelectedIds(new Set())
+            } else {
+              setCheckoutMode(true)
+              setSelectMode(false)
+              setSelectedIds(new Set())
+            }
+          }}
+          className={cn(
+            "w-full mt-3 rounded-xl py-2.5 text-[12px] font-extrabold border-2 transition-all",
+            checkoutMode
+              ? "bg-red-50 border-red-400 text-red-700"
+              : "bg-white border-[#D8D2C8] text-[#7A746A] active:bg-[#FAF5EC]",
+          )}
+        >
+          {checkoutMode
+            ? `✕ 퇴근 모드 취소 (${selectedIds.size}명 선택)`
+            : "🚪 퇴근 처리 — 식구 선택"}
+        </button>
       </section>
 
       {/* 스태프 그리드 (4-col 컴팩트) */}
@@ -357,10 +385,20 @@ export default function HomePage() {
                   startedAt: h.working_entered_at,
                   timeMinutes: h.working_time_minutes,
                 } : undefined}
-                selected={selectMode && selectedIds.has(h.membership_id)}
+                selected={(selectMode || checkoutMode) && selectedIds.has(h.membership_id)}
                 onTap={async () => {
-                  if (selectMode) {
-                    // 토글
+                  if (checkoutMode) {
+                    // R-checkout-mode (2026-06-28): 퇴근 모드 — 카드 클릭 = 선택 토글.
+                    //   일하는 중인 식구는 toggle 금지 (먼저 종료 후 퇴근).
+                    if (h.is_working) return
+                    setSelectedIds((prev) => {
+                      const n = new Set(prev)
+                      if (n.has(h.membership_id)) n.delete(h.membership_id)
+                      else n.add(h.membership_id)
+                      return n
+                    })
+                  } else if (selectMode) {
+                    // 배정/종료 모드 — 토글
                     setSelectedIds((prev) => {
                       const n = new Set(prev)
                       if (n.has(h.membership_id)) n.delete(h.membership_id)
@@ -580,6 +618,55 @@ export default function HomePage() {
       >
         +
       </Link>
+
+      {/* R-checkout-mode-bar (2026-06-28): 퇴근 모드 액션 바.
+          선택된 식구 일괄 checkout POST. */}
+      {checkoutMode && (
+        <div
+          className={cn(
+            "fixed left-1/2 -translate-x-1/2 bottom-[80px] z-30",
+            "bg-white rounded-2xl shadow-[0_8px_24px_rgba(45,43,38,0.18)] border border-[#D8D2C8]/60",
+            "flex items-center gap-2 px-3 py-2",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setCheckoutMode(false)
+              setSelectedIds(new Set())
+            }}
+            className="text-[11px] font-extrabold text-[#7A746A] px-2"
+          >
+            취소
+          </button>
+          <div className="text-[12px] font-extrabold text-[#2D2B26]">
+            {selectedIds.size}명 선택
+          </div>
+          <button
+            type="button"
+            disabled={selectedIds.size === 0}
+            onClick={async () => {
+              let ok = 0, fail = 0
+              for (const mid of selectedIds) {
+                try {
+                  const res = await apiFetch("/api/attendance", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ membership_id: mid, action: "checkout" }),
+                  })
+                  if (res.ok) ok++; else fail++
+                } catch { fail++ }
+              }
+              invalidateApi("/api/attendance")
+              setCheckoutMode(false)
+              setSelectedIds(new Set())
+            }}
+            className="bg-red-50 border-2 border-red-300 text-red-700 rounded-xl px-3 py-2 text-[11px] font-extrabold disabled:opacity-40"
+          >
+            🚪 퇴근 ({selectedIds.size})
+          </button>
+        </div>
+      )}
 
       {/* 선택 모드 액션 바 — selectMode 일 때만 + FAB 위로 띄움 */}
       {selectMode && (
