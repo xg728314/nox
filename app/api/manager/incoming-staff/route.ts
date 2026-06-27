@@ -57,15 +57,31 @@ export async function GET(request: Request) {
     }
     const supabase = getServiceClient()
 
-    // 1. 오늘 영업일
+    // 1. 영업일 — settlementSummary 와 동일한 fallback 로직 사용
+    //   R-incoming-bizday-fallback (2026-06-28): 사용자 보고 — 본 매장 식구는
+    //   정산 화면에 나오는데 외부 식구는 0건. 원인: settlement summary 는
+    //   today 영업일 없으면 latest open 으로 fallback 하지만, incoming-staff
+    //   는 today 만 보고 null 반환 → 두 API 의 영업일이 어긋남.
+    //   해결: 동일 fallback (latest open day) 적용.
     const today = getBusinessDateForOps()
-    const { data: bizDay } = await supabase
+    const { data: bizDayToday } = await supabase
       .from("store_operating_days")
       .select("id")
       .eq("store_uuid", auth.store_uuid)
       .eq("business_date", today)
       .maybeSingle()
-    const businessDayId = bizDay?.id ?? null
+    let businessDayId: string | null = bizDayToday?.id ?? null
+    if (!businessDayId) {
+      const { data: latestDay } = await supabase
+        .from("store_operating_days")
+        .select("id")
+        .eq("store_uuid", auth.store_uuid)
+        .eq("status", "open")
+        .order("business_date", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      businessDayId = latestDay?.id ?? null
+    }
     if (!businessDayId) {
       return NextResponse.json({
         business_day_id: null,
