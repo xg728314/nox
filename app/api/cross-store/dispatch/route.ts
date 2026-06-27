@@ -253,10 +253,17 @@ export async function POST(request: Request) {
 
       const originStore = hostessRow?.origin_store_uuid ?? hostessRow?.store_uuid ?? null
 
-      // 권한 — super_admin 아니면 hostess 가 본인 매장 식구 인지 확인
+      // R-dispatch-perm-fix (2026-06-28): 권한 체크 수정.
+      //   이전: originStore !== auth.store_uuid 이면 거부 → 외부 식구를 본 매장에
+      //         부르는 정당한 케이스도 차단됨 ("미라: 본인 매장 식구 아님" 에러).
+      //   수정: 둘 중 하나면 OK —
+      //     A) target_store_uuid === auth.store_uuid (자기 매장에 외부 식구 부름)
+      //     B) originStore === auth.store_uuid (자기 식구를 외부 매장에 보냄)
       if (!auth.is_super_admin) {
-        if (originStore !== auth.store_uuid && hostessRow?.store_uuid !== auth.store_uuid) {
-          errors.push(`${hostessRow?.name ?? hmid}: 본인 매장 식구 아님`)
+        const isCallingToOwn = target_store_uuid === auth.store_uuid
+        const isSendingOwn = originStore === auth.store_uuid
+        if (!isCallingToOwn && !isSendingOwn) {
+          errors.push(`${hostessRow?.name ?? hmid}: 본인 매장 관련 dispatch 아님 (target/origin 모두 외부)`)
           continue
         }
       }
