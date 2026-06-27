@@ -41,48 +41,80 @@ export default function StaffListPage() {
     return n
   }, [all, attendedSet])
 
-  // R-bulk-attend (2026-06-27): 일괄 출근 / 결근. 일하는중은 건너뜀 (자동 출근 상태).
+  // R-bulk-attend (2026-06-28): 일괄 출근 / 퇴근.
+  //   퇴근(checkout) 시 일하는중 식구도 포함 — session leave + attendance checkout 둘 다.
+  //   출근(checkin) 시 일하는중 식구는 자동 출근이라 skip (멱등).
+  //   '이미 출근' 에러는 silent (이미 출근이면 OK 로 처리, 사용자에게 노이즈 X).
   async function bulkAttendance(action: "checkin" | "checkout") {
     if (toggleBusy) return
     setToggleBusy("bulk")
     haptic([10, 30, 10])
     try {
       const targets = all.filter((h) => {
-        if (h.is_working) return false  // 일하는중 — 스킵 (자동 출근, 결근 불가)
-        const isAttended = attendedSet.has(h.membership_id)
-        return action === "checkin" ? !isAttended : isAttended
+        const isAttended = h.is_working || attendedSet.has(h.membership_id)
+        if (action === "checkin") {
+          if (h.is_working) return false  // 일하는중 — 이미 자동 출근 (skip)
+          return !isAttended  // 결근만 출근 처리
+        }
+        // checkout — 출근 상태(일하는중 포함) 모두 퇴근
+        return isAttended
       })
       if (targets.length === 0) {
-        toast(action === "checkin" ? "이미 전원 출근 처리" : "퇴근할 식구 없음", "info")
+        toast(action === "checkin" ? "이미 전원 출근 상태" : "퇴근할 식구 없음", "info")
         return
       }
       let ok = 0, fail = 0
       for (const h of targets) {
         try {
+          // 일하는중 식구 퇴근 시 session 도 함께 leave (working_participant_id 있을 때만)
+          if (action === "checkout" && h.is_working && h.working_participant_id) {
+            try {
+              await apiFetch(`/api/sessions/participants/${encodeURIComponent(h.working_participant_id)}/leave`, {
+                method: "POST",
+              })
+            } catch { /* best-effort — attendance 만이라도 처리 */ }
+          }
           const res = await apiFetch("/api/attendance", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ membership_id: h.membership_id, action }),
           })
-          if (res.ok) ok++; else fail++
+          if (res.ok) ok++
+          else {
+            // '이미 출근/퇴근' 류 에러는 success 로 간주 (멱등)
+            const j = await res.json().catch(() => ({}))
+            const msg = String(j?.message ?? "")
+            if (msg.includes("이미") || msg.includes("already")) ok++
+            else fail++
+          }
         } catch { fail++ }
       }
       invalidateApi("/api/attendance")
+      invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/rooms")
       toast(`${action === "checkin" ? "출근" : "퇴근"} ${ok}명 ${fail > 0 ? `(실패 ${fail})` : ""}`, "success")
     } finally {
       setToggleBusy(null)
     }
   }
 
+  // R-toggle-attend (2026-06-28): 일하는중 식구도 OFF 가능 — session leave + attendance checkout.
   async function toggleAttendance(membershipId: string, isAttended: boolean, isWorking: boolean) {
     if (toggleBusy) return
-    if (isWorking) {
-      toast("일하는 중인 식구는 자동 출근입니다. 세션 종료 후 결근 처리 가능.", "info")
-      return
-    }
     setToggleBusy(membershipId)
     haptic([10, 20, 10])
     try {
+      // 일하는중 식구 OFF 시 working_participant_id leave 먼저
+      if (isAttended && isWorking) {
+        const h = all.find((x) => x.membership_id === membershipId)
+        if (h?.working_participant_id) {
+          try {
+            await apiFetch(`/api/sessions/participants/${encodeURIComponent(h.working_participant_id)}/leave`, {
+              method: "POST",
+            })
+          } catch { /* best-effort */ }
+        }
+      }
       const res = await apiFetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,9 +125,15 @@ export default function StaffListPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j?.message ?? `HTTP ${res.status}`)
+        const msg = String(j?.message ?? "")
+        // '이미 출근/퇴근' 멱등 — silent
+        if (!(msg.includes("이미") || msg.includes("already"))) {
+          throw new Error(j?.message ?? `HTTP ${res.status}`)
+        }
       }
       invalidateApi("/api/attendance")
+      invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/rooms")
     } catch (e) {
       toast(`처리 실패: ${(e as Error).message}`, "error")
     } finally {
@@ -261,7 +299,7 @@ export default function StaffListPage() {
                       사용자 요구: '이름 옆에 출근 ON/OFF 기능'. 이전 chip 은 인식 어려움. */}
                   <button
                     type="button"
-                    disabled={busy || isWorking}
+                    disabled={busy}
                     onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
                     aria-label={isAttended ? "출근 ON — 클릭하여 OFF" : "출근 OFF — 클릭하여 ON"}
                     className={cn(
