@@ -114,7 +114,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "INSERT_FAILED", message: insErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true, dispatches: inserted ?? [] }, { status: 201 })
+    // R-auto-confirm-server (2026-06-27): 발신자가 super_admin/owner 면 server-side
+    //   에서 자동 confirm 호출 → 즉시 cross-store dispatch 실행. 클라이언트 측
+    //   자동 confirm 은 me.data 로딩 시점 의존 + silent fail 가능 → server side 가
+    //   더 robust. 사용자 요구: "외부 실장이 거절 안 하면 외부 식구 목록에 떠야".
+    const insertedRows = (inserted ?? []) as Array<{ id: string; target_store_uuid: string; status: string }>
+    const isAutoActor = auth.is_super_admin || auth.role === "owner"
+    if (isAutoActor && insertedRows.length > 0) {
+      const origin = new URL(request.url).origin
+      const cookieHeader = request.headers.get("cookie") ?? ""
+      const authHeader = request.headers.get("authorization") ?? ""
+      // 직렬 호출 — 마지막 호출 시 모든 row 가 confirm 돼서 execute 실행.
+      for (const d of insertedRows) {
+        try {
+          await fetch(`${origin}/api/chat/pattern-dispatch/${d.id}/confirm`, {
+            method: "POST",
+            headers: {
+              ...(cookieHeader ? { cookie: cookieHeader } : {}),
+              ...(authHeader ? { authorization: authHeader } : {}),
+            },
+          })
+        } catch {
+          // 개별 실패 무시 — 사용자에게 노출 X (UI 가 polling 으로 상태 봄)
+        }
+      }
+      // 최신 상태 다시 조회 (executed_session_id 등 채워진 후)
+      const { data: latest } = await supabase
+        .from("chat_pattern_dispatches")
+        .select("id, target_store_uuid, hostess_membership_id, category, time_type, status, target_confirmed_by, executed_session_id")
+        .in("id", insertedRows.map((d) => d.id))
+      return NextResponse.json({
+        ok: true,
+        dispatches: latest ?? insertedRows,
+        auto_executed: true,
+      }, { status: 201 })
+    }
+
+    return NextResponse.json({ ok: true, dispatches: insertedRows }, { status: 201 })
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: e.type, message: e.message }, { status: e.status })
