@@ -2,7 +2,7 @@
  * Hand-off 페이지 상세 — UI / API / DB / 컴포넌트 / 흐름.
  *   /handoff/page?route=/m/staff
  */
-import { promises as fs } from "node:fs"
+import { promises as fs, existsSync } from "node:fs"
 import path from "node:path"
 import Link from "next/link"
 import { resolveAuthContext } from "@/lib/auth/resolveAuthContext"
@@ -101,7 +101,13 @@ export default async function HandoffPageDetail({
     if (u.route) for (const t of u.route.tables) usedTables.add(t)
   }
 
-  const screenshotPath = `/handoff/screens/${route.replace(/[^a-z0-9]/gi, "_")}.png`
+  // R-handoff-no-onerror (2026-06-27): server component 는 onError prop 불가.
+  //   파일 존재 여부 server-side 에서 체크.
+  const screenshotSlug = route.replace(/[^a-z0-9]/gi, "_")
+  const screenshotPath = `/handoff/screens/${screenshotSlug}.png`
+  const screenshotExists = existsSync(
+    path.join(process.cwd(), "public", "handoff", "screens", `${screenshotSlug}.png`),
+  )
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 24px 64px" }}>
@@ -144,16 +150,22 @@ export default async function HandoffPageDetail({
           fontSize: 12,
           color: "#7A746A",
         }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={screenshotPath}
-            alt={`${m?.title ?? route} screenshot`}
-            style={{ maxWidth: 380, width: "100%", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-          />
-          <div style={{ marginTop: 12 }}>
-            ⚠ 스크린샷 미생성. <code>node scripts/capture-handoff-screenshots.mjs</code> 실행.
-          </div>
+          {screenshotExists ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={screenshotPath}
+              alt={`${m?.title ?? route} screenshot`}
+              style={{ maxWidth: 380, width: "100%", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
+            />
+          ) : (
+            <div style={{ padding: "40px 0" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
+              <div>⚠ 스크린샷 미생성</div>
+              <div style={{ marginTop: 8, fontSize: 11, fontFamily: "monospace" }}>
+                node scripts/capture-handoff-screenshots.mjs
+              </div>
+            </div>
+          )}
         </div>
       </Section>
 
