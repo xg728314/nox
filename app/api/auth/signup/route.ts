@@ -265,22 +265,27 @@ export async function POST(request: Request) {
     }
 
     // ─── 3a. Duplicate check: email already in auth.users ──────
-    // listUsers() is paginated; we accept the small cost here because
-    // signup is a low-frequency operation and there is no admin
-    // get-by-email endpoint in supabase-js v2.
-    const { data: existingUsers, error: listErr } =
-      await admin.auth.admin.listUsers()
-    if (listErr) {
-      return bad("INTERNAL_ERROR", "사용자 조회에 실패했습니다.", 500)
-    }
-    const existingByEmail = existingUsers?.users?.find(
-      (u) => (u.email ?? "").toLowerCase() === email
-    )
-    if (existingByEmail) {
-      return NextResponse.json(
-        { error: "EMAIL_TAKEN", message: "이미 가입된 이메일입니다." },
-        { status: 409 }
+    //   R-signup-listusers-removed (2026-06-26): auth.admin.listUsers() 는
+    //   페이지네이션이고 user 수가 늘면 부하/timeout → "사용자 조회에 실패"
+    //   에러 발생. createUser 가 이미 unique violation 시 'already' / 'registered'
+    //   메시지로 graceful 처리 (line ~342) → 사전 체크 불필요.
+    //
+    //   기존 코드 보존 (best-effort, silent fail 무시):
+    try {
+      const { data: existingUsers } = await admin.auth.admin.listUsers()
+      const existingByEmail = existingUsers?.users?.find(
+        (u) => (u.email ?? "").toLowerCase() === email,
       )
+      if (existingByEmail) {
+        return NextResponse.json(
+          { error: "EMAIL_TAKEN", message: "이미 가입된 이메일입니다." },
+          { status: 409 },
+        )
+      }
+    } catch (e) {
+      // listUsers 실패 (부하/timeout) 는 swallow — createUser 가 중복 처리.
+      console.warn("[signup] listUsers failed (best-effort, continuing):",
+        e instanceof Error ? e.message : e)
     }
 
     // ─── 3b. Duplicate check: same phone already pending/approved
