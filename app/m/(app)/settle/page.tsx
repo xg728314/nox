@@ -1,6 +1,6 @@
 "use client"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { Sheet } from "../../_components/Sheet"
@@ -96,6 +96,19 @@ export default function SettlePage() {
   const myProfit = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
   // 식구 지급 합계 (총 지급 의무)
   const totalHostessPayout = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+
+  // R-payout-hide-3h (2026-06-27): 정산완료 후 3시간 지난 row 는 목록에서 hide.
+  //   사용자 요구: "하루 지났는데 목록에 뜨면 더 햇갈린다".
+  //   paid_at + 3h < now 면 filter out. held / pending 은 그대로 표시.
+  const visibleByHostess = useMemo(() => {
+    const cutoff = Date.now() - 3 * 60 * 60 * 1000  // 3시간 전
+    return byHostess.filter((r) => {
+      if (r.payout_status !== "paid" || !r.payout_paid_at) return true
+      const paidMs = new Date(r.payout_paid_at).getTime()
+      if (Number.isNaN(paidMs)) return true
+      return paidMs > cutoff  // 3시간 미만이면 표시
+    })
+  }, [byHostess])
 
   async function verifyAndReset() {
     const pw = password.trim()
@@ -260,7 +273,7 @@ export default function SettlePage() {
         )}
         {byHostess.length > 0 && (
           <div className="bg-white rounded-2xl overflow-hidden border border-[#D8D2C8]/60">
-            {byHostess.map((h, i) => {
+            {visibleByHostess.map((h, i) => {
               const breakdown = h.store_breakdown ?? []
               const breakdownText = breakdown
                 .map((b) => `${b.store_name} ${b.count}`)
@@ -268,10 +281,16 @@ export default function SettlePage() {
               const gross = h.gross_total ?? 0
               const payout = h.hostess_amount ?? 0
               const sameAmount = gross === payout
-              const qs = quickStatus.get(h.hostess_id)
+              // R-payout-server-state (2026-06-27): 서버 응답 payout_status 우선,
+              //   로컬 quickStatus 는 갱신 직후 낙관적 UI.
+              const qs = quickStatus.get(h.hostess_id) ?? h.payout_status
               const isPaid = qs === "paid"
               const isHeld = qs === "held"
               const busy = quickBusy === h.hostess_id
+              // 정산완료 시각 (HH:MM)
+              const paidTime = isPaid && h.payout_paid_at
+                ? new Date(h.payout_paid_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })
+                : null
               return (
                 <div
                   key={h.hostess_id}
@@ -296,7 +315,7 @@ export default function SettlePage() {
                         </span>
                         {isPaid && (
                           <span className="text-[9px] font-extrabold text-green-700 bg-green-200/70 px-1.5 py-0.5 rounded-full border border-green-300">
-                            ✓ 정산완료
+                            ✓ 정산완료{paidTime ? ` ${paidTime}` : ""}
                           </span>
                         )}
                         {isHeld && (

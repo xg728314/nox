@@ -167,6 +167,10 @@ export type SettlementSummaryRow = {
   store_breakdown?: SettlementStoreBreakdown[]
   /** R-deduction-default (2026-06-26): 1타임당 실장수익 기본값 */
   default_manager_deduction?: number
+  /** R-payout-state (2026-06-27): 정산 상태 + 시각 */
+  payout_status?: "pending" | "paid" | "held" | null
+  payout_paid_at?: string | null
+  payout_method?: "cash" | "account" | null
 }
 export type SettlementSummary = {
   store_uuid: string

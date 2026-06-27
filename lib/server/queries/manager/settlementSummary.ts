@@ -22,6 +22,10 @@ export type SummaryRow = {
   store_breakdown: StoreBreakdownItem[]
   /** R-deduction-default (2026-06-26): 1타임당 실장수익 기본값 (UI 표시용) */
   default_manager_deduction: number
+  /** R-payout-state (2026-06-27): 정산 처리 상태 (정산완료/보관 시 시각 표시 + 3h 후 자동 hide) */
+  payout_status?: "pending" | "paid" | "held" | null
+  payout_paid_at?: string | null
+  payout_method?: "cash" | "account" | null
 }
 
 export type ManagerSettlementSummaryResponse = {
@@ -242,10 +246,20 @@ export async function getManagerSettlementSummary(
     .in("membership_id", hostessIds)
     .is("deleted_at", null)
 
-  const [hstsRes, participationsRes, membershipsRes] = await Promise.all([
+  // R-payout-state (2026-06-27): staff_payout_states 조회 — 정산완료 시각 / 보관 상태.
+  const payoutStatesP = supabase
+    .from("staff_payout_states")
+    .select("hostess_membership_id, status, paid_at, paid_method")
+    .eq("store_uuid", auth.store_uuid)
+    .eq("business_day_id", businessDayId)
+    .in("hostess_membership_id", hostessIds)
+    .is("deleted_at", null)
+
+  const [hstsRes, participationsRes, membershipsRes, payoutStatesRes] = await Promise.all([
     hstsP,
     participationsP,
     membershipsP,
+    payoutStatesP,
   ])
   console.log(JSON.stringify({
     tag: "perf.settlement.summary.phase.derive",
@@ -261,6 +275,18 @@ export async function getManagerSettlementSummary(
   const deductionMap = new Map<string, number>()
   for (const m of (membershipsRes.data ?? []) as { id: string; default_manager_deduction: number | null }[]) {
     deductionMap.set(m.id, Number(m.default_manager_deduction ?? 0))
+  }
+
+  // R-payout-state (2026-06-27): staff_payout_states 맵 (정산완료 시각 / 보관 / 지급방식)
+  type PayoutStateRow = {
+    hostess_membership_id: string
+    status: "pending" | "paid" | "held" | null
+    paid_at: string | null
+    paid_method: "cash" | "account" | null
+  }
+  const payoutMap = new Map<string, PayoutStateRow>()
+  for (const p of (payoutStatesRes.data ?? []) as PayoutStateRow[]) {
+    payoutMap.set(p.hostess_membership_id, p)
   }
 
   // R-settle-breakdown (2026-06-26): 매장 이름 매핑 (store_breakdown 표시용)
@@ -299,6 +325,7 @@ export async function getManagerSettlementSummary(
   const summary: SummaryRow[] = hostessIds.map((hostessId) => {
     const parts = hostessParts.get(hostessId) ?? []
 
+    const payoutState = payoutMap.get(hostessId)
     if (parts.length === 0) {
       return {
         hostess_id: hostessId,
@@ -312,6 +339,9 @@ export async function getManagerSettlementSummary(
         tc_count: 0,
         store_breakdown: [],
         default_manager_deduction: deductionMap.get(hostessId) ?? 0,
+        payout_status: payoutState?.status ?? null,
+        payout_paid_at: payoutState?.paid_at ?? null,
+        payout_method: payoutState?.paid_method ?? null,
       }
     }
 
@@ -360,6 +390,9 @@ export async function getManagerSettlementSummary(
       tc_count: seenSessions.size,
       store_breakdown: breakdown,
       default_manager_deduction: deductionMap.get(hostessId) ?? 0,
+      payout_status: payoutState?.status ?? null,
+      payout_paid_at: payoutState?.paid_at ?? null,
+      payout_method: payoutState?.paid_method ?? null,
     }
   })
 
