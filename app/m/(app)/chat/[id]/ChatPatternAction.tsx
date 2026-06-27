@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react"
 import { parseStaffChat, type ParsedStaffEntry } from "@/app/counter/helpers/staffChatParser"
 import { apiFetch } from "@/lib/apiFetch"
-import { useBuildingHostesses, useBuildingStores } from "../../../_hooks/useMobileData"
+import { useBuildingHostesses, useBuildingStores, useMe } from "../../../_hooks/useMobileData"
+import { invalidateApi } from "../../../_hooks/useApi"
 import { useToast, haptic } from "../../../_components/Toast"
 
 /**
@@ -68,6 +69,7 @@ export function ChatPatternAction({
 }) {
   const buildingH = useBuildingHostesses()
   const buildingS = useBuildingStores()
+  const me = useMe()
   const toast = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [serverDispatches, setServerDispatches] = useState<ServerDispatch[]>([])
@@ -189,8 +191,39 @@ export function ChatPatternAction({
       if (!res.ok || !j.ok) {
         throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
       }
-      setServerDispatches(j.dispatches ?? [])
-      toast(j.already ? "이미 등록됨" : `임시 등록 ${(j.dispatches ?? []).length}건 — 상대 매장 확인 대기`, "success")
+      const created = j.dispatches ?? []
+      setServerDispatches(created)
+
+      // R-auto-confirm (2026-06-26): super_admin / owner 발신 시 즉시 자동 confirm.
+      //   사용자가 모든 매장 권한이라 다자간 확인 무의미 → 임시 등록 누르면 즉시 dispatch.
+      //   일반 매니저는 기존 흐름 (수신측 확인 대기) 유지.
+      const isAutoActor = me.data?.is_super_admin || me.data?.role === "owner"
+      if (isAutoActor && created.length > 0) {
+        toast(`임시 등록 ${created.length}건 — 자동 확인 중...`, "info")
+        // 순차 confirm (마지막 호출 시 cross-store dispatch 실제 실행됨)
+        let executed = 0
+        for (const d of created) {
+          if (d.status !== "pending") continue
+          try {
+            const cf = await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(d.id)}/confirm`, { method: "POST" })
+            if (cf.ok) executed++
+          } catch { /* 개별 실패 — 다음 진행 */ }
+        }
+        toast(`✓ ${executed}건 cross-store 등록 완료`, "success")
+        // 외부 식구 섹션 즉시 반영
+        invalidateApi("/api/manager/incoming-staff")
+        invalidateApi("/api/manager/hostesses")
+        invalidateApi("/api/rooms")
+        invalidateApi("/api/manager/active-room-chats")
+        // 최신 dispatches 다시 fetch
+        try {
+          const r2 = await apiFetch(`/api/chat/pattern-dispatch?chat_message_id=${encodeURIComponent(chatMessageId)}`)
+          const jj = await r2.json().catch(() => ({}))
+          if (Array.isArray(jj?.dispatches)) setServerDispatches(jj.dispatches)
+        } catch { /* swallow */ }
+      } else {
+        toast(j.already ? "이미 등록됨" : `임시 등록 ${created.length}건 — 상대 매장 확인 대기`, "success")
+      }
     } catch (e) {
       toast(`등록 실패: ${(e as Error).message}`, "error")
     } finally {
