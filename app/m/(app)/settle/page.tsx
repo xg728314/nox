@@ -91,11 +91,18 @@ export default function SettlePage() {
   const count = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.tc_count ?? 0), 0)
   const byHostess = withSettlement
 
-  // R-settle-truth (2026-06-26): "내 장부" = 실장이 가져가는 금액 합계 (manager_amount).
-  //   이전엔 +34만 하드코딩으로 실데이터와 무관했음. 정산값 오차의 주범.
-  const myProfit = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
-  // 식구 지급 합계 (총 지급 의무)
-  const totalHostessPayout = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+  // R-settle-myprofit-fix (2026-06-28): "내 장부" 계산 사용자 의도와 맞춤.
+  //   사용자 의도: 매출 - 정산완료된 식구 지급액 = 실장 순수익.
+  //   예: 매출 1650만 - 정산완료 식구 지급 1500만 = 150만 (실장 차익 / 미지급 보관 포함).
+  //   정산완료 토글 누른 식구만 '식구 지급'에 합산 — 미지급 식구 금액은 실장 손에 있음.
+  const totalGross = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
+  // 정산완료(paid) + 보관(held) 된 식구의 hostess_amount 합 — 실제 처리한 식구 지급
+  const settledHostessPayout = isReset ? 0 : withSettlement
+    .filter((r) => r.payout_status === "paid" || r.payout_status === "held")
+    .reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+  const totalHostessPayout = settledHostessPayout
+  // 실장 순수익 = 매출 - 처리된 식구 지급
+  const myProfit = isReset ? 0 : Math.max(0, totalGross - settledHostessPayout)
 
   // R-payout-hide-3h (2026-06-27): 정산완료 후 3시간 지난 row 는 목록에서 hide.
   //   사용자 요구: "하루 지났는데 목록에 뜨면 더 햇갈린다".
