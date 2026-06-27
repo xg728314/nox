@@ -117,11 +117,16 @@ export async function POST(request: Request) {
     }
 
     // R-auto-confirm-server (2026-06-27): 발신자가 super_admin/owner 면 server-side
-    //   에서 자동 confirm 호출 → 즉시 cross-store dispatch 실행. 클라이언트 측
-    //   자동 confirm 은 me.data 로딩 시점 의존 + silent fail 가능 → server side 가
-    //   더 robust. 사용자 요구: "외부 실장이 거절 안 하면 외부 식구 목록에 떠야".
+    //   에서 자동 confirm 호출 → 즉시 cross-store dispatch 실행.
+    // R-auto-confirm-manager (2026-06-28): manager 가 본인 매장에만 외부 식구 부르는
+    //   경우(target_store_uuid === auth.store_uuid)도 자동 confirm 허용.
+    //   사용자 보고: 매니저 권한으로 '확인 0/1 대기' stuck — 외부 식구 0명.
+    //   security: target 이 자기 매장이라 다른 매장 권한 침해 X.
     const insertedRows = (inserted ?? []) as Array<{ id: string; target_store_uuid: string; status: string }>
-    const isAutoActor = auth.is_super_admin || auth.role === "owner"
+    const isAutoActor =
+      auth.is_super_admin
+      || auth.role === "owner"
+      || (auth.role === "manager" && insertedRows.every((r) => r.target_store_uuid === auth.store_uuid))
     if (isAutoActor && insertedRows.length > 0) {
       const origin = new URL(request.url).origin
       const cookieHeader = request.headers.get("cookie") ?? ""

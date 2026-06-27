@@ -201,9 +201,13 @@ export function ChatPatternAction({
       setServerDispatches(created)
 
       // R-auto-confirm (2026-06-26): super_admin / owner 발신 시 즉시 자동 confirm.
-      //   사용자가 모든 매장 권한이라 다자간 확인 무의미 → 임시 등록 누르면 즉시 dispatch.
-      //   일반 매니저는 기존 흐름 (수신측 확인 대기) 유지.
-      const isAutoActor = me.data?.is_super_admin || me.data?.role === "owner"
+      // R-auto-confirm-manager (2026-06-28): manager 도 본인 매장에만 외부 식구
+      //   부르는 경우 자동 confirm 허용 (모든 entries 의 target_store 가 본인 매장).
+      const targetsAllMine = matched.every((e) => e.target_store_uuid === me.data?.store_uuid)
+      const isAutoActor =
+        me.data?.is_super_admin
+        || me.data?.role === "owner"
+        || (me.data?.role === "manager" && targetsAllMine)
       if (isAutoActor && created.length > 0) {
         toast(`임시 등록 ${created.length}건 — 자동 확인 중...`, "info")
         // 순차 confirm (마지막 호출 시 cross-store dispatch 실제 실행됨)
