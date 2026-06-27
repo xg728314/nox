@@ -48,6 +48,8 @@ export default function HomePage() {
   }, [attendance.data])
 
   const [chatCollapsed, setChatCollapsed] = useState(false)
+  // R-grid-collapse (2026-06-28): 내 식구 그리드 접기/펴기. 채팅 strip 처럼.
+  const [gridCollapsed, setGridCollapsed] = useState(false)
   const [activeFilter, setActiveFilter] = useState<"working" | "waiting" | "total" | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
 
@@ -327,34 +329,43 @@ export default function HomePage() {
               </span>
             )}
           </div>
-          {activeFilter ? (
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setActiveFilter(null)}
-              className="text-[11px] font-bold text-[#A87D45] no-underline"
+              onClick={() => setGridCollapsed((v) => !v)}
+              className="text-[10px] font-bold border border-[#D8D2C8] rounded-full px-2.5 py-0.5 text-[#7A746A]"
             >
-              ✕ 필터 해제
+              {gridCollapsed ? "▸ 펴기" : "▾ 접기"}
             </button>
-          ) : (
-            <Link href="/m/staff" className="text-[11px] font-bold text-[#A87D45] no-underline">
-              전체 →
-            </Link>
-          )}
+            {activeFilter ? (
+              <button
+                type="button"
+                onClick={() => setActiveFilter(null)}
+                className="text-[11px] font-bold text-[#A87D45] no-underline"
+              >
+                ✕ 필터 해제
+              </button>
+            ) : (
+              <Link href="/m/staff" className="text-[11px] font-bold text-[#A87D45] no-underline">
+                전체 →
+              </Link>
+            )}
+          </div>
         </div>
-        {activeFilter === "total" && (
+        {!gridCollapsed && activeFilter === "total" && (
           <div className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1.5 mb-2 leading-snug">
             👉 카드를 탭하면 출근/결근 토글 — 출근 {attendedSet.size}명 / 총 {stats.total}명
             <br />· 일하는 중인 식구는 자동 출근으로 처리됨 (탭으로 결근 불가, 먼저 세션 종료)
           </div>
         )}
-        {hostesses.isLoading && <SkelGrid />}
-        {hostesses.error && <ErrLine msg="식구 목록을 불러올 수 없습니다" />}
-        {hostesses.data && filteredHostesses.length === 0 && (
+        {!gridCollapsed && hostesses.isLoading && <SkelGrid />}
+        {!gridCollapsed && hostesses.error && <ErrLine msg="식구 목록을 불러올 수 없습니다" />}
+        {!gridCollapsed && hostesses.data && filteredHostesses.length === 0 && (
           <div className="text-center text-[11px] text-[#7A746A] py-6 font-semibold">
             {activeFilter === "working" ? "지금 일하는 식구 없음" : activeFilter === "waiting" ? "대기 중인 식구 없음" : "등록된 식구 없음"}
           </div>
         )}
-        {hostesses.data && filteredHostesses.length > 0 && (
+        {!gridCollapsed && hostesses.data && filteredHostesses.length > 0 && (
           <div
             className="grid grid-cols-4 max-[360px]:grid-cols-3 gap-1.5 max-h-[55vh] overflow-y-auto pr-1 -mr-1 pb-2"
           >
