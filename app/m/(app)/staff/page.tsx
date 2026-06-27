@@ -20,6 +20,8 @@ export default function StaffListPage() {
   const [q, setQ] = useState("")
   const [toggleBusy, setToggleBusy] = useState<string | null>(null)
 
+  const all = data?.hostesses ?? []
+
   // R-attendance (2026-06-26): 출근 membership_id 집합. 토글 시 즉시 UI 반영.
   const attendedSet = useMemo(() => {
     const s = new Set<string>()
@@ -28,6 +30,49 @@ export default function StaffListPage() {
     }
     return s
   }, [attendance.data])
+
+  // R-attendance-bulk (2026-06-27): 진짜 출근자 수 — 일하는 중 + 출근 chip 켜진 식구.
+  //   이전엔 attendedSet.size 만 — 일하는중 1명 있어도 카운트 0 으로 표시되던 버그.
+  const trulyAttendedCount = useMemo(() => {
+    let n = 0
+    for (const h of all) {
+      if (h.is_working || attendedSet.has(h.membership_id)) n++
+    }
+    return n
+  }, [all, attendedSet])
+
+  // R-bulk-attend (2026-06-27): 일괄 출근 / 결근. 일하는중은 건너뜀 (자동 출근 상태).
+  async function bulkAttendance(action: "checkin" | "checkout") {
+    if (toggleBusy) return
+    setToggleBusy("bulk")
+    haptic([10, 30, 10])
+    try {
+      const targets = all.filter((h) => {
+        if (h.is_working) return false  // 일하는중 — 스킵 (자동 출근, 결근 불가)
+        const isAttended = attendedSet.has(h.membership_id)
+        return action === "checkin" ? !isAttended : isAttended
+      })
+      if (targets.length === 0) {
+        toast(action === "checkin" ? "이미 전원 출근 처리" : "퇴근할 식구 없음", "info")
+        return
+      }
+      let ok = 0, fail = 0
+      for (const h of targets) {
+        try {
+          const res = await apiFetch("/api/attendance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ membership_id: h.membership_id, action }),
+          })
+          if (res.ok) ok++; else fail++
+        } catch { fail++ }
+      }
+      invalidateApi("/api/attendance")
+      toast(`${action === "checkin" ? "출근" : "퇴근"} ${ok}명 ${fail > 0 ? `(실패 ${fail})` : ""}`, "success")
+    } finally {
+      setToggleBusy(null)
+    }
+  }
 
   async function toggleAttendance(membershipId: string, isAttended: boolean, isWorking: boolean) {
     if (toggleBusy) return
@@ -58,7 +103,6 @@ export default function StaffListPage() {
     }
   }
 
-  const all = data?.hostesses ?? []
   // 2026-06-12 R-phantom-immediate: 사전등록도 즉시 정식 식구가 됨 →
   //   pre_registrations 별도 섹션 표시 불필요. all 에 다 포함됨.
   // 2026-06-26 R-filter-fix: working/waiting 필터 실제 적용 — 이전엔 상태만 저장하고
@@ -93,7 +137,7 @@ export default function StaffListPage() {
         title="내 스태프"
         subtitle={
           data?.role === "owner" || data?.role === "manager"
-            ? `${data?.role === "owner" ? "사장" : "실장"} · 출근 ${attendedSet.size}/${all.length}`
+            ? `${data?.role === "owner" ? "사장" : "실장"} · 출근 ${trulyAttendedCount}/${all.length}`
             : undefined
         }
         backHref="/m"
@@ -117,6 +161,25 @@ export default function StaffListPage() {
           placeholder="이름 검색"
           className="w-full bg-white border border-[#D8D2C8] rounded-xl px-4 py-2.5 text-[13px] font-semibold outline-none focus:border-[#C49B61]"
         />
+        {/* 일괄 출근 / 결근 버튼 */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={toggleBusy === "bulk"}
+            onClick={() => bulkAttendance("checkin")}
+            className="flex-1 rounded-xl py-2 text-[12px] font-extrabold border-2 bg-white border-green-300 text-green-700 active:bg-green-50 disabled:opacity-40"
+          >
+            {toggleBusy === "bulk" ? "..." : "● 전체 출근"}
+          </button>
+          <button
+            type="button"
+            disabled={toggleBusy === "bulk"}
+            onClick={() => bulkAttendance("checkout")}
+            className="flex-1 rounded-xl py-2 text-[12px] font-extrabold border-2 bg-white border-[#D8D2C8] text-[#7A746A] active:bg-[#FAF5EC] disabled:opacity-40"
+          >
+            ○ 전체 퇴근
+          </button>
+        </div>
         <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
           {(
             [
