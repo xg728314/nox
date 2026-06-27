@@ -66,23 +66,25 @@ export async function GET(request: Request) {
     const today = getBusinessDateForOps()
     const { data: bizDayToday } = await supabase
       .from("store_operating_days")
-      .select("id")
+      .select("id, business_date")
       .eq("store_uuid", auth.store_uuid)
       .eq("business_date", today)
       .maybeSingle()
-    let businessDayId: string | null = bizDayToday?.id ?? null
+    let businessDayId: string | null = (bizDayToday as { id: string } | null)?.id ?? null
+    let businessDate: string | null = (bizDayToday as { business_date: string } | null)?.business_date ?? null
     if (!businessDayId) {
       const { data: latestDay } = await supabase
         .from("store_operating_days")
-        .select("id")
+        .select("id, business_date")
         .eq("store_uuid", auth.store_uuid)
         .eq("status", "open")
         .order("business_date", { ascending: false })
         .limit(1)
         .maybeSingle()
-      businessDayId = latestDay?.id ?? null
+      businessDayId = (latestDay as { id: string } | null)?.id ?? null
+      businessDate = (latestDay as { business_date: string } | null)?.business_date ?? null
     }
-    if (!businessDayId) {
+    if (!businessDayId || !businessDate) {
       return NextResponse.json({
         business_day_id: null,
         groups: [],
@@ -92,29 +94,26 @@ export async function GET(request: Request) {
       })
     }
 
-    // 2. 오늘 본 매장 active/closed 세션 모두 (참여자 필터링 위해)
-    const { data: sessions } = await supabase
-      .from("room_sessions")
-      .select("id")
-      .eq("store_uuid", auth.store_uuid)
-      .eq("business_day_id", businessDayId)
-    const sessionIds = ((sessions ?? []) as { id: string }[]).map((s) => s.id)
-    if (sessionIds.length === 0) {
-      return NextResponse.json({
-        business_day_id: businessDayId,
-        groups: [],
-        grand_total_price: 0,
-        grand_total_hostess_payout: 0,
-        grand_total_manager_payout: 0,
-      })
-    }
+    // 2. 영업일 시각 범위 (KST 06:00 ~ 다음날 KST 05:59:59)
+    //   R-incoming-entered-at (2026-06-28): session.business_day_id 가 아니라
+    //   participant.entered_at 기준으로 필터링.
+    //   원인: confirm route 가 '같은 방 active session 재사용' 함 → 옛 영업일에
+    //   시작된 session 이 마감 안 됐으면 새 dispatch 가 옛 business_day_id 에
+    //   들어감. session.business_day_id 기준이면 잘못된 영업일에 묶여 0건.
+    //   해결: entered_at 의 영업일이 사용자가 보는 영업일과 일치하는지 검증.
+    const startKst = new Date(`${businessDate}T06:00:00+09:00`)
+    const endKst = new Date(startKst)
+    endKst.setUTCDate(endKst.getUTCDate() + 1)
+    const startIso = startKst.toISOString()
+    const endIso = endKst.toISOString()
 
-    // 3. 타매장 origin 참여자 (cross-store incoming)
+    // 3. 타매장 origin 참여자 (cross-store incoming) — entered_at 범위 기반
     const { data: partsRaw } = await supabase
       .from("session_participants")
       .select("id, session_id, membership_id, store_uuid, origin_store_uuid, category, time_minutes, price_amount, hostess_payout_amount, manager_payout_amount, status, entered_at, left_at, payout_settled_at")
       .eq("store_uuid", auth.store_uuid)
-      .in("session_id", sessionIds)
+      .gte("entered_at", startIso)
+      .lt("entered_at", endIso)
       .not("origin_store_uuid", "is", null)
       .neq("origin_store_uuid", auth.store_uuid)
       .is("deleted_at", null)
