@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { PageHeader } from "../../../_components/PageHeader"
 import { TabBar } from "../../../_components/TabBar"
@@ -114,8 +114,20 @@ export default function ChatRoomPage() {
     }
   }, [roomId, toast])
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" })
+  // R-chat-scroll-bottom (2026-06-27): 채팅방 진입 시 스크롤 즉시 최하단 (최신 메시지)
+  //   으로. 사용자 보고: "스크롤이 최상단으로 올라가는걸 최하단에 맞게".
+  //
+  //   - useLayoutEffect: DOM 렌더 직후 paint 전에 scroll → 사용자 깜빡임 X.
+  //   - 첫 로드는 instant, 새 메시지 도착은 smooth.
+  //   - messages.length 0 일 땐 skip.
+  const didInitialScrollRef = useRef(false)
+  useLayoutEffect(() => {
+    if (messages.length === 0) return
+    const el = scrollRef.current
+    if (!el) return
+    const behavior: ScrollBehavior = didInitialScrollRef.current ? "smooth" : "auto"
+    el.scrollTo({ top: el.scrollHeight, behavior })
+    didInitialScrollRef.current = true
   }, [messages])
 
   async function send() {
