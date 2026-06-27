@@ -1,0 +1,156 @@
+{
+  "//": "수동 보강 — 페이지별 UI 설명 + 사용자 흐름 + 권한. /handoff 페이지에서 pages.json 과 머지.",
+  "pages": {
+    "/m": {
+      "title": "홈 (대시보드)",
+      "category": "홈",
+      "summary": "오늘 영업일 한눈 보기 — 채팅 + 우리 스태프 상태 + 곧 끝나는 메이드 + 외부 식구 한 화면에.",
+      "ui_flow": [
+        "상단 헤더 — 날짜 + 사용자 이름 + 알림",
+        "검색 바 (이름/매장/종목)",
+        "채팅 strip — 매장 전체 + 룸 채팅 (방번호별)",
+        "오늘 우리 스태프 카운터 — 일하는중 / 대기 / 총인원 (클릭 시 필터)",
+        "내 식구 그리드 (4-col, 항상 스크롤)",
+        "외부 식구 섹션 — 타매장 식구가 본 매장 들어옴",
+        "+ FAB → 4-step 메이드 등록"
+      ],
+      "permissions": "owner / manager / counter (스태프 X)",
+      "edge_cases": [
+        "≤10분 임박 식구 — 빨간 배경 + pulse",
+        "10분 초과 자동 종료 — 배너 표시",
+        "필터 활성 시 그리드 슬라이스 해제"
+      ]
+    },
+    "/m/staff": {
+      "title": "스태프 목록",
+      "category": "스태프",
+      "summary": "관리하는 식구 list — 일하는중/대기 필터 + 출근 on/off 토글.",
+      "ui_flow": [
+        "검색 + 필터 칩 (전체/일하는중/대기)",
+        "row — 이름, 상태, 우측 출근 chip",
+        "출근 chip 클릭 → 즉시 PATCH (haptic)",
+        "이름 영역 클릭 → 스태프 상세 페이지"
+      ],
+      "permissions": "owner / manager"
+    },
+    "/m/staff/[id]": {
+      "title": "스태프 상세",
+      "category": "스태프",
+      "summary": "개별 식구 — 오늘 활동 / 정산 상태 / 1타임당 실장수익 / 지급 방식 (계좌·현금).",
+      "ui_flow": [
+        "프로필 카드 — 이니셜 + 이름 + 승인 상태",
+        "오늘 활동 — 매장+종목 그룹화 + 총 N타임",
+        "정산 상태 — ✓ 완료 / ⏳ 진행중",
+        "1타임당 실장수익 — 0/5천/1만원 선택 (default_manager_deduction)",
+        "지급 정보 — 계좌 / 현금 토글 + 실명·은행·계좌번호"
+      ],
+      "permissions": "owner / manager (본인 담당만)"
+    },
+    "/m/staff/new": {
+      "title": "스태프 등록 (사전등록)",
+      "category": "스태프",
+      "summary": "이름 + 전화번호 사전등록. 식구가 회원가입 시 전화 매칭으로 자동 연동.",
+      "permissions": "owner / manager"
+    },
+    "/m/staff/rules": {
+      "title": "스태프 운영 규칙",
+      "category": "스태프",
+      "summary": "매장 운영 규칙 입력 (출근 시간, 페널티 등).",
+      "permissions": "owner"
+    },
+    "/m/chat": {
+      "title": "채팅 목록",
+      "category": "채팅",
+      "summary": "참여한 채팅방 list — 매장 전체 / 그룹 / DM / 룸 채팅.",
+      "ui_flow": [
+        "최근 메시지 순 정렬",
+        "미읽음 빨간 chip",
+        "+ → 새 채팅 (그룹/DM)"
+      ],
+      "permissions": "모든 role"
+    },
+    "/m/chat/[id]": {
+      "title": "채팅방",
+      "category": "채팅",
+      "summary": "메시지 입출력 — 5초 polling. 운영자 토글 시 메이드 패턴 자동 인식.",
+      "ui_flow": [
+        "메시지 list — 최신 하단, 본인은 우측",
+        "운영자 자동인식 ON 채팅방 → 카드 (🎯 자동 인식 — N건)",
+        "발신자 [📝 임시 등록] → super_admin/owner 면 즉시 자동 confirm + dispatch"
+      ],
+      "permissions": "참여자만"
+    },
+    "/m/chat/new": {
+      "title": "새 채팅",
+      "category": "채팅",
+      "summary": "그룹 채팅 / DM 생성.",
+      "permissions": "모든 role"
+    },
+    "/m/settle": {
+      "title": "정산",
+      "category": "정산",
+      "summary": "오늘 매출 / 식구별 정산 (정산완료·보관·팁) + 외부 식구 매장간 정산.",
+      "ui_flow": [
+        "오늘 매출 카드 + 내 장부 (실장 순수익)",
+        "스태프별 list — 매장+종목 표시 + [✓ 정산완료] [📦 보관] [💸] 버튼",
+        "각 row 빠른 액션 — 즉시 PATCH (낙관적 UI)",
+        "💸 → 상세 시트 (팁 입력 / 메모 / 지급방식)",
+        "외부 식구 섹션 — 매장별 그룹 + 정산완료 토글"
+      ],
+      "permissions": "owner / manager"
+    },
+    "/m/settle/store": {
+      "title": "매장 정산",
+      "category": "정산",
+      "summary": "매장 전체 정산 합계 (사장 권한 — 개별 수익 마스킹).",
+      "permissions": "owner"
+    },
+    "/m/me": {
+      "title": "내정보",
+      "category": "내정보",
+      "summary": "프로필 + 매장 설정 + 보안 (MFA, 비밀번호) + 로그아웃.",
+      "ui_flow": [
+        "프로필 카드 (이름, 매장, role)",
+        "매장 메뉴 → /m/store, /m/store/settings",
+        "보안 메뉴 → /me/security (MFA), /reset-password"
+      ],
+      "permissions": "본인"
+    },
+    "/m/store": {
+      "title": "매장 상세",
+      "category": "매장",
+      "summary": "매장 정보 + 종목 단가 + 운영 설정.",
+      "permissions": "owner"
+    },
+    "/m/store/settings": {
+      "title": "매장 설정",
+      "category": "매장",
+      "summary": "종목 단가 (퍼블릭/셔츠/하퍼 × 기본/반티/차3) + 카드 수수료 + 웨이터팁 + 영업일 잠금.",
+      "permissions": "owner"
+    },
+    "/m/assign": {
+      "title": "메이드 등록 (FAB)",
+      "category": "메이드 등록",
+      "summary": "4-step 배정 시트 — 층 → 매장 → 종목 → 시간.",
+      "permissions": "owner / manager"
+    },
+    "/m/attendance": {
+      "title": "출근 관리",
+      "category": "스태프",
+      "summary": "전체 식구 출근 list + 일괄 토글.",
+      "permissions": "owner / manager"
+    },
+    "/m/monitor": {
+      "title": "관제 (모니터)",
+      "category": "관제",
+      "summary": "건물 전체 매장 실시간 현황 — 5-8F 매장 카드 list.",
+      "permissions": "super_admin / owner"
+    },
+    "/m/monitor/store/[store_uuid]": {
+      "title": "관제 — 매장 상세",
+      "category": "관제",
+      "summary": "특정 매장의 실시간 룸 현황 + active 식구.",
+      "permissions": "super_admin"
+    }
+  }
+}

@@ -1,0 +1,4395 @@
+{
+  "generated_at": "2026-06-27T13:15:35.591Z",
+  "page_count": 17,
+  "api_count": 301,
+  "table_count": 89,
+  "pages": [
+    {
+      "file": "m/(app)/page.tsx",
+      "route": "/m",
+      "apis": [
+        "/api/attendance",
+        "/api/chat/rooms",
+        "/api/manager/hostesses",
+        "/api/rooms",
+        "/api/sessions/participants/"
+      ],
+      "hooks": [
+        "useActiveRoomChats",
+        "useAttendance",
+        "useAutoCloseExpired",
+        "useBuildingStores",
+        "useChatRooms",
+        "useHostesses",
+        "useIncomingStaff",
+        "useMe",
+        "useRooms"
+      ],
+      "components": [
+        "AssignFlowSheet",
+        "ChatCard",
+        "ExtendEndSheet",
+        "ExternalStaffAddSheet",
+        "StaffCard",
+        "StatusCells",
+        "TabBar"
+      ],
+      "line_count": 793,
+      "imports": [
+        "next/link",
+        "next/navigation",
+        "react",
+        "../_components/TabBar",
+        "../_components/StatusCells",
+        "../_components/ChatCard",
+        "../_components/StaffCard",
+        "../_components/AssignFlowSheet",
+        "../_components/ExtendEndSheet",
+        "../_components/ExternalStaffAddSheet",
+        "../_lib/format",
+        "../_hooks/useMobileData",
+        "../_hooks/useAutoCloseExpired",
+        "../_hooks/useApi",
+        "@/lib/apiFetch",
+        "../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/assign/page.tsx",
+      "route": "/m/assign",
+      "apis": [
+        "/api/manager/settlement",
+        "/api/rooms",
+        "/api/sessions/checkin",
+        "/api/sessions/participants"
+      ],
+      "hooks": [
+        "useBuildingHostesses",
+        "useBuildingStores",
+        "useMe",
+        "useRooms",
+        "useServiceTypes"
+      ],
+      "components": [
+        "PageHeader"
+      ],
+      "line_count": 485,
+      "imports": [
+        "react",
+        "next/navigation",
+        "../../_components/PageHeader",
+        "../../_components/Toast",
+        "../../_hooks/useMobileData",
+        "@/lib/apiFetch",
+        "../../_hooks/useApi",
+        "../../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/attendance/page.tsx",
+      "route": "/m/attendance",
+      "apis": [
+        "/api/attendance"
+      ],
+      "hooks": [
+        "useAttendance",
+        "useHostesses"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 112,
+      "imports": [
+        "react",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_hooks/useMobileData",
+        "../../_components/Toast",
+        "@/lib/apiFetch",
+        "../../_hooks/useApi",
+        "../../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/chat/page.tsx",
+      "route": "/m/chat",
+      "apis": [],
+      "hooks": [
+        "useChatRooms"
+      ],
+      "components": [
+        "ChatCard",
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 90,
+      "imports": [
+        "next/link",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_components/ChatCard",
+        "../../_hooks/useMobileData"
+      ]
+    },
+    {
+      "file": "m/(app)/chat/[id]/page.tsx",
+      "route": "/m/chat/[id]",
+      "apis": [
+        "/api/chat/messages",
+        "/api/chat/rooms/"
+      ],
+      "hooks": [
+        "useMe"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 249,
+      "imports": [
+        "react",
+        "next/navigation",
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar",
+        "@/lib/apiFetch",
+        "../../../_components/Toast",
+        "../../../_hooks/useMobileData",
+        "../../../_lib/format",
+        "../../../_lib/cn",
+        "./ChatPatternAction"
+      ]
+    },
+    {
+      "file": "m/(app)/chat/new/page.tsx",
+      "route": "/m/chat/new",
+      "apis": [
+        "/api/chat/rooms"
+      ],
+      "hooks": [
+        "useBuildingHostesses",
+        "useMe"
+      ],
+      "components": [
+        "PageHeader"
+      ],
+      "line_count": 180,
+      "imports": [
+        "react",
+        "next/navigation",
+        "../../../_components/PageHeader",
+        "../../../_hooks/useMobileData",
+        "../../../_components/Toast",
+        "@/lib/apiFetch",
+        "../../../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/me/page.tsx",
+      "route": "/m/me",
+      "apis": [
+        "/api/auth/logout"
+      ],
+      "hooks": [
+        "useMe"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 142,
+      "imports": [
+        "next/link",
+        "react",
+        "next/navigation",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_components/Toast",
+        "../../_hooks/useMobileData",
+        "@/lib/apiFetch",
+        "../../_lib/format"
+      ]
+    },
+    {
+      "file": "m/monitor/page.tsx",
+      "route": "/m/monitor",
+      "apis": [
+        "/api/auth/me",
+        "/api/monitor/scope"
+      ],
+      "hooks": [
+        "useDeviceMode"
+      ],
+      "components": [],
+      "line_count": 183,
+      "imports": [
+        "react",
+        "next/navigation",
+        "next/link",
+        "@/lib/apiFetch",
+        "@/lib/ui/useDeviceMode",
+        "./components/MobileTopTabs",
+        "./components/StoreListSheet"
+      ]
+    },
+    {
+      "file": "m/monitor/store/[store_uuid]/page.tsx",
+      "route": "/m/monitor/store/[store_uuid]",
+      "apis": [
+        "/api/auth/me"
+      ],
+      "hooks": [
+        "useDeviceMode",
+        "useScopedMonitor"
+      ],
+      "components": [],
+      "line_count": 294,
+      "imports": [
+        "react",
+        "next/navigation",
+        "next/link",
+        "@/app/counter/monitor/hooks/useMonitorData",
+        "@/lib/ui/useDeviceMode",
+        "../../components/MobileMiniMap",
+        "../../components/MobileHostessActionSheet",
+        "../../components/LocationCorrectionSheet",
+        "../../components/MovementHistorySheet",
+        "../../components/FloorSummaryCard"
+      ]
+    },
+    {
+      "file": "m/(app)/settle/page.tsx",
+      "route": "/m/settle",
+      "apis": [
+        "/api/auth/verify-password",
+        "/api/cross-store/settle-group",
+        "/api/manager/incoming-staff",
+        "/api/manager/settlement/summary",
+        "/api/manager/staff-payout/"
+      ],
+      "hooks": [
+        "useIncomingStaff",
+        "useMe",
+        "useSettlement"
+      ],
+      "components": [
+        "EditParticipantSheet",
+        "PageHeader",
+        "Sheet",
+        "StaffPayoutSheet",
+        "TabBar"
+      ],
+      "line_count": 738,
+      "imports": [
+        "next/link",
+        "react",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_components/Sheet",
+        "../../_components/Toast",
+        "../../_hooks/useMobileData",
+        "../../_lib/format",
+        "../../_lib/cn",
+        "@/lib/apiFetch",
+        "../../_hooks/useApi",
+        "../../_components/EditParticipantSheet",
+        "../../_components/StaffPayoutSheet"
+      ]
+    },
+    {
+      "file": "m/(app)/settle/store/page.tsx",
+      "route": "/m/settle/store",
+      "apis": [
+        "/api/cross-store/settlement"
+      ],
+      "hooks": [],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 61,
+      "imports": [
+        "next/navigation",
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar",
+        "../../../_hooks/useApi",
+        "../../../_lib/format"
+      ]
+    },
+    {
+      "file": "m/(app)/staff/page.tsx",
+      "route": "/m/staff",
+      "apis": [
+        "/api/attendance"
+      ],
+      "hooks": [
+        "useAttendance",
+        "useHostesses"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 224,
+      "imports": [
+        "next/link",
+        "react",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_hooks/useMobileData",
+        "../../_hooks/useApi",
+        "../../_lib/format",
+        "../../_lib/cn",
+        "@/lib/apiFetch",
+        "../../_components/Toast"
+      ]
+    },
+    {
+      "file": "m/(app)/staff/[id]/page.tsx",
+      "route": "/m/staff/[id]",
+      "apis": [
+        "/api/manager/hostesses/"
+      ],
+      "hooks": [
+        "useHostesses"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 359,
+      "imports": [
+        "react",
+        "next/navigation",
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar",
+        "../../../_hooks/useMobileData",
+        "../../../_hooks/useApi",
+        "../../../_lib/format",
+        "../../../_components/Toast",
+        "@/lib/apiFetch",
+        "../../../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/staff/new/page.tsx",
+      "route": "/m/staff/new",
+      "apis": [
+        "/api/admin/members/create",
+        "/api/building/hostesses",
+        "/api/manager/hostesses",
+        "/api/manager/hostesses/pre-register"
+      ],
+      "hooks": [
+        "useMe"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 354,
+      "imports": [
+        "react",
+        "next/link",
+        "next/navigation",
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar",
+        "../../../_components/Toast",
+        "../../../_hooks/useMobileData",
+        "../../../_hooks/useApi",
+        "@/lib/apiFetch",
+        "../../../_lib/cn"
+      ]
+    },
+    {
+      "file": "m/(app)/staff/rules/page.tsx",
+      "route": "/m/staff/rules",
+      "apis": [],
+      "hooks": [],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 40,
+      "imports": [
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar"
+      ]
+    },
+    {
+      "file": "m/(app)/store/page.tsx",
+      "route": "/m/store",
+      "apis": [],
+      "hooks": [
+        "useMe",
+        "useRooms"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 81,
+      "imports": [
+        "next/link",
+        "../../_components/PageHeader",
+        "../../_components/TabBar",
+        "../../_hooks/useMobileData"
+      ]
+    },
+    {
+      "file": "m/(app)/store/settings/page.tsx",
+      "route": "/m/store/settings",
+      "apis": [],
+      "hooks": [
+        "useMe",
+        "useServiceTypes"
+      ],
+      "components": [
+        "PageHeader",
+        "TabBar"
+      ],
+      "line_count": 64,
+      "imports": [
+        "../../../_components/PageHeader",
+        "../../../_components/TabBar",
+        "../../../_hooks/useMobileData"
+      ]
+    }
+  ],
+  "api_routes": [
+    {
+      "file": "api/admin/dashboard/route.ts",
+      "route": "/api/admin/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "staff_attendance",
+        "store_operating_days"
+      ],
+      "line_count": 154
+    },
+    {
+      "file": "api/admin/deployments/route.ts",
+      "route": "/api/admin/deployments",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "deployment_events"
+      ],
+      "line_count": 81
+    },
+    {
+      "file": "api/admin/members/create/route.ts",
+      "route": "/api/admin/members/create",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 504
+    },
+    {
+      "file": "api/admin/members/invite/route.ts",
+      "route": "/api/admin/members/invite",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "PUT",
+        "DELETE"
+      ],
+      "tables": [],
+      "line_count": 31
+    },
+    {
+      "file": "api/admin/preferences/route.ts",
+      "route": "/api/admin/preferences",
+      "methods": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "tables": [
+        "admin_preference_overrides"
+      ],
+      "line_count": 247
+    },
+    {
+      "file": "api/attendance/route.ts",
+      "route": "/api/attendance",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "hostesses",
+        "staff_attendance",
+        "store_memberships",
+        "store_operating_days"
+      ],
+      "line_count": 278
+    },
+    {
+      "file": "api/audit/route.ts",
+      "route": "/api/audit",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "profiles"
+      ],
+      "line_count": 91
+    },
+    {
+      "file": "api/audit-events/route.ts",
+      "route": "/api/audit-events",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "profiles"
+      ],
+      "line_count": 148
+    },
+    {
+      "file": "api/auth/active-context/route.ts",
+      "route": "/api/auth/active-context",
+      "methods": [
+        "PUT",
+        "DELETE"
+      ],
+      "tables": [
+        "store_memberships"
+      ],
+      "line_count": 161
+    },
+    {
+      "file": "api/auth/change-password/route.ts",
+      "route": "/api/auth/change-password",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "profiles"
+      ],
+      "line_count": 165
+    },
+    {
+      "file": "api/auth/devices/route.ts",
+      "route": "/api/auth/devices",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "trusted_devices"
+      ],
+      "line_count": 39
+    },
+    {
+      "file": "api/auth/devices/revoke/route.ts",
+      "route": "/api/auth/devices/revoke",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "trusted_devices"
+      ],
+      "line_count": 68
+    },
+    {
+      "file": "api/auth/find-id/route.ts",
+      "route": "/api/auth/find-id",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "profiles",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 155
+    },
+    {
+      "file": "api/auth/login/route.ts",
+      "route": "/api/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "store_memberships",
+        "system_errors",
+        "trusted_devices"
+      ],
+      "line_count": 347
+    },
+    {
+      "file": "api/auth/login/mfa/route.ts",
+      "route": "/api/auth/login/mfa",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "store_memberships",
+        "trusted_devices",
+        "user_mfa_settings"
+      ],
+      "line_count": 336
+    },
+    {
+      "file": "api/auth/login/otp/verify/route.ts",
+      "route": "/api/auth/login/otp/verify",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "store_memberships",
+        "trusted_devices"
+      ],
+      "line_count": 390
+    },
+    {
+      "file": "api/auth/logout/route.ts",
+      "route": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 64
+    },
+    {
+      "file": "api/auth/me/route.ts",
+      "route": "/api/auth/me",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "store_settings",
+        "stores",
+        "user_mfa_settings"
+      ],
+      "line_count": 151
+    },
+    {
+      "file": "api/auth/memberships/route.ts",
+      "route": "/api/auth/memberships",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 133
+    },
+    {
+      "file": "api/auth/mfa/disable/route.ts",
+      "route": "/api/auth/mfa/disable",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "user_mfa_settings"
+      ],
+      "line_count": 128
+    },
+    {
+      "file": "api/auth/mfa/enable/route.ts",
+      "route": "/api/auth/mfa/enable",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "user_mfa_settings"
+      ],
+      "line_count": 138
+    },
+    {
+      "file": "api/auth/mfa/recovery-codes/route.ts",
+      "route": "/api/auth/mfa/recovery-codes",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "user_mfa_settings"
+      ],
+      "line_count": 151
+    },
+    {
+      "file": "api/auth/mfa/setup/route.ts",
+      "route": "/api/auth/mfa/setup",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "user_mfa_settings"
+      ],
+      "line_count": 92
+    },
+    {
+      "file": "api/auth/mfa/verify/route.ts",
+      "route": "/api/auth/mfa/verify",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "user_mfa_settings"
+      ],
+      "line_count": 109
+    },
+    {
+      "file": "api/auth/realtime-token/route.ts",
+      "route": "/api/auth/realtime-token",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "PUT",
+        "DELETE"
+      ],
+      "tables": [],
+      "line_count": 168
+    },
+    {
+      "file": "api/auth/reauth/route.ts",
+      "route": "/api/auth/reauth",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "reauth_verifications",
+        "user_mfa_settings"
+      ],
+      "line_count": 142
+    },
+    {
+      "file": "api/auth/refresh/route.ts",
+      "route": "/api/auth/refresh",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 140
+    },
+    {
+      "file": "api/auth/reset-password/route.ts",
+      "route": "/api/auth/reset-password",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "store_memberships"
+      ],
+      "line_count": 250
+    },
+    {
+      "file": "api/auth/signup/route.ts",
+      "route": "/api/auth/signup",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "profiles",
+        "store_memberships",
+        "stores",
+        "system_errors"
+      ],
+      "line_count": 442
+    },
+    {
+      "file": "api/auth/switch-membership/route.ts",
+      "route": "/api/auth/switch-membership",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "store_memberships"
+      ],
+      "line_count": 111
+    },
+    {
+      "file": "api/auth/verify-password/route.ts",
+      "route": "/api/auth/verify-password",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 84
+    },
+    {
+      "file": "api/ble/corrections/route.ts",
+      "route": "/api/ble/corrections",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "ble_feedback",
+        "ble_presence_corrections",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 296
+    },
+    {
+      "file": "api/ble/feedback/route.ts",
+      "route": "/api/ble/feedback",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "ble_feedback",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 163
+    },
+    {
+      "file": "api/ble/feedback/kpi/route.ts",
+      "route": "/api/ble/feedback/kpi",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_feedback",
+        "ble_presence_corrections"
+      ],
+      "line_count": 136
+    },
+    {
+      "file": "api/ble/gateways/route.ts",
+      "route": "/api/ble/gateways",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_gateways",
+        "ble_ingest_events",
+        "rooms"
+      ],
+      "line_count": 269
+    },
+    {
+      "file": "api/ble/gateways/[id]/route.ts",
+      "route": "/api/ble/gateways/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_gateways",
+        "rooms"
+      ],
+      "line_count": 208
+    },
+    {
+      "file": "api/ble/gateways/[id]/regenerate-secret/route.ts",
+      "route": "/api/ble/gateways/[id]/regenerate-secret",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_gateways"
+      ],
+      "line_count": 89
+    },
+    {
+      "file": "api/ble/ingest/route.ts",
+      "route": "/api/ble/ingest",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "ble_gateways",
+        "ble_ingest_audit",
+        "ble_ingest_events",
+        "ble_presence_history",
+        "ble_tag_presence",
+        "ble_tags"
+      ],
+      "line_count": 510
+    },
+    {
+      "file": "api/ble/presence/route.ts",
+      "route": "/api/ble/presence",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_tag_presence",
+        "hostesses",
+        "rooms"
+      ],
+      "line_count": 95
+    },
+    {
+      "file": "api/ble/tags/route.ts",
+      "route": "/api/ble/tags",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_tag_presence",
+        "ble_tags",
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 227
+    },
+    {
+      "file": "api/ble/tags/[id]/route.ts",
+      "route": "/api/ble/tags/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_tags",
+        "store_memberships"
+      ],
+      "line_count": 195
+    },
+    {
+      "file": "api/ble/tags/discovered/route.ts",
+      "route": "/api/ble/tags/discovered",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_gateways",
+        "ble_ingest_events",
+        "ble_tags",
+        "rooms"
+      ],
+      "line_count": 185
+    },
+    {
+      "file": "api/building/hostesses/route.ts",
+      "route": "/api/building/hostesses",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 181
+    },
+    {
+      "file": "api/building/stores/route.ts",
+      "route": "/api/building/stores",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 62
+    },
+    {
+      "file": "api/cafe/account/route.ts",
+      "route": "/api/cafe/account",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "cafe_account_info"
+      ],
+      "line_count": 68
+    },
+    {
+      "file": "api/cafe/admin/overview/route.ts",
+      "route": "/api/cafe/admin/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_account_info",
+        "cafe_menu_items",
+        "cafe_orders",
+        "stores"
+      ],
+      "line_count": 102
+    },
+    {
+      "file": "api/cafe/credits/route.ts",
+      "route": "/api/cafe/credits",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_loyalty_members",
+        "cafe_order_credits",
+        "cafe_orders"
+      ],
+      "line_count": 141
+    },
+    {
+      "file": "api/cafe/credits/[id]/pay/route.ts",
+      "route": "/api/cafe/credits/[id]/pay",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cafe_order_credits",
+        "cafe_orders"
+      ],
+      "line_count": 61
+    },
+    {
+      "file": "api/cafe/finance/route.ts",
+      "route": "/api/cafe/finance",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_orders"
+      ],
+      "line_count": 118
+    },
+    {
+      "file": "api/cafe/manage/bootstrap/route.ts",
+      "route": "/api/cafe/manage/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_account_info",
+        "cafe_order_credits",
+        "cafe_orders",
+        "cafe_supplies",
+        "chat_participants",
+        "chat_rooms",
+        "stores"
+      ],
+      "line_count": 144
+    },
+    {
+      "file": "api/cafe/menu/route.ts",
+      "route": "/api/cafe/menu",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_menu_items"
+      ],
+      "line_count": 86
+    },
+    {
+      "file": "api/cafe/menu/[id]/route.ts",
+      "route": "/api/cafe/menu/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "cafe_menu_items"
+      ],
+      "line_count": 86
+    },
+    {
+      "file": "api/cafe/menu/[id]/detail/route.ts",
+      "route": "/api/cafe/menu/[id]/detail",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_menu_items",
+        "cafe_menu_option_groups",
+        "cafe_menu_options",
+        "cafe_reviews",
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 116
+    },
+    {
+      "file": "api/cafe/menu/[id]/options/route.ts",
+      "route": "/api/cafe/menu/[id]/options",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_menu_items",
+        "cafe_menu_option_groups",
+        "cafe_menu_options"
+      ],
+      "line_count": 126
+    },
+    {
+      "file": "api/cafe/menu/[id]/options/[group_id]/route.ts",
+      "route": "/api/cafe/menu/[id]/options/[group_id]",
+      "methods": [
+        "DELETE"
+      ],
+      "tables": [
+        "cafe_menu_items",
+        "cafe_menu_option_groups"
+      ],
+      "line_count": 47
+    },
+    {
+      "file": "api/cafe/menu/[id]/recipes/route.ts",
+      "route": "/api/cafe/menu/[id]/recipes",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "cafe_menu_items",
+        "cafe_menu_recipes",
+        "cafe_supplies"
+      ],
+      "line_count": 132
+    },
+    {
+      "file": "api/cafe/orders/route.ts",
+      "route": "/api/cafe/orders",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_account_info",
+        "cafe_orders",
+        "room_sessions",
+        "stores"
+      ],
+      "line_count": 131
+    },
+    {
+      "file": "api/cafe/orders/[id]/route.ts",
+      "route": "/api/cafe/orders/[id]",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "cafe_orders"
+      ],
+      "line_count": 114
+    },
+    {
+      "file": "api/cafe/orders/inbox/route.ts",
+      "route": "/api/cafe/orders/inbox",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_orders",
+        "profiles",
+        "rooms",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 109
+    },
+    {
+      "file": "api/cafe/reviews/route.ts",
+      "route": "/api/cafe/reviews",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_orders",
+        "cafe_reviews"
+      ],
+      "line_count": 107
+    },
+    {
+      "file": "api/cafe/storefront/[store_uuid]/route.ts",
+      "route": "/api/cafe/storefront/[store_uuid]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cafe_account_info",
+        "cafe_menu_items",
+        "stores"
+      ],
+      "line_count": 74
+    },
+    {
+      "file": "api/cafe/stores/route.ts",
+      "route": "/api/cafe/stores",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 33
+    },
+    {
+      "file": "api/cafe/supplies/route.ts",
+      "route": "/api/cafe/supplies",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_supplies"
+      ],
+      "line_count": 79
+    },
+    {
+      "file": "api/cafe/supplies/[id]/route.ts",
+      "route": "/api/cafe/supplies/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "cafe_supplies",
+        "cafe_supply_ledger"
+      ],
+      "line_count": 110
+    },
+    {
+      "file": "api/cafe/supplies/purchases/route.ts",
+      "route": "/api/cafe/supplies/purchases",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cafe_supplies",
+        "cafe_supply_purchases"
+      ],
+      "line_count": 81
+    },
+    {
+      "file": "api/cafe/upload/route.ts",
+      "route": "/api/cafe/upload",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 60
+    },
+    {
+      "file": "api/chat/messages/route.ts",
+      "route": "/api/chat/messages",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "chat_participants"
+      ],
+      "line_count": 137
+    },
+    {
+      "file": "api/chat/pattern-dispatch/route.ts",
+      "route": "/api/chat/pattern-dispatch",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "chat_messages",
+        "chat_pattern_dispatches"
+      ],
+      "line_count": 153
+    },
+    {
+      "file": "api/chat/pattern-dispatch/[id]/confirm/route.ts",
+      "route": "/api/chat/pattern-dispatch/[id]/confirm",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "chat_pattern_dispatches",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "store_service_types",
+        "transfer_requests"
+      ],
+      "line_count": 268
+    },
+    {
+      "file": "api/chat/pattern-dispatch/[id]/reject/route.ts",
+      "route": "/api/chat/pattern-dispatch/[id]/reject",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "chat_pattern_dispatches"
+      ],
+      "line_count": 86
+    },
+    {
+      "file": "api/chat/rooms/route.ts",
+      "route": "/api/chat/rooms",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "chat_participants",
+        "chat_rooms",
+        "room_sessions",
+        "rooms",
+        "store_memberships"
+      ],
+      "line_count": 400
+    },
+    {
+      "file": "api/chat/rooms/[id]/close/route.ts",
+      "route": "/api/chat/rooms/[id]/close",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "chat_rooms"
+      ],
+      "line_count": 94
+    },
+    {
+      "file": "api/chat/rooms/[id]/leave/route.ts",
+      "route": "/api/chat/rooms/[id]/leave",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "chat_participants",
+        "chat_rooms"
+      ],
+      "line_count": 87
+    },
+    {
+      "file": "api/chat/rooms/[id]/participants/route.ts",
+      "route": "/api/chat/rooms/[id]/participants",
+      "methods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ],
+      "tables": [
+        "chat_participants",
+        "store_memberships"
+      ],
+      "line_count": 255
+    },
+    {
+      "file": "api/chat/rooms/[id]/pattern-toggle/route.ts",
+      "route": "/api/chat/rooms/[id]/pattern-toggle",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "chat_rooms"
+      ],
+      "line_count": 117
+    },
+    {
+      "file": "api/chat/rooms/[id]/pin/route.ts",
+      "route": "/api/chat/rooms/[id]/pin",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "chat_participants"
+      ],
+      "line_count": 57
+    },
+    {
+      "file": "api/chat/rooms/[id]/read/route.ts",
+      "route": "/api/chat/rooms/[id]/read",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 49
+    },
+    {
+      "file": "api/chat/unread/route.ts",
+      "route": "/api/chat/unread",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 32
+    },
+    {
+      "file": "api/counter/bootstrap/route.ts",
+      "route": "/api/counter/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 170
+    },
+    {
+      "file": "api/counter/monitor/route.ts",
+      "route": "/api/counter/monitor",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participant_action_applies",
+        "session_participant_actions",
+        "session_participants",
+        "stores"
+      ],
+      "line_count": 816
+    },
+    {
+      "file": "api/credits/route.ts",
+      "route": "/api/credits",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "credits",
+        "managers",
+        "rooms",
+        "store_memberships"
+      ],
+      "line_count": 363
+    },
+    {
+      "file": "api/credits/[credit_id]/route.ts",
+      "route": "/api/credits/[credit_id]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "credits",
+        "managers",
+        "membership_bank_accounts",
+        "rooms"
+      ],
+      "line_count": 317
+    },
+    {
+      "file": "api/cron/audit-archive/route.ts",
+      "route": "/api/cron/audit-archive",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events"
+      ],
+      "line_count": 136
+    },
+    {
+      "file": "api/cron/ble-attendance-sync/route.ts",
+      "route": "/api/cron/ble-attendance-sync",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_presence_history",
+        "ble_tags",
+        "staff_attendance",
+        "store_memberships",
+        "store_operating_days"
+      ],
+      "line_count": 320
+    },
+    {
+      "file": "api/cron/ble-history-reaper/route.ts",
+      "route": "/api/cron/ble-history-reaper",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_presence_history"
+      ],
+      "line_count": 189
+    },
+    {
+      "file": "api/cron/ble-session-inference/route.ts",
+      "route": "/api/cron/ble-session-inference",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_ingest_events"
+      ],
+      "line_count": 200
+    },
+    {
+      "file": "api/cron/ops-alerts-scan/route.ts",
+      "route": "/api/cron/ops-alerts-scan",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 240
+    },
+    {
+      "file": "api/cron/paper-ledger-expire/route.ts",
+      "route": "/api/cron/paper-ledger-expire",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "paper_ledger_snapshots"
+      ],
+      "line_count": 114
+    },
+    {
+      "file": "api/cron/settlement-tree-advance/route.ts",
+      "route": "/api/cron/settlement-tree-advance",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements"
+      ],
+      "line_count": 189
+    },
+    {
+      "file": "api/cron/system-errors-cleanup/route.ts",
+      "route": "/api/cron/system-errors-cleanup",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "system_errors"
+      ],
+      "line_count": 211
+    },
+    {
+      "file": "api/cron/watchdog/route.ts",
+      "route": "/api/cron/watchdog",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 54
+    },
+    {
+      "file": "api/cross-store/route.ts",
+      "route": "/api/cross-store",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlements"
+      ],
+      "line_count": 183
+    },
+    {
+      "file": "api/cross-store/[id]/route.ts",
+      "route": "/api/cross-store/[id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements"
+      ],
+      "line_count": 85
+    },
+    {
+      "file": "api/cross-store/approve/route.ts",
+      "route": "/api/cross-store/approve",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 104
+    },
+    {
+      "file": "api/cross-store/dispatch/route.ts",
+      "route": "/api/cross-store/dispatch",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "store_service_types",
+        "stores",
+        "transfer_requests"
+      ],
+      "line_count": 401
+    },
+    {
+      "file": "api/cross-store/payout/route.ts",
+      "route": "/api/cross-store/payout",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "store_memberships"
+      ],
+      "line_count": 276
+    },
+    {
+      "file": "api/cross-store/payout/cancel/route.ts",
+      "route": "/api/cross-store/payout/cancel",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "payout_records",
+        "store_memberships"
+      ],
+      "line_count": 218
+    },
+    {
+      "file": "api/cross-store/records/route.ts",
+      "route": "/api/cross-store/records",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 142
+    },
+    {
+      "file": "api/cross-store/settle-group/route.ts",
+      "route": "/api/cross-store/settle-group",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "room_sessions",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 169
+    },
+    {
+      "file": "api/cross-store/settlement/route.ts",
+      "route": "/api/cross-store/settlement",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 152
+    },
+    {
+      "file": "api/cross-store/work-record/route.ts",
+      "route": "/api/cross-store/work-record",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "room_sessions",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 155
+    },
+    {
+      "file": "api/customers/route.ts",
+      "route": "/api/customers",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "customers",
+        "room_sessions"
+      ],
+      "line_count": 287
+    },
+    {
+      "file": "api/customers/[customer_id]/route.ts",
+      "route": "/api/customers/[customer_id]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "audit_events",
+        "customers",
+        "receipt_snapshots",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 238
+    },
+    {
+      "file": "api/customers/[customer_id]/merge/route.ts",
+      "route": "/api/customers/[customer_id]/merge",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "customers",
+        "room_sessions"
+      ],
+      "line_count": 98
+    },
+    {
+      "file": "api/finance/expenses/route.ts",
+      "route": "/api/finance/expenses",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "store_expenses",
+        "store_operating_days"
+      ],
+      "line_count": 151
+    },
+    {
+      "file": "api/finance/expenses/[id]/route.ts",
+      "route": "/api/finance/expenses/[id]",
+      "methods": [
+        "DELETE"
+      ],
+      "tables": [
+        "store_expenses"
+      ],
+      "line_count": 76
+    },
+    {
+      "file": "api/finance/pnl/route.ts",
+      "route": "/api/finance/pnl",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 58
+    },
+    {
+      "file": "api/finance/purchases/route.ts",
+      "route": "/api/finance/purchases",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "inventory_items",
+        "inventory_transactions",
+        "store_operating_days",
+        "store_purchases"
+      ],
+      "line_count": 274
+    },
+    {
+      "file": "api/finance/purchases/[id]/route.ts",
+      "route": "/api/finance/purchases/[id]",
+      "methods": [
+        "DELETE"
+      ],
+      "tables": [
+        "store_purchases"
+      ],
+      "line_count": 77
+    },
+    {
+      "file": "api/health/route.ts",
+      "route": "/api/health",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 33
+    },
+    {
+      "file": "api/hostesses/[membership_id]/assign/route.ts",
+      "route": "/api/hostesses/[membership_id]/assign",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "hostesses",
+        "store_memberships"
+      ],
+      "line_count": 228
+    },
+    {
+      "file": "api/hostesses/unassigned/route.ts",
+      "route": "/api/hostesses/unassigned",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "hostesses"
+      ],
+      "line_count": 103
+    },
+    {
+      "file": "api/inventory/items/route.ts",
+      "route": "/api/inventory/items",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "inventory_items",
+        "inventory_transactions"
+      ],
+      "line_count": 165
+    },
+    {
+      "file": "api/inventory/items/[item_id]/route.ts",
+      "route": "/api/inventory/items/[item_id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "audit_events",
+        "inventory_items"
+      ],
+      "line_count": 155
+    },
+    {
+      "file": "api/inventory/sales-trace/route.ts",
+      "route": "/api/inventory/sales-trace",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "inventory_items",
+        "orders",
+        "room_sessions",
+        "rooms",
+        "store_operating_days"
+      ],
+      "line_count": 234
+    },
+    {
+      "file": "api/inventory/transactions/route.ts",
+      "route": "/api/inventory/transactions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "hostesses",
+        "inventory_items",
+        "inventory_transactions",
+        "managers",
+        "store_operating_days"
+      ],
+      "line_count": 230
+    },
+    {
+      "file": "api/issues/route.ts",
+      "route": "/api/issues",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "issue_reports",
+        "profiles"
+      ],
+      "line_count": 189
+    },
+    {
+      "file": "api/issues/[id]/route.ts",
+      "route": "/api/issues/[id]",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "issue_reports"
+      ],
+      "line_count": 85
+    },
+    {
+      "file": "api/learn/export/route.ts",
+      "route": "/api/learn/export",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "learning_signals"
+      ],
+      "line_count": 152
+    },
+    {
+      "file": "api/learn/stats/route.ts",
+      "route": "/api/learn/stats",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "learning_signals",
+        "stores"
+      ],
+      "line_count": 149
+    },
+    {
+      "file": "api/location/correct/route.ts",
+      "route": "/api/location/correct",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "rooms"
+      ],
+      "line_count": 292
+    },
+    {
+      "file": "api/location/corrections/by-user/route.ts",
+      "route": "/api/location/corrections/by-user",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "location_correction_logs",
+        "profiles"
+      ],
+      "line_count": 268
+    },
+    {
+      "file": "api/location/corrections/daily-summary/route.ts",
+      "route": "/api/location/corrections/daily-summary",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "location_correction_logs",
+        "profiles"
+      ],
+      "line_count": 155
+    },
+    {
+      "file": "api/location/corrections/overview/route.ts",
+      "route": "/api/location/corrections/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "location_correction_logs"
+      ],
+      "line_count": 223
+    },
+    {
+      "file": "api/manager-permissions/grant/route.ts",
+      "route": "/api/manager-permissions/grant",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "manager_financial_permissions",
+        "store_memberships"
+      ],
+      "line_count": 210
+    },
+    {
+      "file": "api/manager-permissions/revoke/route.ts",
+      "route": "/api/manager-permissions/revoke",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "manager_financial_permissions"
+      ],
+      "line_count": 217
+    },
+    {
+      "file": "api/manager/active-room-chats/route.ts",
+      "route": "/api/manager/active-room-chats",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "chat_participants",
+        "chat_rooms",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 207
+    },
+    {
+      "file": "api/manager/bootstrap/route.ts",
+      "route": "/api/manager/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 79
+    },
+    {
+      "file": "api/manager/dashboard/route.ts",
+      "route": "/api/manager/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 49
+    },
+    {
+      "file": "api/manager/hostess-stats/route.ts",
+      "route": "/api/manager/hostess-stats",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 39
+    },
+    {
+      "file": "api/manager/hostesses/route.ts",
+      "route": "/api/manager/hostesses",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 66
+    },
+    {
+      "file": "api/manager/hostesses/[hostess_id]/route.ts",
+      "route": "/api/manager/hostesses/[hostess_id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 164
+    },
+    {
+      "file": "api/manager/hostesses/[hostess_id]/info/route.ts",
+      "route": "/api/manager/hostesses/[hostess_id]/info",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "hostesses",
+        "membership_bank_accounts",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 413
+    },
+    {
+      "file": "api/manager/hostesses/[hostess_id]/sessions/route.ts",
+      "route": "/api/manager/hostesses/[hostess_id]/sessions",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 200
+    },
+    {
+      "file": "api/manager/hostesses/pre-register/route.ts",
+      "route": "/api/manager/hostesses/pre-register",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "hostess_pre_registrations",
+        "hostesses",
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 274
+    },
+    {
+      "file": "api/manager/hostesses/pre-register/[id]/route.ts",
+      "route": "/api/manager/hostesses/pre-register/[id]",
+      "methods": [
+        "DELETE"
+      ],
+      "tables": [
+        "hostess_pre_registrations"
+      ],
+      "line_count": 58
+    },
+    {
+      "file": "api/manager/incoming-staff/route.ts",
+      "route": "/api/manager/incoming-staff",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "room_sessions",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 283
+    },
+    {
+      "file": "api/manager/ledger/route.ts",
+      "route": "/api/manager/ledger",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 237
+    },
+    {
+      "file": "api/manager/participants/route.ts",
+      "route": "/api/manager/participants",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 57
+    },
+    {
+      "file": "api/manager/settlement/summary/route.ts",
+      "route": "/api/manager/settlement/summary",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 80
+    },
+    {
+      "file": "api/manager/staff-payout/[hostess_id]/route.ts",
+      "route": "/api/manager/staff-payout/[hostess_id]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "hostesses",
+        "session_participants",
+        "staff_payout_states",
+        "store_operating_days"
+      ],
+      "line_count": 249
+    },
+    {
+      "file": "api/manager/visibility/route.ts",
+      "route": "/api/manager/visibility",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "audit_events",
+        "managers"
+      ],
+      "line_count": 101
+    },
+    {
+      "file": "api/me/accounts/route.ts",
+      "route": "/api/me/accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "settlement_accounts"
+      ],
+      "line_count": 109
+    },
+    {
+      "file": "api/me/accounts/[id]/route.ts",
+      "route": "/api/me/accounts/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "settlement_accounts"
+      ],
+      "line_count": 118
+    },
+    {
+      "file": "api/me/attendance/route.ts",
+      "route": "/api/me/attendance",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "staff_attendance",
+        "store_operating_days"
+      ],
+      "line_count": 55
+    },
+    {
+      "file": "api/me/bank-accounts/route.ts",
+      "route": "/api/me/bank-accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "membership_bank_accounts"
+      ],
+      "line_count": 140
+    },
+    {
+      "file": "api/me/bootstrap/route.ts",
+      "route": "/api/me/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 105
+    },
+    {
+      "file": "api/me/dashboard/route.ts",
+      "route": "/api/me/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "session_participants"
+      ],
+      "line_count": 71
+    },
+    {
+      "file": "api/me/home/route.ts",
+      "route": "/api/me/home",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "chat_participants",
+        "rooms",
+        "session_participants",
+        "store_memberships"
+      ],
+      "line_count": 236
+    },
+    {
+      "file": "api/me/menu-permissions/route.ts",
+      "route": "/api/me/menu-permissions",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 63
+    },
+    {
+      "file": "api/me/payees/route.ts",
+      "route": "/api/me/payees",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "payee_accounts"
+      ],
+      "line_count": 103
+    },
+    {
+      "file": "api/me/payees/[id]/route.ts",
+      "route": "/api/me/payees/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "payee_accounts"
+      ],
+      "line_count": 95
+    },
+    {
+      "file": "api/me/preferences/route.ts",
+      "route": "/api/me/preferences",
+      "methods": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "tables": [
+        "user_preferences"
+      ],
+      "line_count": 202
+    },
+    {
+      "file": "api/me/sessions/route.ts",
+      "route": "/api/me/sessions",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "session_participants"
+      ],
+      "line_count": 67
+    },
+    {
+      "file": "api/me/sessions/[session_id]/route.ts",
+      "route": "/api/me/sessions/[session_id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "session_participants"
+      ],
+      "line_count": 116
+    },
+    {
+      "file": "api/me/settlement-status/route.ts",
+      "route": "/api/me/settlement-status",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "session_participants"
+      ],
+      "line_count": 119
+    },
+    {
+      "file": "api/me/settlements/route.ts",
+      "route": "/api/me/settlements",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 148
+    },
+    {
+      "file": "api/monitor/movement/[membership_id]/route.ts",
+      "route": "/api/monitor/movement/[membership_id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_presence_history",
+        "session_participants",
+        "store_memberships"
+      ],
+      "line_count": 177
+    },
+    {
+      "file": "api/monitor/scope/route.ts",
+      "route": "/api/monitor/scope",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "ble_presence_corrections",
+        "ble_tag_presence",
+        "cross_store_work_records",
+        "profiles",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 423
+    },
+    {
+      "file": "api/monitor/stores/route.ts",
+      "route": "/api/monitor/stores",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "room_sessions",
+        "rooms",
+        "stores"
+      ],
+      "line_count": 138
+    },
+    {
+      "file": "api/notifications/preferences/route.ts",
+      "route": "/api/notifications/preferences",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "notification_preferences"
+      ],
+      "line_count": 96
+    },
+    {
+      "file": "api/operating-days/close/route.ts",
+      "route": "/api/operating-days/close",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "closing_reports",
+        "receipts",
+        "room_sessions",
+        "store_operating_days"
+      ],
+      "line_count": 257
+    },
+    {
+      "file": "api/operating-days/reopen/route.ts",
+      "route": "/api/operating-days/reopen",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_operating_days"
+      ],
+      "line_count": 132
+    },
+    {
+      "file": "api/operating-days/snapshot/route.ts",
+      "route": "/api/operating-days/snapshot",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "closing_reports",
+        "payout_records",
+        "room_sessions",
+        "settlements",
+        "store_operating_days"
+      ],
+      "line_count": 104
+    },
+    {
+      "file": "api/operating-days/status/route.ts",
+      "route": "/api/operating-days/status",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "closing_reports",
+        "store_operating_days"
+      ],
+      "line_count": 102
+    },
+    {
+      "file": "api/ops/apply-recovery/stale-pending/route.ts",
+      "route": "/api/ops/apply-recovery/stale-pending",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participant_action_applies",
+        "session_participant_actions"
+      ],
+      "line_count": 365
+    },
+    {
+      "file": "api/ops/attendance-overview/route.ts",
+      "route": "/api/ops/attendance-overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 90
+    },
+    {
+      "file": "api/ops/ble-analytics/floor-map/route.ts",
+      "route": "/api/ops/ble-analytics/floor-map",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "rooms"
+      ],
+      "line_count": 100
+    },
+    {
+      "file": "api/ops/ble-analytics/gateways/route.ts",
+      "route": "/api/ops/ble-analytics/gateways",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "ble_gateways",
+        "rooms",
+        "stores"
+      ],
+      "line_count": 156
+    },
+    {
+      "file": "api/ops/ble-analytics/logs/route.ts",
+      "route": "/api/ops/ble-analytics/logs",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "rooms",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 212
+    },
+    {
+      "file": "api/ops/ble-analytics/overview/route.ts",
+      "route": "/api/ops/ble-analytics/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 164
+    },
+    {
+      "file": "api/ops/ble-analytics/timeline/route.ts",
+      "route": "/api/ops/ble-analytics/timeline",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 98
+    },
+    {
+      "file": "api/ops/ble-analytics/transitions/route.ts",
+      "route": "/api/ops/ble-analytics/transitions",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 58
+    },
+    {
+      "file": "api/owner/accounts/route.ts",
+      "route": "/api/owner/accounts",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 163
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/route.ts",
+      "route": "/api/owner/accounts/[membership_id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 102
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/approve/route.ts",
+      "route": "/api/owner/accounts/[membership_id]/approve",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships"
+      ],
+      "line_count": 134
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/audit/route.ts",
+      "route": "/api/owner/accounts/[membership_id]/audit",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships"
+      ],
+      "line_count": 77
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/reject/route.ts",
+      "route": "/api/owner/accounts/[membership_id]/reject",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships"
+      ],
+      "line_count": 122
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/reset-password/route.ts",
+      "route": "/api/owner/accounts/[membership_id]/reset-password",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships"
+      ],
+      "line_count": 141
+    },
+    {
+      "file": "api/owner/accounts/[membership_id]/suspend/route.ts",
+      "route": "/api/owner/accounts/[membership_id]/suspend",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships"
+      ],
+      "line_count": 119
+    },
+    {
+      "file": "api/owner/bootstrap/route.ts",
+      "route": "/api/owner/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 109
+    },
+    {
+      "file": "api/owner/settlement/route.ts",
+      "route": "/api/owner/settlement",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "orders",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 305
+    },
+    {
+      "file": "api/payouts/cross-store-items/route.ts",
+      "route": "/api/payouts/cross-store-items",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements",
+        "stores"
+      ],
+      "line_count": 273
+    },
+    {
+      "file": "api/payouts/cross-store-items/[item_id]/assign-manager/route.ts",
+      "route": "/api/payouts/cross-store-items/[item_id]/assign-manager",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "store_memberships"
+      ],
+      "line_count": 245
+    },
+    {
+      "file": "api/payouts/cross-store-items/[item_id]/handover/route.ts",
+      "route": "/api/payouts/cross-store-items/[item_id]/handover",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "store_memberships"
+      ],
+      "line_count": 245
+    },
+    {
+      "file": "api/payouts/cross-store-items/[item_id]/release/route.ts",
+      "route": "/api/payouts/cross-store-items/[item_id]/release",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items"
+      ],
+      "line_count": 178
+    },
+    {
+      "file": "api/payouts/manager-prepayment/route.ts",
+      "route": "/api/payouts/manager-prepayment",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "cross_store_settlement_items",
+        "cross_store_settlements",
+        "manager_prepayments",
+        "session_participants",
+        "store_memberships"
+      ],
+      "line_count": 596
+    },
+    {
+      "file": "api/payouts/settlement-tree/confirm/route.ts",
+      "route": "/api/payouts/settlement-tree/confirm",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements"
+      ],
+      "line_count": 98
+    },
+    {
+      "file": "api/payouts/settlement-tree/store/route.ts",
+      "route": "/api/payouts/settlement-tree/store",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "tables": [
+        "settlement_tree_user_hides"
+      ],
+      "line_count": 143
+    },
+    {
+      "file": "api/reconcile/[id]/route.ts",
+      "route": "/api/reconcile/[id]",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "tables": [
+        "paper_ledger_diffs",
+        "paper_ledger_edits",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots"
+      ],
+      "line_count": 237
+    },
+    {
+      "file": "api/reconcile/[id]/diff/route.ts",
+      "route": "/api/reconcile/[id]/diff",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_diffs",
+        "paper_ledger_edits",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots"
+      ],
+      "line_count": 216
+    },
+    {
+      "file": "api/reconcile/[id]/edit/route.ts",
+      "route": "/api/reconcile/[id]/edit",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_edits",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots",
+        "store_paper_format"
+      ],
+      "line_count": 337
+    },
+    {
+      "file": "api/reconcile/[id]/extract/route.ts",
+      "route": "/api/reconcile/[id]/extract",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots",
+        "store_paper_format"
+      ],
+      "line_count": 232
+    },
+    {
+      "file": "api/reconcile/[id]/parse-text/route.ts",
+      "route": "/api/reconcile/[id]/parse-text",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "paper_ledger_snapshots",
+        "store_paper_format"
+      ],
+      "line_count": 192
+    },
+    {
+      "file": "api/reconcile/[id]/review/route.ts",
+      "route": "/api/reconcile/[id]/review",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_diffs",
+        "paper_ledger_snapshots"
+      ],
+      "line_count": 158
+    },
+    {
+      "file": "api/reconcile/format/route.ts",
+      "route": "/api/reconcile/format",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "store_paper_format"
+      ],
+      "line_count": 144
+    },
+    {
+      "file": "api/reconcile/grants/route.ts",
+      "route": "/api/reconcile/grants",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_access_grants",
+        "store_memberships"
+      ],
+      "line_count": 245
+    },
+    {
+      "file": "api/reconcile/grants/[id]/route.ts",
+      "route": "/api/reconcile/grants/[id]",
+      "methods": [
+        "DELETE"
+      ],
+      "tables": [
+        "paper_ledger_access_grants"
+      ],
+      "line_count": 111
+    },
+    {
+      "file": "api/reconcile/learn/route.ts",
+      "route": "/api/reconcile/learn",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_edits",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots",
+        "store_paper_format"
+      ],
+      "line_count": 371
+    },
+    {
+      "file": "api/reconcile/list/route.ts",
+      "route": "/api/reconcile/list",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "paper_ledger_diffs",
+        "paper_ledger_extractions",
+        "paper_ledger_snapshots"
+      ],
+      "line_count": 128
+    },
+    {
+      "file": "api/reconcile/upload/route.ts",
+      "route": "/api/reconcile/upload",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "paper_ledger_snapshots",
+        "store_operating_days",
+        "store_settings"
+      ],
+      "line_count": 194
+    },
+    {
+      "file": "api/reports/activity/route.ts",
+      "route": "/api/reports/activity",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "payout_records"
+      ],
+      "line_count": 73
+    },
+    {
+      "file": "api/reports/cross-store/route.ts",
+      "route": "/api/reports/cross-store",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlements",
+        "stores"
+      ],
+      "line_count": 111
+    },
+    {
+      "file": "api/reports/daily/route.ts",
+      "route": "/api/reports/daily",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "managers",
+        "receipts",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 287
+    },
+    {
+      "file": "api/reports/daily/breakdown/route.ts",
+      "route": "/api/reports/daily/breakdown",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "orders",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 205
+    },
+    {
+      "file": "api/reports/hostess/route.ts",
+      "route": "/api/reports/hostess",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "room_sessions",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 174
+    },
+    {
+      "file": "api/reports/hostesses/route.ts",
+      "route": "/api/reports/hostesses",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "settlement_items",
+        "settlements",
+        "store_memberships"
+      ],
+      "line_count": 137
+    },
+    {
+      "file": "api/reports/liquor-target/route.ts",
+      "route": "/api/reports/liquor-target",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "inventory_items",
+        "orders",
+        "room_sessions",
+        "store_operating_days",
+        "store_settings"
+      ],
+      "line_count": 223
+    },
+    {
+      "file": "api/reports/manager/route.ts",
+      "route": "/api/reports/manager",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "managers",
+        "room_sessions",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 183
+    },
+    {
+      "file": "api/reports/managers/route.ts",
+      "route": "/api/reports/managers",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "settlement_items",
+        "settlements",
+        "store_memberships"
+      ],
+      "line_count": 144
+    },
+    {
+      "file": "api/reports/overview/route.ts",
+      "route": "/api/reports/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlements",
+        "settlement_items",
+        "settlements"
+      ],
+      "line_count": 135
+    },
+    {
+      "file": "api/reports/period/route.ts",
+      "route": "/api/reports/period",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "tables": [
+        "audit_events",
+        "hostesses",
+        "managers",
+        "orders",
+        "pre_settlements",
+        "profiles",
+        "receipts",
+        "room_sessions",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days"
+      ],
+      "line_count": 445
+    },
+    {
+      "file": "api/reports/settlement-tree/route.ts",
+      "route": "/api/reports/settlement-tree",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements",
+        "hostesses",
+        "managers",
+        "profiles",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "settlement_tree_user_hides",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 560
+    },
+    {
+      "file": "api/reports/settlement-tree-operational/route.ts",
+      "route": "/api/reports/settlement-tree-operational",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "manager_prepayments",
+        "managers",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "stores"
+      ],
+      "line_count": 503
+    },
+    {
+      "file": "api/rooms/route.ts",
+      "route": "/api/rooms",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "rooms",
+        "stores"
+      ],
+      "line_count": 169
+    },
+    {
+      "file": "api/rooms/[room_uuid]/route.ts",
+      "route": "/api/rooms/[room_uuid]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "rooms"
+      ],
+      "line_count": 85
+    },
+    {
+      "file": "api/rooms/[room_uuid]/participants/route.ts",
+      "route": "/api/rooms/[room_uuid]/participants",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "managers",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 318
+    },
+    {
+      "file": "api/rooms/for-work-log/route.ts",
+      "route": "/api/rooms/for-work-log",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 215
+    },
+    {
+      "file": "api/session-participant-actions/[action_id]/apply/route.ts",
+      "route": "/api/session-participant-actions/[action_id]/apply",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participant_action_applies",
+        "session_participant_actions"
+      ],
+      "line_count": 156
+    },
+    {
+      "file": "api/session-participant-actions/[action_id]/retry/route.ts",
+      "route": "/api/session-participant-actions/[action_id]/retry",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participant_action_applies",
+        "session_participant_actions"
+      ],
+      "line_count": 205
+    },
+    {
+      "file": "api/sessions/[session_id]/route.ts",
+      "route": "/api/sessions/[session_id]",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "receipts",
+        "room_sessions",
+        "store_memberships"
+      ],
+      "line_count": 250
+    },
+    {
+      "file": "api/sessions/[session_id]/settlement/route.ts",
+      "route": "/api/sessions/[session_id]/settlement",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "orders",
+        "room_sessions",
+        "session_manager_shares",
+        "session_participants",
+        "session_store_shares",
+        "settlement_items",
+        "settlements"
+      ],
+      "line_count": 418
+    },
+    {
+      "file": "api/sessions/[session_id]/settlement/confirm/route.ts",
+      "route": "/api/sessions/[session_id]/settlement/confirm",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "room_sessions",
+        "settlements"
+      ],
+      "line_count": 165
+    },
+    {
+      "file": "api/sessions/[session_id]/settlement/pay/route.ts",
+      "route": "/api/sessions/[session_id]/settlement/pay",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "room_sessions",
+        "settlements"
+      ],
+      "line_count": 156
+    },
+    {
+      "file": "api/sessions/[session_id]/settlement/payout/route.ts",
+      "route": "/api/sessions/[session_id]/settlement/payout",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "payout_records",
+        "room_sessions",
+        "settlement_items",
+        "settlements"
+      ],
+      "line_count": 174
+    },
+    {
+      "file": "api/sessions/[session_id]/settlement/recalculate/route.ts",
+      "route": "/api/sessions/[session_id]/settlement/recalculate",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "settlements"
+      ],
+      "line_count": 102
+    },
+    {
+      "file": "api/sessions/auto-close-expired/route.ts",
+      "route": "/api/sessions/auto-close-expired",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "room_sessions",
+        "session_participants",
+        "stores"
+      ],
+      "line_count": 287
+    },
+    {
+      "file": "api/sessions/bill/route.ts",
+      "route": "/api/sessions/bill",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "orders",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 165
+    },
+    {
+      "file": "api/sessions/checkin/route.ts",
+      "route": "/api/sessions/checkin",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "rooms",
+        "store_memberships",
+        "store_operating_days"
+      ],
+      "line_count": 251
+    },
+    {
+      "file": "api/sessions/checkout/route.ts",
+      "route": "/api/sessions/checkout",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 228
+    },
+    {
+      "file": "api/sessions/extend/route.ts",
+      "route": "/api/sessions/extend",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participants",
+        "store_service_types"
+      ],
+      "line_count": 199
+    },
+    {
+      "file": "api/sessions/for-work-log/route.ts",
+      "route": "/api/sessions/for-work-log",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "room_sessions",
+        "rooms",
+        "session_participants"
+      ],
+      "line_count": 203
+    },
+    {
+      "file": "api/sessions/mid-out/route.ts",
+      "route": "/api/sessions/mid-out",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participants"
+      ],
+      "line_count": 215
+    },
+    {
+      "file": "api/sessions/orders/route.ts",
+      "route": "/api/sessions/orders",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "orders",
+        "room_sessions",
+        "store_operating_days"
+      ],
+      "line_count": 323
+    },
+    {
+      "file": "api/sessions/orders/[order_id]/route.ts",
+      "route": "/api/sessions/orders/[order_id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "orders"
+      ],
+      "line_count": 141
+    },
+    {
+      "file": "api/sessions/participants/route.ts",
+      "route": "/api/sessions/participants",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "room_sessions",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days",
+        "stores",
+        "transfer_requests"
+      ],
+      "line_count": 388
+    },
+    {
+      "file": "api/sessions/participants/[participant_id]/route.ts",
+      "route": "/api/sessions/participants/[participant_id]",
+      "methods": [
+        "PATCH"
+      ],
+      "tables": [
+        "receipts",
+        "room_sessions",
+        "session_participants"
+      ],
+      "line_count": 210
+    },
+    {
+      "file": "api/sessions/participants/[participant_id]/leave/route.ts",
+      "route": "/api/sessions/participants/[participant_id]/leave",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participants"
+      ],
+      "line_count": 89
+    },
+    {
+      "file": "api/sessions/participants/actions/route.ts",
+      "route": "/api/sessions/participants/actions",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participant_action_applies",
+        "session_participant_actions",
+        "session_participants"
+      ],
+      "line_count": 204
+    },
+    {
+      "file": "api/sessions/participants/apply-actions/route.ts",
+      "route": "/api/sessions/participants/apply-actions",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "session_participant_action_applies",
+        "session_participant_actions",
+        "session_participants"
+      ],
+      "line_count": 289
+    },
+    {
+      "file": "api/sessions/participants/batch/route.ts",
+      "route": "/api/sessions/participants/batch",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participants",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 404
+    },
+    {
+      "file": "api/sessions/pre-settlement/route.ts",
+      "route": "/api/sessions/pre-settlement",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "hostesses",
+        "managers",
+        "pre_settlements",
+        "room_sessions",
+        "store_memberships"
+      ],
+      "line_count": 265
+    },
+    {
+      "file": "api/sessions/receipt/route.ts",
+      "route": "/api/sessions/receipt",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "receipt_snapshots",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "stores"
+      ],
+      "line_count": 289
+    },
+    {
+      "file": "api/sessions/receipt/archive/route.ts",
+      "route": "/api/sessions/receipt/archive",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 96
+    },
+    {
+      "file": "api/sessions/reopen/route.ts",
+      "route": "/api/sessions/reopen",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "receipts",
+        "room_sessions",
+        "session_participants"
+      ],
+      "line_count": 219
+    },
+    {
+      "file": "api/sessions/settlement/route.ts",
+      "route": "/api/sessions/settlement",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "inventory_items",
+        "orders",
+        "pre_settlements",
+        "receipts",
+        "room_sessions",
+        "session_participants",
+        "store_operating_days",
+        "store_settings"
+      ],
+      "line_count": 457
+    },
+    {
+      "file": "api/sessions/settlement/finalize/route.ts",
+      "route": "/api/sessions/settlement/finalize",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "receipts",
+        "room_sessions",
+        "store_operating_days"
+      ],
+      "line_count": 277
+    },
+    {
+      "file": "api/sessions/settlement/payment/route.ts",
+      "route": "/api/sessions/settlement/payment",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "receipts",
+        "store_settings"
+      ],
+      "line_count": 293
+    },
+    {
+      "file": "api/settlement/history/route.ts",
+      "route": "/api/settlement/history",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "receipts",
+        "store_operating_days"
+      ],
+      "line_count": 71
+    },
+    {
+      "file": "api/settlement/payout/route.ts",
+      "route": "/api/settlement/payout",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 242
+    },
+    {
+      "file": "api/settlement/payout/cancel/route.ts",
+      "route": "/api/settlement/payout/cancel",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 219
+    },
+    {
+      "file": "api/settlement/payouts/route.ts",
+      "route": "/api/settlement/payouts",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "payout_records"
+      ],
+      "line_count": 79
+    },
+    {
+      "file": "api/settlements/hostesses/route.ts",
+      "route": "/api/settlements/hostesses",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "profiles",
+        "settlement_items",
+        "settlements",
+        "store_memberships"
+      ],
+      "line_count": 178
+    },
+    {
+      "file": "api/settlements/managers/route.ts",
+      "route": "/api/settlements/managers",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "settlement_items",
+        "settlements",
+        "store_memberships"
+      ],
+      "line_count": 159
+    },
+    {
+      "file": "api/settlements/overview/route.ts",
+      "route": "/api/settlements/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "cross_store_settlements",
+        "payout_records",
+        "settlement_items",
+        "settlements"
+      ],
+      "line_count": 119
+    },
+    {
+      "file": "api/settlements/staff-work-logs/aggregate/route.ts",
+      "route": "/api/settlements/staff-work-logs/aggregate",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_settlement_items",
+        "cross_store_settlements",
+        "cross_store_work_records",
+        "hostesses",
+        "session_participants"
+      ],
+      "line_count": 477
+    },
+    {
+      "file": "api/staff-board/route.ts",
+      "route": "/api/staff-board",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "staff_request_board",
+        "staff_request_responses",
+        "stores"
+      ],
+      "line_count": 220
+    },
+    {
+      "file": "api/staff-board/[id]/route.ts",
+      "route": "/api/staff-board/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "tables": [
+        "staff_request_board"
+      ],
+      "line_count": 130
+    },
+    {
+      "file": "api/staff-board/[id]/respond/route.ts",
+      "route": "/api/staff-board/[id]/respond",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "staff_request_board",
+        "staff_request_responses",
+        "stores"
+      ],
+      "line_count": 173
+    },
+    {
+      "file": "api/staff-work-logs/route.ts",
+      "route": "/api/staff-work-logs",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records",
+        "hostesses",
+        "room_sessions",
+        "rooms",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 390
+    },
+    {
+      "file": "api/staff-work-logs/[id]/confirm/route.ts",
+      "route": "/api/staff-work-logs/[id]/confirm",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 114
+    },
+    {
+      "file": "api/staff-work-logs/[id]/dispute/route.ts",
+      "route": "/api/staff-work-logs/[id]/dispute",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 142
+    },
+    {
+      "file": "api/staff-work-logs/[id]/resolve/route.ts",
+      "route": "/api/staff-work-logs/[id]/resolve",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 115
+    },
+    {
+      "file": "api/staff-work-logs/[id]/void/route.ts",
+      "route": "/api/staff-work-logs/[id]/void",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "cross_store_work_records"
+      ],
+      "line_count": 146
+    },
+    {
+      "file": "api/store-managers/route.ts",
+      "route": "/api/store-managers",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "profiles",
+        "store_memberships"
+      ],
+      "line_count": 85
+    },
+    {
+      "file": "api/store/approvals/route.ts",
+      "route": "/api/store/approvals",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "profiles",
+        "store_memberships",
+        "stores"
+      ],
+      "line_count": 171
+    },
+    {
+      "file": "api/store/managers/[membership_id]/menu-permissions/route.ts",
+      "route": "/api/store/managers/[membership_id]/menu-permissions",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "store_memberships"
+      ],
+      "line_count": 170
+    },
+    {
+      "file": "api/store/profile/route.ts",
+      "route": "/api/store/profile",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 67
+    },
+    {
+      "file": "api/store/service-types/route.ts",
+      "route": "/api/store/service-types",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "audit_events",
+        "store_operating_days",
+        "store_service_types"
+      ],
+      "line_count": 213
+    },
+    {
+      "file": "api/store/settings/route.ts",
+      "route": "/api/store/settings",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "tables": [
+        "audit_events",
+        "store_operating_days",
+        "store_settings"
+      ],
+      "line_count": 297
+    },
+    {
+      "file": "api/store/settings/paper-ledger-retention/route.ts",
+      "route": "/api/store/settings/paper-ledger-retention",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "tables": [
+        "store_settings"
+      ],
+      "line_count": 149
+    },
+    {
+      "file": "api/store/settlement/overview/route.ts",
+      "route": "/api/store/settlement/overview",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 72
+    },
+    {
+      "file": "api/store/staff/route.ts",
+      "route": "/api/store/staff",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 203
+    },
+    {
+      "file": "api/store/staff/analytics/route.ts",
+      "route": "/api/store/staff/analytics",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "session_participants",
+        "staff_attendance",
+        "store_memberships"
+      ],
+      "line_count": 222
+    },
+    {
+      "file": "api/stores/route.ts",
+      "route": "/api/stores",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 75
+    },
+    {
+      "file": "api/super-admin/dashboard/route.ts",
+      "route": "/api/super-admin/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "credits",
+        "receipts",
+        "room_sessions",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 237
+    },
+    {
+      "file": "api/super-admin/stores-list/route.ts",
+      "route": "/api/super-admin/stores-list",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 94
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "orders",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_operating_days",
+        "stores"
+      ],
+      "line_count": 266
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/sessions/[session_id]/force-close/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/sessions/[session_id]/force-close",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "admin_access_logs",
+        "room_sessions",
+        "stores"
+      ],
+      "line_count": 252
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/sessions/[session_id]/override-price/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/sessions/[session_id]/override-price",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "orders",
+        "room_sessions"
+      ],
+      "line_count": 294
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/sessions/[session_id]/participants/[participant_id]/force-leave/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/sessions/[session_id]/participants/[participant_id]/force-leave",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participants"
+      ],
+      "line_count": 170
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/sessions/[session_id]/participants/force-clean/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/sessions/[session_id]/participants/force-clean",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "room_sessions",
+        "session_participants"
+      ],
+      "line_count": 133
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/sessions/[session_id]/recover/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/sessions/[session_id]/recover",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "orders",
+        "room_sessions",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 236
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/settlement/manager/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/settlement/manager",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "hostesses",
+        "managers",
+        "receipts",
+        "room_sessions",
+        "session_participants",
+        "store_memberships",
+        "store_operating_days"
+      ],
+      "line_count": 220
+    },
+    {
+      "file": "api/super-admin/stores/[store_uuid]/settlement/owner/route.ts",
+      "route": "/api/super-admin/stores/[store_uuid]/settlement/owner",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "orders",
+        "receipts",
+        "room_sessions",
+        "rooms",
+        "session_participants",
+        "store_operating_days"
+      ],
+      "line_count": 258
+    },
+    {
+      "file": "api/super-admin/visualize/flow/money/route.ts",
+      "route": "/api/super-admin/visualize/flow/money",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 116
+    },
+    {
+      "file": "api/super-admin/visualize/graph/network/route.ts",
+      "route": "/api/super-admin/visualize/graph/network",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 361
+    },
+    {
+      "file": "api/super-admin/visualize/graph/node/[type]/[id]/route.ts",
+      "route": "/api/super-admin/visualize/graph/node/[type]/[id]",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 165
+    },
+    {
+      "file": "api/super-admin/visualize/operating-days/route.ts",
+      "route": "/api/super-admin/visualize/operating-days",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "store_operating_days"
+      ],
+      "line_count": 59
+    },
+    {
+      "file": "api/system/time/route.ts",
+      "route": "/api/system/time",
+      "methods": [
+        "GET"
+      ],
+      "tables": [],
+      "line_count": 46
+    },
+    {
+      "file": "api/system/version/route.ts",
+      "route": "/api/system/version",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "deployment_events"
+      ],
+      "line_count": 72
+    },
+    {
+      "file": "api/system/warmup/route.ts",
+      "route": "/api/system/warmup",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "stores"
+      ],
+      "line_count": 84
+    },
+    {
+      "file": "api/telemetry/capture/route.ts",
+      "route": "/api/telemetry/capture",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "system_errors"
+      ],
+      "line_count": 59
+    },
+    {
+      "file": "api/telemetry/errors/route.ts",
+      "route": "/api/telemetry/errors",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "system_errors"
+      ],
+      "line_count": 195
+    },
+    {
+      "file": "api/telemetry/errors/resolve/route.ts",
+      "route": "/api/telemetry/errors/resolve",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "system_errors"
+      ],
+      "line_count": 122
+    },
+    {
+      "file": "api/telemetry/test-alert/route.ts",
+      "route": "/api/telemetry/test-alert",
+      "methods": [
+        "POST"
+      ],
+      "tables": [],
+      "line_count": 52
+    },
+    {
+      "file": "api/telemetry/watchdog/route.ts",
+      "route": "/api/telemetry/watchdog",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "audit_events",
+        "credits",
+        "inventory_items",
+        "issue_reports",
+        "receipts",
+        "room_sessions",
+        "store_operating_days",
+        "system_errors",
+        "v_index_usage",
+        "v_table_stats"
+      ],
+      "line_count": 290
+    },
+    {
+      "file": "api/transfer/approve/route.ts",
+      "route": "/api/transfer/approve",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships",
+        "transfer_requests"
+      ],
+      "line_count": 229
+    },
+    {
+      "file": "api/transfer/cancel/route.ts",
+      "route": "/api/transfer/cancel",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "transfer_requests"
+      ],
+      "line_count": 124
+    },
+    {
+      "file": "api/transfer/list/route.ts",
+      "route": "/api/transfer/list",
+      "methods": [
+        "GET"
+      ],
+      "tables": [
+        "transfer_requests"
+      ],
+      "line_count": 129
+    },
+    {
+      "file": "api/transfer/request/route.ts",
+      "route": "/api/transfer/request",
+      "methods": [
+        "POST"
+      ],
+      "tables": [
+        "audit_events",
+        "store_memberships",
+        "store_operating_days",
+        "stores",
+        "transfer_requests"
+      ],
+      "line_count": 186
+    }
+  ],
+  "tables": [
+    "admin_access_logs",
+    "admin_preference_overrides",
+    "audit_events",
+    "ble_feedback",
+    "ble_gateways",
+    "ble_ingest_audit",
+    "ble_ingest_events",
+    "ble_presence_corrections",
+    "ble_presence_history",
+    "ble_tag_presence",
+    "ble_tags",
+    "cafe_account_info",
+    "cafe_loyalty_members",
+    "cafe_menu_items",
+    "cafe_menu_option_groups",
+    "cafe_menu_options",
+    "cafe_menu_recipes",
+    "cafe_order_credits",
+    "cafe_orders",
+    "cafe_reviews",
+    "cafe_supplies",
+    "cafe_supply_ledger",
+    "cafe_supply_purchases",
+    "chat_messages",
+    "chat_participants",
+    "chat_pattern_dispatches",
+    "chat_rooms",
+    "closing_reports",
+    "credits",
+    "cross_store_settlement_items",
+    "cross_store_settlements",
+    "cross_store_work_records",
+    "customers",
+    "deployment_events",
+    "hostess_pre_registrations",
+    "hostesses",
+    "inventory_items",
+    "inventory_transactions",
+    "issue_reports",
+    "learning_signals",
+    "location_correction_logs",
+    "manager_financial_permissions",
+    "manager_prepayments",
+    "managers",
+    "membership_bank_accounts",
+    "notification_preferences",
+    "orders",
+    "paper_ledger_access_grants",
+    "paper_ledger_diffs",
+    "paper_ledger_edits",
+    "paper_ledger_extractions",
+    "paper_ledger_snapshots",
+    "payee_accounts",
+    "payout_records",
+    "pre_settlements",
+    "profiles",
+    "reauth_verifications",
+    "receipt_snapshots",
+    "receipts",
+    "room_sessions",
+    "rooms",
+    "session_manager_shares",
+    "session_participant_action_applies",
+    "session_participant_actions",
+    "session_participants",
+    "session_store_shares",
+    "settlement_accounts",
+    "settlement_items",
+    "settlement_tree_user_hides",
+    "settlements",
+    "staff_attendance",
+    "staff_payout_states",
+    "staff_request_board",
+    "staff_request_responses",
+    "store_expenses",
+    "store_memberships",
+    "store_operating_days",
+    "store_paper_format",
+    "store_purchases",
+    "store_service_types",
+    "store_settings",
+    "stores",
+    "system_errors",
+    "transfer_requests",
+    "trusted_devices",
+    "user_mfa_settings",
+    "user_preferences",
+    "v_index_usage",
+    "v_table_stats"
+  ]
+}
