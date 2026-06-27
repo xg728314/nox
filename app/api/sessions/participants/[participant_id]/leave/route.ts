@@ -72,6 +72,41 @@ export async function POST(
       if (!sErr) sessionClosed = true
     }
 
+    // R-leave-chat-cleanup (2026-06-28): 식구가 떠나면 그 세션의 room_session 채팅방
+    //   에서도 자동 제거. 사용자 의도: '미연이 중간에 끝나면 그룹채팅에서 자동 나간다'.
+    //   - 그 식구 본 매장 식구(원래 멤버)면 chat_participants 에서 그 row delete
+    //   - session 닫혔으면 chat_room 도 is_active=false (자동 삭제)
+    void (async () => {
+      try {
+        const { data: roomRow } = await supabase
+          .from("chat_rooms")
+          .select("id")
+          .eq("type", "room_session")
+          .eq("session_id", part.session_id)
+          .eq("is_active", true)
+          .maybeSingle()
+        if (roomRow) {
+          const chatRoomId = (roomRow as { id: string }).id
+          if (sessionClosed) {
+            // 방 전체 종료 — chat_room 도 비활성화
+            await supabase
+              .from("chat_rooms")
+              .update({ is_active: false, updated_at: nowIso })
+              .eq("id", chatRoomId)
+          } else {
+            // 그 식구만 chat_participants 에서 제거
+            await supabase
+              .from("chat_participants")
+              .delete()
+              .eq("chat_room_id", chatRoomId)
+              .eq("membership_id", part.membership_id)
+          }
+        }
+      } catch {
+        // best-effort — leave 응답 차단 X
+      }
+    })()
+
     return NextResponse.json({
       ok: true,
       participant_id,

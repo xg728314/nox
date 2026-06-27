@@ -52,6 +52,8 @@ type ServerDispatch = {
   hostess_membership_id: string
   category: string
   time_type: string
+  /** R-room-prefix (2026-06-28): 라인의 "1번방" prefix 에서 추출된 방번호 */
+  room_no?: string | null
   status: string
   target_confirmed_by: string | null
   target_confirmed_at?: string | null
@@ -95,6 +97,8 @@ export function ChatPatternAction({
     time_type: TimeKey
     origin_label: string
     unmatched?: string
+    /** R-room-prefix (2026-06-28): parser 가 추출한 "1번방" 의 방번호 */
+    room_no: string | null
   }
   const resolvedEntries = useMemo<ResolvedEntry[]>(() => {
     if (validEntries.length === 0) return []
@@ -140,6 +144,7 @@ export function ChatPatternAction({
         time_type: time,
         origin_label: `${store.store_name} · ${cat} · ${time === "기본" ? "완티" : time}`,
         unmatched: found ? undefined : eName,
+        room_no: e.room_no ?? null,
       })
     }
     return out
@@ -184,6 +189,7 @@ export function ChatPatternAction({
             hostess_membership_id: e.hostess_membership_id,
             category: e.category,
             time_type: e.time_type,
+            room_no: e.room_no,
           })),
         }),
       })

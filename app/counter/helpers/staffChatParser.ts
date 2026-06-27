@@ -315,6 +315,11 @@ export type ParsedStaffEntry = {
   ticket_type: string | null
   /** Deprecated — always null in v2 (extras dictionary removed per new spec). */
   extra: string | null
+  /**
+   * R-room-prefix (2026-06-28): "1번방" / "3번룸" / "R1" prefix 가 라인 앞에 있으면
+   * 숫자 추출. null 이면 해당 라인에서 방 지정 없음 (dispatch route 가 빈 방 선택).
+   */
+  room_no: string | null
 }
 
 export type ParseResult = {
@@ -356,7 +361,18 @@ export function parseStaffChat(
 
   const lines = text.split(/\r?\n/)
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-    const rawLine = lines[lineIdx]
+    let rawLine = lines[lineIdx]
+    // R-room-prefix (2026-06-28): "1번방" / "3번룸" / "R1" prefix 추출 후 라인에서 제거.
+    //   매치 패턴: 라인 시작 + 숫자 + (번|호|호실|번방|번룸|R 등) 또는 "R숫자".
+    //   추출된 room_no 는 이 라인 모든 entries 에 적용.
+    let lineRoomNo: string | null = null
+    const roomMatch = rawLine.trim().match(/^(\d+)\s*(?:번방|번룸|번호실|번|호|호실|룸|R)\s*/i)
+      ?? rawLine.trim().match(/^R(\d+)\s*/i)
+    if (roomMatch) {
+      lineRoomNo = roomMatch[1]
+      // prefix 제거 후 나머지 line 만 처리
+      rawLine = rawLine.trim().slice(roomMatch[0].length)
+    }
     const parts = rawLine.trim().split(/\s+/).filter(Boolean)
     if (parts.length === 0) continue
 
@@ -437,6 +453,7 @@ export function parseStaffChat(
         category,
         ticket_type,
         extra: null,
+        room_no: lineRoomNo,
       })
     }
   }

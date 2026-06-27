@@ -29,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // 1. 임시 등록 row 조회
     const { data: row } = await supabase
       .from("chat_pattern_dispatches")
-      .select("id, chat_message_id, target_store_uuid, hostess_membership_id, category, time_type, status, target_confirmed_by")
+      .select("id, chat_message_id, target_store_uuid, hostess_membership_id, category, time_type, status, target_confirmed_by, room_no")
       .eq("id", id)
       .is("deleted_at", null)
       .maybeSingle()
@@ -63,12 +63,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // 3. 같은 chat_message_id 의 모든 row 가 target_confirmed 인지 확인
     const { data: peers } = await supabase
       .from("chat_pattern_dispatches")
-      .select("id, target_store_uuid, hostess_membership_id, category, time_type, target_confirmed_by, status")
+      .select("id, target_store_uuid, hostess_membership_id, category, time_type, target_confirmed_by, status, room_no")
       .eq("chat_message_id", r.chat_message_id)
       .is("deleted_at", null)
     type Peer = {
       id: string; target_store_uuid: string; hostess_membership_id: string
       category: string; time_type: string; target_confirmed_by: string | null; status: string
+      room_no: string | null
     }
     const peerRows = (peers ?? []) as Peer[]
     const allConfirmed = peerRows.every((p) => p.target_confirmed_by != null)
@@ -134,7 +135,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           .from("room_sessions").select("room_uuid")
           .eq("store_uuid", p.target_store_uuid).eq("status", "active")
         const busy = new Set(((actSess ?? []) as Array<{ room_uuid: string }>).map((s) => s.room_uuid))
-        const targetRoom = roomList.find((rm) => !busy.has(rm.id)) ?? roomList[0]
+        // R-room-prefix (2026-06-28): room_no 지정 시 그 방 우선. 그 방이 active 면
+        //   그 방의 active session 사용 (=같은 방에 식구 추가). active 아니면 새 세션 생성.
+        //   room_no 없으면 기존 로직 (빈 방 자동 선택).
+        let targetRoom: { id: string; room_no: string; room_name: string | null } | undefined
+        if (p.room_no) {
+          // room_no 정확 매치 우선 ("1" 입력 → "1", "01", "1번" 등)
+          targetRoom = roomList.find((rm) => rm.room_no === p.room_no)
+            ?? roomList.find((rm) => String(rm.room_no).replace(/[^0-9]/g, "") === p.room_no)
+        }
+        if (!targetRoom) {
+          targetRoom = roomList.find((rm) => !busy.has(rm.id)) ?? roomList[0]
+        }
 
         // business_day
         const today = getBusinessDateForOps()
@@ -160,25 +172,40 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           businessDayId = (newBd as { id: string }).id
         }
 
-        // session
-        const { data: sess, error: sErr } = await supabase
+        // session — 그 방에 active session 이미 있으면 재사용 (같은 방에 식구 추가)
+        let sessionId: string
+        const { data: existingActive } = await supabase
           .from("room_sessions")
-          .insert({
-            store_uuid: p.target_store_uuid,
-            room_uuid: targetRoom.id,
-            business_day_id: businessDayId,
-            status: "active",
-            opened_by: auth.user_id,
-            manager_membership_id: targetMgr.id,
-            is_external_manager: true,
-            started_at: new Date().toISOString(),
-          })
-          .select("id").single()
-        if (sErr || !sess) {
-          await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: `session 실패: ${sErr?.message}`, updated_at: new Date().toISOString() }).eq("id", p.id)
-          continue
+          .select("id")
+          .eq("store_uuid", p.target_store_uuid)
+          .eq("room_uuid", targetRoom.id)
+          .eq("status", "active")
+          .is("deleted_at", null)
+          .maybeSingle()
+        if (existingActive) {
+          // R-room-prefix-merge (2026-06-28): 같은 방에 있는 식구들을 한 세션에 묶음.
+          //   사용자 의도: '1번방 신 지수 황 미연' → 같은 방 식구는 한 그룹채팅.
+          sessionId = (existingActive as { id: string }).id
+        } else {
+          const { data: sess, error: sErr } = await supabase
+            .from("room_sessions")
+            .insert({
+              store_uuid: p.target_store_uuid,
+              room_uuid: targetRoom.id,
+              business_day_id: businessDayId,
+              status: "active",
+              opened_by: auth.user_id,
+              manager_membership_id: targetMgr.id,
+              is_external_manager: true,
+              started_at: new Date().toISOString(),
+            })
+            .select("id").single()
+          if (sErr || !sess) {
+            await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: `session 실패: ${sErr?.message}`, updated_at: new Date().toISOString() }).eq("id", p.id)
+            continue
+          }
+          sessionId = (sess as { id: string }).id
         }
-        const sessionId = (sess as { id: string }).id
 
         // cross-store transfer_request (origin != target 일 때만)
         let transferRequestId: string | null = null

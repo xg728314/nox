@@ -84,9 +84,10 @@ export async function POST(request: Request) {
       time_type: string
       created_by: string
       status: string
+      room_no: string | null
     }> = []
     const validateErr: string[] = []
-    for (const e of body.entries) {
+    for (const e of body.entries as Array<{ target_store_uuid: string; hostess_membership_id: string; category: string; time_type: string; room_no?: string | null }>) {
       if (!e.target_store_uuid || !isValidUUID(e.target_store_uuid)) { validateErr.push("target_store_uuid invalid"); continue }
       if (!e.hostess_membership_id || !isValidUUID(e.hostess_membership_id)) { validateErr.push("hostess invalid"); continue }
       if (!e.category || !CAT_SET.has(e.category)) { validateErr.push("category invalid"); continue }
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
         time_type: e.time_type,
         created_by: auth.user_id,
         status: "pending",
+        room_no: e.room_no ?? null,
       })
     }
     if (rows.length === 0) {
