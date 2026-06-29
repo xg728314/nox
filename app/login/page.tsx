@@ -50,32 +50,41 @@ export default function LoginPage() {
       window.location.replace(`/reset-password${hash}`)
       return
     }
-    // R-auto-login: localStorage 에 저장된 credential 있으면 자동 fill + submit.
-    //   - 토글 OFF 상태 (또는 credential 없음) → 정상 로그인 화면 표시.
-    //   - 1회만 실행 (didAutoLoginRef) — 실패 시 다시 시도 X.
-    //   - ?noauto=1 query 로 우회 가능 (자동 로그인 디버깅용).
+    // R-dev-bypass (2026-06-28): 사용자 요청 "로그인 방식 자체 없애줘".
+    //   가장 먼저 dev-bypass endpoint 호출 — Cloud Run env 가 활성화면
+    //   비번 입력 없이 즉시 /m. 비활성 (403) 이면 정상 로그인 흐름.
+    //   ?noauto=1 query 로 일회 우회.
     try {
       if (didAutoLoginRef.current) return
       const url = new URL(window.location.href)
-      if (url.searchParams.get("noauto") === "1") {
-        // 자동 로그인 끄고 화면 표시 (사용자가 의도적 우회)
-        return
-      }
-      const enabled = window.localStorage.getItem(AUTO_LOGIN_ENABLED_KEY) === "true"
-      if (!enabled) return
-      const savedEmail = window.localStorage.getItem(AUTO_LOGIN_EMAIL_KEY) ?? ""
-      const savedPwd = window.localStorage.getItem(AUTO_LOGIN_PASSWORD_KEY) ?? ""
-      if (!savedEmail || !savedPwd) return
+      if (url.searchParams.get("noauto") === "1") return
       didAutoLoginRef.current = true
-      setEmail(savedEmail)
-      setPassword(savedPwd)
-      setAutoLogin(true)
-      // 다음 tick — state 반영 후 handleLogin 호출. opts 로 직접 전달해서
-      //   state flush 와 무관하게 즉시 실행.
-      setTimeout(() => {
-        void handleLogin({ autoEmail: savedEmail, autoPassword: savedPwd })
-      }, 0)
-    } catch { /* localStorage 미지원 — 정상 화면 */ }
+      ;(async () => {
+        // 1. dev-bypass (서버 env 활성화면 작동)
+        try {
+          const r = await fetch("/api/auth/dev-bypass", { method: "POST" })
+          if (r.ok) {
+            router.push("/m")
+            return
+          }
+        } catch { /* fall through to localStorage */ }
+
+        // 2. localStorage 자동 로그인 (사용자가 토글 켰던 경우)
+        try {
+          const enabled = window.localStorage.getItem(AUTO_LOGIN_ENABLED_KEY) === "true"
+          if (!enabled) return
+          const savedEmail = window.localStorage.getItem(AUTO_LOGIN_EMAIL_KEY) ?? ""
+          const savedPwd = window.localStorage.getItem(AUTO_LOGIN_PASSWORD_KEY) ?? ""
+          if (!savedEmail || !savedPwd) return
+          setEmail(savedEmail)
+          setPassword(savedPwd)
+          setAutoLogin(true)
+          setTimeout(() => {
+            void handleLogin({ autoEmail: savedEmail, autoPassword: savedPwd })
+          }, 0)
+        } catch { /* localStorage 미지원 — 정상 화면 */ }
+      })()
+    } catch { /* noop */ }
   }, [])
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
