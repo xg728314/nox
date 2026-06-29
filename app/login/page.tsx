@@ -1,12 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { EMAIL_OTP_LENGTH, TOTP_CODE_LENGTH } from "@/lib/security/otpLength"
 
+// R-auto-login (2026-06-28): 사용자 요청 — "처음 접속할 때 비번 안 치게".
+//   토글 켜면 비번 localStorage 저장 + 다음 접속부터 자동 로그인.
+//   logout 또는 토글 OFF 후 로그인 시 자동 삭제.
+//   ⚠ 비번 평문 저장 (XSS 노출 위험) — 사용자 명시 동의 후 진행.
+const AUTO_LOGIN_ENABLED_KEY = "nox.auto_login.enabled"
+const AUTO_LOGIN_EMAIL_KEY = "nox.auto_login.email"
+const AUTO_LOGIN_PASSWORD_KEY = "nox.auto_login.password"
+
+function clearAutoLoginCredentials() {
+  try {
+    localStorage.removeItem(AUTO_LOGIN_ENABLED_KEY)
+    localStorage.removeItem(AUTO_LOGIN_EMAIL_KEY)
+    localStorage.removeItem(AUTO_LOGIN_PASSWORD_KEY)
+  } catch { /* noop */ }
+}
+
 export default function LoginPage() {
   const router = useRouter()
+  const didAutoLoginRef = useRef(false)
 
   // HOTFIX: Supabase recovery emails sent before the redirectTo fix was
   // deployed point at the project Site URL (root "/"), which this app's
@@ -33,12 +50,41 @@ export default function LoginPage() {
       window.location.replace(`/reset-password${hash}`)
       return
     }
+    // R-auto-login: localStorage 에 저장된 credential 있으면 자동 fill + submit.
+    //   - 토글 OFF 상태 (또는 credential 없음) → 정상 로그인 화면 표시.
+    //   - 1회만 실행 (didAutoLoginRef) — 실패 시 다시 시도 X.
+    //   - ?noauto=1 query 로 우회 가능 (자동 로그인 디버깅용).
+    try {
+      if (didAutoLoginRef.current) return
+      const url = new URL(window.location.href)
+      if (url.searchParams.get("noauto") === "1") {
+        // 자동 로그인 끄고 화면 표시 (사용자가 의도적 우회)
+        return
+      }
+      const enabled = window.localStorage.getItem(AUTO_LOGIN_ENABLED_KEY) === "true"
+      if (!enabled) return
+      const savedEmail = window.localStorage.getItem(AUTO_LOGIN_EMAIL_KEY) ?? ""
+      const savedPwd = window.localStorage.getItem(AUTO_LOGIN_PASSWORD_KEY) ?? ""
+      if (!savedEmail || !savedPwd) return
+      didAutoLoginRef.current = true
+      setEmail(savedEmail)
+      setPassword(savedPwd)
+      setAutoLogin(true)
+      // 다음 tick — state 반영 후 handleLogin 호출. opts 로 직접 전달해서
+      //   state flush 와 무관하게 즉시 실행.
+      setTimeout(() => {
+        void handleLogin({ autoEmail: savedEmail, autoPassword: savedPwd })
+      }, 0)
+    } catch { /* localStorage 미지원 — 정상 화면 */ }
   }, [])
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [remember, setRemember] = useState(true)
+  // R-auto-login: localStorage 토글 — 켜져있으면 첫 로그인 후 비번 저장 +
+  //   다음 접속부터 mount effect 가 자동 submit.
+  const [autoLogin, setAutoLogin] = useState(false)
   const [mfaStep, setMfaStep] = useState(false)
   const [code, setCode] = useState("")
   // R25: "totp" 6자리 vs "backup" 12자 영숫자. TOTP 분실 시 사장 영구
@@ -110,6 +156,19 @@ export default function LoginPage() {
     //   "/counter"
     const dest = "/m"
 
+    // R-auto-login: 자동 로그인 토글 켜져있으면 credential 저장. 끄려져 있으면
+    //   기존 저장 삭제. finalizeSession 은 일반 로그인 + email OTP + MFA 모든
+    //   인증 흐름의 종점이라 한 곳만 처리하면 됨.
+    try {
+      if (autoLogin && email && password) {
+        localStorage.setItem(AUTO_LOGIN_ENABLED_KEY, "true")
+        localStorage.setItem(AUTO_LOGIN_EMAIL_KEY, email)
+        localStorage.setItem(AUTO_LOGIN_PASSWORD_KEY, password)
+      } else {
+        clearAutoLoginCredentials()
+      }
+    } catch { /* noop */ }
+
     // R25: 백업 코드 사용 시 한번 큰 경고. 1회용임을 인지시키고 잔여 표시.
     if (data.used_backup_code) {
       const remaining = data.backup_codes_remaining ?? 0
@@ -129,22 +188,30 @@ export default function LoginPage() {
     return true
   }
 
-  async function handleLogin() {
+  async function handleLogin(opts?: { autoEmail?: string; autoPassword?: string }) {
     setLoading(true)
     setError("")
+    const useEmail = opts?.autoEmail ?? email
+    const usePassword = opts?.autoPassword ?? password
     try {
       const device_id = ensureDeviceId()
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, device_id }),
+        body: JSON.stringify({ email: useEmail, password: usePassword, device_id }),
       })
       const data = await res.json()
       if (!res.ok) {
         if (data.error === "AUTH_FAILED") {
           setError("비밀번호가 올바르지 않습니다.")
+          // R-auto-login: 저장된 비번이 틀려서 자동 로그인 실패 → 토글 자동 해제.
+          //   사용자가 다시 정상 로그인하도록.
+          clearAutoLoginCredentials()
+          setAutoLogin(false)
         } else if (data.error === "MEMBERSHIP_NOT_APPROVED" || data.error === "MEMBERSHIP_NOT_FOUND") {
           setError("등록된 계정이 없습니다.")
+          clearAutoLoginCredentials()
+          setAutoLogin(false)
         } else {
           setError(data.message || "로그인 실패")
         }
@@ -423,7 +490,7 @@ export default function LoginPage() {
                 )}
               </div>
 
-              <div className="mt-4 flex items-center text-sm">
+              <div className="mt-4 flex items-center justify-between text-sm">
                 <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
                   <input
                     type="checkbox"
@@ -433,6 +500,21 @@ export default function LoginPage() {
                   />
                   로그인 상태 유지
                 </label>
+                {/* R-auto-login: 자동 로그인 체크박스. 켜고 로그인 성공 시 비번
+                    localStorage 저장 → 다음 접속 자동. 끄려면 체크 해제 후 새
+                    로그인 또는 ?noauto=1 로 우회. */}
+                <label
+                  className="flex items-center gap-2 text-amber-300/80 cursor-pointer"
+                  title="이 기기에 비번이 저장됩니다 (다음 접속부터 자동 로그인). 끄려면 체크 해제 후 새 로그인."
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoLogin}
+                    onChange={e => setAutoLogin(e.target.checked)}
+                    className="h-4 w-4 rounded border-white/20 bg-transparent accent-amber-400"
+                  />
+                  자동 로그인
+                </label>
               </div>
 
               {error && (
@@ -440,7 +522,7 @@ export default function LoginPage() {
               )}
 
               <button
-                onClick={mfaStep ? (verifyMode === "email" ? handleEmailOtpVerify : handleMfa) : handleLogin}
+                onClick={mfaStep ? (verifyMode === "email" ? handleEmailOtpVerify : handleMfa) : () => handleLogin()}
                 disabled={loading}
                 className="mt-5 h-14 w-full rounded-2xl bg-[linear-gradient(90deg,#0ea5e9,#2563eb)] text-base font-semibold text-white shadow-[0_8px_30px_rgba(37,99,235,0.45)] transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
               >

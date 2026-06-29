@@ -23,6 +23,13 @@ export default function MePage() {
     } catch {
       /* best-effort */
     } finally {
+      // R-auto-login (2026-06-28): logout 시 저장된 credential 도 자동 삭제.
+      //   사용자 의도가 명확한 OFF — 다음 접속 시 정상 로그인 화면.
+      try {
+        localStorage.removeItem("nox.auto_login.enabled")
+        localStorage.removeItem("nox.auto_login.email")
+        localStorage.removeItem("nox.auto_login.password")
+      } catch { /* noop */ }
       toast("로그아웃 완료", "success")
       router.push("/login")
     }
