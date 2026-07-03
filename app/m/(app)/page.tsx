@@ -6,6 +6,7 @@ import { TabBar } from "../_components/TabBar"
 import { StatusCells } from "../_components/StatusCells"
 import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
+import { SessionGroupCard } from "../_components/SessionGroupCard"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
@@ -383,7 +384,68 @@ export default function HomePage() {
             {/* R-grid-scroll (2026-06-26): 필터 여부 무관 항상 max-h + scroll.
                 이전엔 필터 활성 시만 적용 + 12명 slice 라 본 매장 20명 식구
                 중 8명이 안 보였음. 이젠 전부 스크롤로 노출. */}
-            {filteredHostesses.map((h) => (
+            {filteredHostesses.map((h) => {
+              // R-session-group (2026-06-28): 같은 세션에서 함께 일하는 식구
+              //   2명 이상 → SessionGroupCard 로 묶음. 첫 멤버일 때만 렌더,
+              //   나머지는 null 반환 (그룹 카드가 대체).
+              const sessId = h.working_session_id
+              if (h.is_working && sessId) {
+                const groupMembers = filteredHostesses.filter(
+                  (x) => x.is_working && x.working_session_id === sessId,
+                )
+                if (groupMembers.length >= 2) {
+                  if (groupMembers[0].membership_id !== h.membership_id) return null
+                  const remainings = groupMembers
+                    .map((m) => remainingMinutesOf(m))
+                    .filter((r): r is number => typeof r === "number")
+                  const minRemaining =
+                    remainings.length > 0 ? Math.min(...remainings) : null
+                  return (
+                    <SessionGroupCard
+                      key={`sess-${sessId}`}
+                      sessionId={sessId}
+                      storeName={h.working_store_name}
+                      category={h.working_category}
+                      startedAt={h.working_entered_at}
+                      timeMinutes={h.working_time_minutes}
+                      remainingMinutes={minRemaining}
+                      members={groupMembers.map((m) => ({
+                        membershipId: m.membership_id,
+                        name: m.hostess_name,
+                      }))}
+                      selectedIds={
+                        selectMode || checkoutMode ? selectedIds : undefined
+                      }
+                      onTapMember={(mid) => {
+                        const target = groupMembers.find(
+                          (x) => x.membership_id === mid,
+                        )
+                        if (!target) return
+                        if (checkoutMode) return // 일하는 중 → 퇴근 불가
+                        if (selectMode) {
+                          setSelectedIds((prev) => {
+                            const n = new Set(prev)
+                            if (n.has(mid)) n.delete(mid)
+                            else n.add(mid)
+                            if (n.size === 0) setSelectMode(false)
+                            return n
+                          })
+                        } else if (activeFilter === "total") {
+                          return // 일하는 중 → 출근 토글 불가
+                        } else if (
+                          target.working_participant_id &&
+                          target.working_session_id
+                        ) {
+                          setExtendTarget(target)
+                          setExtendOpen(true)
+                        }
+                      }}
+                    />
+                  )
+                }
+              }
+              // 단독 카드 (그룹 아닌 경우) — 기존 StaffCard 로직 그대로
+              return (
               <StaffCard
                 key={h.membership_id}
                 membershipId={h.membership_id}
@@ -468,7 +530,8 @@ export default function HomePage() {
                   })
                 }}
               />
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
