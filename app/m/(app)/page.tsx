@@ -155,26 +155,40 @@ export default function HomePage() {
   // 필터 적용된 식구 목록
   //   R-sort-working (2026-06-26): "일하는 중" 필터 시 정렬 — 곧 끝나는 식구 맨 앞,
   //   동률이면 working_store 의 층 오름차순 (5→8층).
+  //   R-sort-all (2026-06-28): 사용자 요청 — "선택했을 때 정렬 잘 안 되는데
+  //   일하는 건 맨 위로". 필터 무관 항상 is_working → waiting → off 순으로.
   const filteredHostesses = useMemo(() => {
     const all = hostesses.data?.hostesses ?? []
-    if (!activeFilter) return all
-    if (activeFilter === "working") {
-      const filtered = all.filter((h) => h.is_working)
-      return [...filtered].sort((a, b) => {
-        const ra = remainingMinutesOf(a)
-        const rb = remainingMinutesOf(b)
-        // null 은 맨뒤 — 시간 정보 없는 식구는 곧 끝남 예측 불가
-        const ka = ra ?? Number.POSITIVE_INFINITY
-        const kb = rb ?? Number.POSITIVE_INFINITY
-        if (ka !== kb) return ka - kb
-        const fa = a.working_store_uuid ? (floorByStore.get(a.working_store_uuid) ?? 99) : 99
-        const fb = b.working_store_uuid ? (floorByStore.get(b.working_store_uuid) ?? 99) : 99
-        return fa - fb
+
+    // 정렬 헬퍼 — is_working 앞, 그 안에서 임박(남은분)→층→이름 순.
+    const sortAll = (list: typeof all) =>
+      [...list].sort((a, b) => {
+        if (a.is_working !== b.is_working) return a.is_working ? -1 : 1
+        if (a.is_working && b.is_working) {
+          // 같은 세션 (같은 방/매장) 식구는 인접하게 — session_id 로 그룹핑
+          if (a.working_session_id && b.working_session_id
+              && a.working_session_id !== b.working_session_id) {
+            // 세션끼리 임박 순
+            const ra = remainingMinutesOf(a) ?? Number.POSITIVE_INFINITY
+            const rb = remainingMinutesOf(b) ?? Number.POSITIVE_INFINITY
+            if (ra !== rb) return ra - rb
+            const fa = a.working_store_uuid ? (floorByStore.get(a.working_store_uuid) ?? 99) : 99
+            const fb = b.working_store_uuid ? (floorByStore.get(b.working_store_uuid) ?? 99) : 99
+            if (fa !== fb) return fa - fb
+            return (a.working_session_id ?? "").localeCompare(b.working_session_id ?? "")
+          }
+          // 같은 세션 = 이름 순
+          return (a.hostess_name ?? "").localeCompare(b.hostess_name ?? "")
+        }
+        // 둘 다 대기/결근 — 이름 순
+        return (a.hostess_name ?? "").localeCompare(b.hostess_name ?? "")
       })
-    }
-    if (activeFilter === "waiting") return all.filter((h) => !h.is_working)
-    if (activeFilter === "total") return all // 총인원 — 전체 (출근 토글 모드)
-    return all
+
+    if (!activeFilter) return sortAll(all)
+    if (activeFilter === "working") return sortAll(all.filter((h) => h.is_working))
+    if (activeFilter === "waiting") return sortAll(all.filter((h) => !h.is_working))
+    if (activeFilter === "total") return sortAll(all)
+    return sortAll(all)
   }, [hostesses.data, activeFilter, remainingMinutesOf, floorByStore])
 
   return (
@@ -390,14 +404,15 @@ export default function HomePage() {
                 중 8명이 안 보였음. 이젠 전부 스크롤로 노출. */}
             {filteredHostesses.map((h) => {
               // R-session-group (2026-06-28): 같은 세션에서 함께 일하는 식구
-              //   2명 이상 → SessionGroupCard 로 묶음. 첫 멤버일 때만 렌더,
-              //   나머지는 null 반환 (그룹 카드가 대체).
+              //   → SessionGroupCard 로 묶음. 첫 멤버일 때만 렌더, 나머지는 null.
+              //   R-solo-group (2026-06-28): 사용자 요청 — 혼자여도 그룹 카드로
+              //   (매장 · 종목 · 시간 뚜렷하게 보이게). min length 1.
               const sessId = h.working_session_id
               if (h.is_working && sessId) {
                 const groupMembers = filteredHostesses.filter(
                   (x) => x.is_working && x.working_session_id === sessId,
                 )
-                if (groupMembers.length >= 2) {
+                if (groupMembers.length >= 1) {
                   if (groupMembers[0].membership_id !== h.membership_id) return null
                   const remainings = groupMembers
                     .map((m) => remainingMinutesOf(m))
