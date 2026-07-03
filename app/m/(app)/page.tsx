@@ -39,11 +39,15 @@ export default function HomePage() {
   const buildingStores = useBuildingStores()
   const roomChats = useActiveRoomChats()
 
-  // 출근 membership_id 집합 (status='present' 이거나 명시적 'absent' 아닌 것)
+  // R-attendance-enum-fix (2026-06-28): 사용자 보고 "대기 0" 인데 실제 대기
+  //   14명. 원인: DB attendance.status 는 'available' / 'assigned' /
+  //   'in_room' / 'off_duty' 값 저장 (staff_attendance 테이블). 클라 코드는
+  //   'present' 체크 → 매칭 0건 → attendedSet 항상 empty → 대기 카운트 0.
+  //   Fix: 'off_duty' 가 아니면 모두 출근으로 인식.
   const attendedSet = useMemo(() => {
     const s = new Set<string>()
     for (const a of attendance.data?.attendance ?? []) {
-      if (a.status === "present") s.add(a.membership_id)
+      if (a.status !== "off_duty") s.add(a.membership_id)
     }
     return s
   }, [attendance.data])

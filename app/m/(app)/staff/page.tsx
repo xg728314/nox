@@ -22,11 +22,12 @@ export default function StaffListPage() {
 
   const all = data?.hostesses ?? []
 
-  // R-attendance (2026-06-26): 출근 membership_id 집합. 토글 시 즉시 UI 반영.
+  // R-attendance-enum-fix (2026-06-28): DB status 는 available/in_room/
+  //   assigned/off_duty. off_duty 아니면 출근으로 인식.
   const attendedSet = useMemo(() => {
     const s = new Set<string>()
     for (const a of attendance.data?.attendance ?? []) {
-      if (a.status === "present") s.add(a.membership_id)
+      if (a.status !== "off_duty") s.add(a.membership_id)
     }
     return s
   }, [attendance.data])

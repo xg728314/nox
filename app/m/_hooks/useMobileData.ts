@@ -253,11 +253,13 @@ export function useActiveRoomChats() {
   )
 }
 
-/** 출근 상태 */
+/** 출근 상태 — DB staff_attendance.status enum 실제 값.
+ *  R-attendance-enum-fix (2026-06-28): 이전 타입 (present/absent/on_break) 은
+ *  DB 스키마와 불일치 → 클라이언트 매칭 실패로 "대기 0" 버그. 실 DB 값으로 통일. */
 export type AttendanceRow = {
   membership_id: string
   hostess_name: string
-  status: "present" | "absent" | "on_break"
+  status: "available" | "assigned" | "in_room" | "off_duty"
   checked_in_at: string | null
   room_uuid: string | null
 }
