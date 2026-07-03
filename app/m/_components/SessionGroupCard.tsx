@@ -53,10 +53,9 @@ export function SessionGroupCard({
     ? `${fmtClockTime(startedAt)} → ${fmtEndClockTime(startedAt, timeMinutes)}`
     : ""
 
-  // grid col-span: 2명=2, 3명=3, 4+=4
-  const span = Math.min(4, Math.max(2, members.length))
-  const spanClass =
-    span === 4 ? "col-span-4" : span === 3 ? "col-span-3" : "col-span-2"
+  // R-full-row (2026-06-28): 사용자 피드백 — 그룹 옆에 개별 카드가 붙어
+  //   보기 불편함. 항상 grid 한 줄 전체 차지 → 개별 카드는 다음 줄로 자연 밀림.
+  const spanClass = "col-span-full"
 
   return (
     <div
