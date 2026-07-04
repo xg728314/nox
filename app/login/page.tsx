@@ -156,14 +156,9 @@ export default function LoginPage() {
       localStorage.removeItem("role")
     } catch { /* storage unavailable — safe to ignore */ }
 
-    // Phase 2 (2026-06-01): 모든 role 로그인 = 실장 어플 메인.
-    // 기존 role 별 dest 는 보존 (다음 Phase 에 다시 활용).
-    //   data.role === "owner"   ? "/owner" :
-    //   data.role === "manager" ? "/manager" :
-    //   data.role === "hostess" ? "/me" :
-    //   data.role === "counter" ? "/counter" :
-    //   "/counter"
-    const dest = "/m"
+    // R-hostess-app (2026-06-28): 아가씨 셀프 앱. hostess role → /h.
+    //   실장/사장/카운터 → 기존 /m (실장 어플).
+    const dest = data.role === "hostess" ? "/h" : "/m"
 
     // R-auto-login: 자동 로그인 토글 켜져있으면 credential 저장. 끄려져 있으면
     //   기존 저장 삭제. finalizeSession 은 일반 로그인 + email OTP + MFA 모든
