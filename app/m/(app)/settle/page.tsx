@@ -13,6 +13,7 @@ import { invalidateApi } from "../../_hooks/useApi"
 import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
 import { StaffPayoutSheet } from "../../_components/StaffPayoutSheet"
 import { TrendChart } from "../../_components/TrendChart"
+import { AiSummaryButton } from "../../_components/AiSummaryButton"
 
 type Period = "today" | "week"
 
@@ -248,7 +249,10 @@ export default function SettlePage() {
           </div>
         </div>
 
-        {/* 매출 트렌드 (14일) */}
+        {/* AI 요약 + 매출 트렌드 (14일) */}
+        <div className="mb-3">
+          <AiSummaryButton />
+        </div>
         <TrendChart days={14} />
 
         {/* 내 장부 — 오늘 실데이터 (manager_amount 합계) */}
