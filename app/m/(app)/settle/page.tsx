@@ -170,13 +170,22 @@ export default function SettlePage() {
         subtitle={`${me.data?.full_name ?? ""} · ${me.data?.store_name ?? ""}`}
         backHref="/m"
         right={
-          <button
-            type="button"
-            onClick={() => setResetSheetOpen(true)}
-            className="text-[10px] font-extrabold text-red-600 bg-red-50 border border-red-200 rounded-full px-3 py-1.5"
-          >
-            🗑 초기화
-          </button>
+          <div className="flex items-center gap-1.5">
+            <Link
+              href="/m/settle/print"
+              className="text-[10px] font-extrabold text-[#2D2B26] bg-white border border-[#D8D2C8] rounded-full px-2.5 py-1.5"
+              title="마감 리포트 인쇄/PDF"
+            >
+              🖨️ 마감
+            </Link>
+            <button
+              type="button"
+              onClick={() => setResetSheetOpen(true)}
+              className="text-[10px] font-extrabold text-red-600 bg-red-50 border border-red-200 rounded-full px-3 py-1.5"
+            >
+              🗑 초기화
+            </button>
+          </div>
         }
       />
 
