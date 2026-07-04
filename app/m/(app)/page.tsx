@@ -9,6 +9,7 @@ import { StaffCard } from "../_components/StaffCard"
 import { SessionGroupCard } from "../_components/SessionGroupCard"
 import { PushEnableBanner } from "../_components/PushEnableBanner"
 import { AnomaliesBanner } from "../_components/AnomaliesBanner"
+import { SosButton } from "../_components/SosButton"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
@@ -219,10 +220,11 @@ export default function HomePage() {
         </button>
       </header>
 
-      {/* Push 알림 켜기 배너 (permission 미승인 + 미dismiss 시만) */}
+      {/* Push 알림 켜기 배너 + 이상 감지 배너 + SOS 진행중 배너 */}
       <div className="mx-5 mt-1">
         <PushEnableBanner />
         <AnomaliesBanner />
+        <SosButton />
       </div>
 
       {/* 자동 종료 배너 — 최근 30분 내 10분 초과 자동 종료된 식구 */}
