@@ -51,9 +51,22 @@ export default function MePage() {
         {/* 이상 감지 배너 — 홈에서 이동 */}
         <AnomaliesBanner />
 
-        {/* 빠른 실행 그리드 — 홈에서 접근 어려운 기능들 */}
+        {/* 커뮤니티 · 마켓플레이스 (신규) */}
         <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
-          빠른 실행
+          커뮤니티 & 마켓
+        </div>
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <QuickAction href="/m/live" icon="📡" label="실시간현황" />
+          <QuickAction href="/m/lounge" icon="🌸" label="라운지" />
+          <QuickAction href="/m/place" icon="🎁" label="플레이스" />
+          <QuickAction href="/m/talk" icon="💬" label="초이스톡" />
+          <QuickAction href="/m/jobs" icon="💼" label="채용정보" />
+          <QuickAction href="/m/me/ads" icon="📢" label="광고 관리" />
+        </div>
+
+        {/* 빠른 실행 그리드 — 실장 운영 기능 */}
+        <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
+          운영 도구
         </div>
         <div className="grid grid-cols-4 gap-2 mb-4">
           <QuickAction href="/m/map" icon="🗺️" label="방 지도" />
