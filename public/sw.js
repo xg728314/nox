@@ -43,3 +43,57 @@ self.addEventListener("activate", (event) => {
 })
 
 // fetch handler 미등록 — 모든 요청 network 통과.
+
+// R-push (2026-06-28): Web Push notification 처리.
+//   서버가 web-push 로 push 전송 → 브라우저가 SW 에 event 전달.
+//   payload 형식: { title, body, url?, tag?, icon?, vibrate?, data? }.
+self.addEventListener("push", (event) => {
+  let payload = {}
+  try {
+    payload = event.data ? event.data.json() : {}
+  } catch (e) {
+    payload = { title: "NOX", body: event.data ? event.data.text() : "" }
+  }
+  const title = payload.title || "NOX"
+  const options = {
+    body: payload.body || "",
+    icon: payload.icon || "/favicon.png",
+    badge: "/favicon.png",
+    tag: payload.tag || undefined,
+    vibrate: payload.vibrate || [200, 100, 200],
+    data: {
+      url: payload.url || "/m",
+      ...(payload.data || {}),
+    },
+    // 같은 tag 새로 오면 이전 대체
+    renotify: !!payload.tag,
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+// R-push (2026-06-28): notification 클릭 → 지정 URL 로 이동.
+//   같은 URL 탭 이미 열려있으면 focus, 아니면 새 탭.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/m"
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      })
+      for (const client of allClients) {
+        try {
+          const u = new URL(client.url)
+          if (u.pathname === targetUrl || client.url.endsWith(targetUrl)) {
+            await client.focus()
+            return
+          }
+        } catch (e) {}
+      }
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(targetUrl)
+      }
+    })(),
+  )
+})

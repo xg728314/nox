@@ -100,6 +100,16 @@ jobs:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
+      # R-push (2026-06-28): 임박 세션 (5~10분 남음) 알림.
+      - name: push-imminent
+        run: |
+          curl -fsS -X GET "$BASE_URL/api/cron/push-imminent" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron" || true
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
   daily-12-kst:
     if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
     runs-on: ubuntu-latest

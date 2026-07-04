@@ -7,6 +7,7 @@ import { StatusCells } from "../_components/StatusCells"
 import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
 import { SessionGroupCard } from "../_components/SessionGroupCard"
+import { PushEnableBanner } from "../_components/PushEnableBanner"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { ExternalStaffAddSheet } from "../_components/ExternalStaffAddSheet"
@@ -216,6 +217,11 @@ export default function HomePage() {
           )}
         </button>
       </header>
+
+      {/* Push 알림 켜기 배너 (permission 미승인 + 미dismiss 시만) */}
+      <div className="mx-5 mt-1">
+        <PushEnableBanner />
+      </div>
 
       {/* 자동 종료 배너 — 최근 30분 내 10분 초과 자동 종료된 식구 */}
       {autoClosedRecent.length > 0 && !bannerDismissed && (
