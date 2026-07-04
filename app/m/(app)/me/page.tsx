@@ -6,9 +6,19 @@ import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { useToast, haptic } from "../../_components/Toast"
 import { useMe } from "../../_hooks/useMobileData"
+import { AnomaliesBanner } from "../../_components/AnomaliesBanner"
 import { apiFetch } from "@/lib/apiFetch"
 import { initialOf } from "../../_lib/format"
 
+/**
+ * 전체메뉴 페이지 (/m/me).
+ *   - 이전 이름 "내정보" → "전체메뉴" 로 확장 (2026-07-05).
+ *   - 구성:
+ *     1) 이상 감지 (AnomaliesBanner) — 홈에서 이동
+ *     2) 빠른 실행 그리드 (방 지도 / 마감 리포트 / AI 요약 / 재고 / 외상 / 채팅 / 등)
+ *     3) 내 정보 (프로필 카드 + 매장/보안/앱)
+ *     4) 로그아웃
+ */
 export default function MePage() {
   const { data, isLoading } = useMe()
   const toast = useToast()
@@ -23,8 +33,6 @@ export default function MePage() {
     } catch {
       /* best-effort */
     } finally {
-      // R-auto-login (2026-06-28): logout 시 저장된 credential 도 자동 삭제.
-      //   사용자 의도가 명확한 OFF — 다음 접속 시 정상 로그인 화면.
       try {
         localStorage.removeItem("nox.auto_login.enabled")
         localStorage.removeItem("nox.auto_login.email")
@@ -37,9 +45,32 @@ export default function MePage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader title="내 정보" backHref="/m" />
+      <PageHeader title="전체메뉴" backHref="/m" />
 
       <div className="px-5 pb-24">
+        {/* 이상 감지 배너 — 홈에서 이동 */}
+        <AnomaliesBanner />
+
+        {/* 빠른 실행 그리드 — 홈에서 접근 어려운 기능들 */}
+        <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
+          빠른 실행
+        </div>
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <QuickAction href="/m/map" icon="🗺️" label="방 지도" />
+          <QuickAction href="/m/settle/print" icon="🖨️" label="마감 리포트" />
+          <QuickAction href="/m/settle" icon="🤖" label="AI 요약" />
+          <QuickAction href="/m/chat" icon="💬" label="채팅" />
+          <QuickAction href="/inventory" icon="📦" label="재고" />
+          <QuickAction href="/credits" icon="💳" label="외상" />
+          <QuickAction href="/operating-days" icon="🗓️" label="영업일 마감" />
+          <QuickAction href="/reconcile" icon="📸" label="종이 장부" />
+        </div>
+
+        {/* 내 정보 헤더 */}
+        <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5">
+          내 정보
+        </div>
+
         {/* 프로필 카드 */}
         <div className="bg-white rounded-3xl p-5 border border-[#D8D2C8]/60 mb-4 flex items-center gap-4">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white text-[26px] font-extrabold flex items-center justify-center shrink-0">
@@ -102,6 +133,28 @@ export default function MePage() {
 
       <TabBar />
     </div>
+  )
+}
+
+function QuickAction({
+  href,
+  icon,
+  label,
+}: {
+  href: string
+  icon: string
+  label: string
+}) {
+  return (
+    <Link
+      href={href}
+      className="bg-white rounded-2xl border border-[#D8D2C8]/60 aspect-square flex flex-col items-center justify-center gap-1 no-underline text-[#2D2B26] active:scale-95 active:bg-[#FAF5EC] transition-transform"
+    >
+      <span className="text-[22px] leading-none">{icon}</span>
+      <span className="text-[9px] font-extrabold text-center px-1 leading-tight">
+        {label}
+      </span>
+    </Link>
   )
 }
 

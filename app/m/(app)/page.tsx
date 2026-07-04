@@ -8,7 +8,6 @@ import { ChatCard } from "../_components/ChatCard"
 import { StaffCard } from "../_components/StaffCard"
 import { SessionGroupCard } from "../_components/SessionGroupCard"
 import { PushEnableBanner } from "../_components/PushEnableBanner"
-import { AnomaliesBanner } from "../_components/AnomaliesBanner"
 import { SosButton } from "../_components/SosButton"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
@@ -220,10 +219,10 @@ export default function HomePage() {
         </button>
       </header>
 
-      {/* Push 알림 켜기 배너 + 이상 감지 배너 + SOS 진행중 배너 */}
+      {/* Push 알림 켜기 배너 + SOS 진행중 배너
+          (이상 감지 배너 는 /m/me 전체메뉴로 이동 — 2026-07-05) */}
       <div className="mx-5 mt-1">
         <PushEnableBanner />
-        <AnomaliesBanner />
         <SosButton />
       </div>
 
