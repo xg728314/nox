@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/apiFetch"
 import { invalidateApi } from "../../_hooks/useApi"
 import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
 import { StaffPayoutSheet } from "../../_components/StaffPayoutSheet"
+import { TrendChart } from "../../_components/TrendChart"
 
 type Period = "today" | "week"
 
@@ -246,6 +247,9 @@ export default function SettlePage() {
             <Stat v={me.data?.store_floor ?? "—"} l="층" />
           </div>
         </div>
+
+        {/* 매출 트렌드 (14일) */}
+        <TrendChart days={14} />
 
         {/* 내 장부 — 오늘 실데이터 (manager_amount 합계) */}
         <div className="bg-gradient-to-br from-[#2D2B26] to-[#1a1813] rounded-3xl p-5 mb-4 text-white shadow-lg relative overflow-hidden">
