@@ -61,19 +61,43 @@ const STORES: DomainEntry[] = STORE_REGISTRY.map(s => ({
   type: "STORE",
 }))
 
-// Categories (3)
+// Categories (3) — 실사 확장 (2026-07-07):
+//   실 카톡에서 자주 등장하는 축약/자모/조합 alias 추가.
+//   퍼블/퍼블릭/ㅍ, 하퍼/ㅎ, 셔츠/ㅅ (호환 자모 U+3130~U+318F).
 const CATEGORIES: DomainEntry[] = [
-  { code: "PUBLIC", label: "퍼블릭", aliases: ["퍼", "퍼블릭"], type: "CATEGORY" },
-  { code: "HARPER", label: "하퍼",   aliases: ["하", "하퍼"],   type: "CATEGORY" },
-  { code: "SHIRTS", label: "셔츠",   aliases: ["셔", "셔츠"],   type: "CATEGORY" },
+  { code: "PUBLIC", label: "퍼블릭", aliases: ["퍼블릭", "퍼블", "퍼", "ㅍ"], type: "CATEGORY" },
+  { code: "HARPER", label: "하퍼",   aliases: ["하퍼", "하", "ㅎ"],   type: "CATEGORY" },
+  { code: "SHIRTS", label: "셔츠",   aliases: ["셔츠", "셔", "ㅅ"],   type: "CATEGORY" },
 ]
 
-// Ticket types (4). "반차" must beat "반"; handled by length-desc sort.
+// Ticket types — 실사 확장 (2026-07-07):
+//   완메/메이드/ㅁㅇㄷ = 완티 결과 (종료 표기).
+//   반차2, 반차3 = 반차 + 숫자.
 const TICKETS: DomainEntry[] = [
-  { code: "COMPLETE",  label: "완티",  aliases: ["완", "완티"],    type: "TICKET" },
-  { code: "HALF",      label: "반티",  aliases: ["반", "반티"],    type: "TICKET" },
-  { code: "HALF_CHA3", label: "반차3", aliases: ["반차", "반차3"], type: "TICKET" },
-  { code: "CHA3",      label: "차3",   aliases: ["차", "차3"],     type: "TICKET" },
+  { code: "COMPLETE",  label: "완티",  aliases: ["완티", "완메", "메이드", "ㅁㅇㄷ", "완"], type: "TICKET" },
+  { code: "HALF",      label: "반티",  aliases: ["반티", "반메", "반"], type: "TICKET" },
+  { code: "HALF_CHA3", label: "반차3", aliases: ["반차3", "반차2", "반차"], type: "TICKET" },
+  { code: "CHA3",      label: "차3",   aliases: ["차3", "차"], type: "TICKET" },
+]
+
+// State (2026-07-07 신규): 손님 상태/조건 태그. 종목/티켓과 별개 축.
+//   `땁` = 아직 안본 인원 (신 방문).
+//   `본` = 이미 봤던 인원 (재방문).
+//   `안본` = 안본 인원 (땁 동의어).
+type StateType = "UNSEEN" | "SEEN"
+type StateEntry = { code: StateType; label: string; aliases: string[] }
+const STATES: StateEntry[] = [
+  { code: "UNSEEN", label: "안본",  aliases: ["땁", "안본"] },
+  { code: "SEEN",   label: "본",    aliases: ["본"] },
+]
+
+// Event (2026-07-07 신규): 세션 시작/종료 신호. dispatch 실행 X, 상태 전이만.
+//   ㅅㅌㅌ = 스타트, ㅅㅊ = 시간체크 (세션 시작 확인).
+type EventType = "START" | "TIME_CHECK"
+type EventEntry = { code: EventType; label: string; aliases: string[] }
+const EVENTS: EventEntry[] = [
+  { code: "START",       label: "스타트",    aliases: ["스타트", "ㅅㅌㅌ"] },
+  { code: "TIME_CHECK",  label: "시간체크",  aliases: ["시간체크", "ㅅㅊ"] },
 ]
 
 // ── Flattened alias lookup table ───────────────────────────────────
@@ -320,11 +344,95 @@ export type ParsedStaffEntry = {
    * 숫자 추출. null 이면 해당 라인에서 방 지정 없음 (dispatch route 가 빈 방 선택).
    */
   room_no: string | null
+  /**
+   * R-multi-category (2026-07-07): 결합 종목 파싱. `퍼하퍼셔` / `퍼블/하퍼/셔` 처럼
+   * 여러 종목이 한 라인에 언급될 때 전체 리스트. 첫 번째는 `category` 와 동일.
+   * 단일 종목이면 [category].
+   */
+  categories?: string[]
+  /**
+   * R-state (2026-07-07): 손님 상태. `땁`/`안본` → 'UNSEEN', `본` → 'SEEN'.
+   * null 이면 해당 라인에 상태 태그 없음.
+   */
+  state: "UNSEEN" | "SEEN" | null
+  /**
+   * R-event (2026-07-07): 세션 이벤트 신호. `ㅅㅌㅌ`/`스타트` → 'START',
+   * `ㅅㅊ`/`시간체크` → 'TIME_CHECK'. null 이면 이벤트 없음.
+   */
+  event: "START" | "TIME_CHECK" | null
+}
+
+/**
+ * R-line-meta (2026-07-07): 라인 레벨 메타. 각 entry 에 복사되지 않고
+ * ParseResult 의 `lineMetas[]` 에 라인 인덱스 별로 저장.
+ */
+export type LineMeta = {
+  line_index: number
+  /** `3인1빵` 같은 인원/방 표기 파싱 결과. */
+  guest_count: number | null
+  room_count: number | null
+  /** 팁방 / 장타 / 사이즈만 / 인사x 등 조건 태그. */
+  tags: string[]
+  /** 손님 특징 자유 텍스트 (예: '50대 사장님 생일'). */
+  guest_note: string | null
 }
 
 export type ParseResult = {
   entries: ParsedStaffEntry[]
   warnings: string[]
+  /** R-line-meta (2026-07-07): 라인별 메타. */
+  lineMetas?: LineMeta[]
+}
+
+// R-guest-count (2026-07-07): 인원/방 표기 정규식.
+//   `3인1빵`, `4인2ㅃ`, `8인1ㅃㄱ`, `5인 새방` 등.
+//   Group 1: 인원 (guest_count), Group 2 (optional): 방 개수 (room_count).
+const GUEST_ROOM_RE = /(\d+)\s*인\s*(\d+)?\s*[ㅃㅁㅂ빵방]?[ㄱ]?/g
+
+// R-tag-detect (2026-07-07): 조건/특징 키워드.
+const TAG_PATTERNS: Array<{ tag: string; patterns: string[] }> = [
+  { tag: "안본", patterns: ["안본인원", "안본"] },
+  { tag: "본인원", patterns: ["본인원"] },
+  { tag: "사이즈만", patterns: ["사이즈만", "사이즈로만", "사이즈로"] },
+  { tag: "인사x", patterns: ["인사x", "인사X", "인사 x", "인사 안"] },
+  { tag: "장타", patterns: ["장타"] },
+  { tag: "팁방", patterns: ["팁방"] },
+  { tag: "꿀방", patterns: ["꿀방", "개꿀"] },
+  { tag: "착한", patterns: ["착한"] },
+  { tag: "새방", patterns: ["새방", "쌔방"] },
+  { tag: "일행추가", patterns: ["일행추가", "일행 추가"] },
+  { tag: "무한날개", patterns: ["무한날개", "무한 날개"] },
+  { tag: "무한연장", patterns: ["무한연장", "무한 연장"] },
+  { tag: "날개체인지", patterns: ["날개체인지"] },
+  { tag: "연장", patterns: ["연장"] },
+]
+
+function extractLineMeta(rawLine: string): LineMeta {
+  const guestRoom: { guest: number | null; room: number | null } = { guest: null, room: null }
+  GUEST_ROOM_RE.lastIndex = 0
+  const m = GUEST_ROOM_RE.exec(rawLine)
+  if (m) {
+    guestRoom.guest = Number.isFinite(parseInt(m[1] ?? "", 10)) ? parseInt(m[1], 10) : null
+    if (m[2]) {
+      guestRoom.room = Number.isFinite(parseInt(m[2], 10)) ? parseInt(m[2], 10) : null
+    }
+  }
+  const tags: string[] = []
+  for (const t of TAG_PATTERNS) {
+    for (const p of t.patterns) {
+      if (rawLine.includes(p) && !tags.includes(t.tag)) {
+        tags.push(t.tag)
+        break
+      }
+    }
+  }
+  return {
+    line_index: 0,
+    guest_count: guestRoom.guest,
+    room_count: guestRoom.room,
+    tags,
+    guest_note: null,
+  }
 }
 
 /**
@@ -357,7 +465,8 @@ export function parseStaffChat(
 ): ParseResult {
   const warnings: string[] = []
   const entries: ParsedStaffEntry[] = []
-  if (!text || typeof text !== "string") return { entries, warnings }
+  const lineMetas: LineMeta[] = []
+  if (!text || typeof text !== "string") return { entries, warnings, lineMetas }
 
   const lines = text.split(/\r?\n/)
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
@@ -379,6 +488,26 @@ export function parseStaffChat(
     let store: string | null = null
     let category: string | null = defaultCategory
     let ticket_type: string | null = null
+    // R-multi-category (2026-07-07): 라인 내 등장한 모든 카테고리 축적.
+    const categoriesList: string[] = []
+    // R-state / R-event (2026-07-07): 라인 별 상태/이벤트 신호.
+    let lineState: "UNSEEN" | "SEEN" | null = null
+    let lineEvent: "START" | "TIME_CHECK" | null = null
+
+    // 사전 등장 여부 검사 — 정규식이 아니라 부분 문자열 검색으로 간단히.
+    //   자모 단독은 완성 한글 이름 안에서 매치되지 않으므로 안전.
+    for (const s of STATES) {
+      for (const a of s.aliases) {
+        if (rawLine.includes(a)) { lineState = s.code; break }
+      }
+      if (lineState) break
+    }
+    for (const e of EVENTS) {
+      for (const a of e.aliases) {
+        if (rawLine.includes(a)) { lineEvent = e.code; break }
+      }
+      if (lineEvent) break
+    }
     // Per-name store attribution — each emitted name snapshots the
     // `store` value that was active at the moment the name was produced.
     // This enables mixed-store single-line inputs like
@@ -418,7 +547,13 @@ export function parseStaffChat(
                 store = t.entry.label
               }
             }
-            else if (t.entry.type === "CATEGORY") category = t.entry.label
+            else if (t.entry.type === "CATEGORY") {
+              category = t.entry.label
+              // R-multi-category (2026-07-07): 중복 없이 순서대로 축적.
+              if (!categoriesList.includes(t.entry.label)) {
+                categoriesList.push(t.entry.label)
+              }
+            }
             else if (t.entry.type === "TICKET") ticket_type = t.entry.label
           } else if (t.kind === "noise") {
             if (!noiseSeen.includes(t.text)) noiseSeen.push(t.text)
@@ -446,6 +581,7 @@ export function parseStaffChat(
 
     // Emit: each entry keeps its own snapshotted origin_store_name; the
     // final category + ticket_type parsed on the line apply to all.
+    // R-multi-category / R-state / R-event (2026-07-07): 라인 메타를 각 entry 에 복사.
     for (const p of pending) {
       entries.push({
         name: p.name,
@@ -454,11 +590,19 @@ export function parseStaffChat(
         ticket_type,
         extra: null,
         room_no: lineRoomNo,
+        categories: categoriesList.length > 0 ? [...categoriesList] : (category ? [category] : []),
+        state: lineState,
+        event: lineEvent,
       })
     }
+
+    // 라인 메타 저장 (인원/방/태그).
+    const meta = extractLineMeta(rawLine)
+    meta.line_index = lineIdx
+    lineMetas.push(meta)
   }
 
-  return { entries, warnings }
+  return { entries, warnings, lineMetas }
 }
 
 // ── Exports for tests / introspection (optional, additive) ─────────

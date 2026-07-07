@@ -63,16 +63,17 @@ export const STORE_REGISTRY: readonly StoreRegistryEntry[] = [
   { code: "MARVEL",    label: "마블",   floor: 5, aliases: ["마", "마블"] },
   { code: "LIVE",      label: "라이브", floor: 5, aliases: ["라", "라이브"] },
   { code: "BURNING",   label: "버닝",   floor: 5, aliases: ["버", "버닝"] },
-  { code: "HWANGJINI", label: "황진이", floor: 5, aliases: ["황", "황진"] },
+  { code: "HWANGJINI", label: "황진이", floor: 5, aliases: ["황", "황진", "황진이"] },
   // ── 6층 ───────────────────────────────────────────────
-  { code: "SHINSEGAE", label: "신세계", floor: 6, aliases: ["신", "신세"] },
+  { code: "SHINSEGAE", label: "신세계", floor: 6, aliases: ["신", "신세", "신세계"] },
   { code: "AZIT",      label: "아지트", floor: 6, aliases: ["아지", "아지트"] },
   { code: "AURA",      label: "아우라", floor: 6, aliases: ["아우", "아우라"] },
   { code: "FIRST",     label: "퍼스트", floor: 6, aliases: ["퍼스", "퍼스트"] },
   // ── 7층 ───────────────────────────────────────────────
-  { code: "SANGHANGA", label: "상한가", floor: 7, aliases: ["상", "상한"] },
+  // R-alias-2026-07-07: 카톡 실사에서 `팔` = 발리 축약 확인. `두바이` 풀네임 추가.
+  { code: "SANGHANGA", label: "상한가", floor: 7, aliases: ["상", "상한", "상한가"] },
   { code: "TOKKI",     label: "토끼",   floor: 7, aliases: ["토", "토끼"] },
-  { code: "BALI",      label: "발리",   floor: 7, aliases: ["발", "발리"] },
+  { code: "BALI",      label: "발리",   floor: 7, aliases: ["발", "발리", "팔"] },
   { code: "DUBAI",     label: "두바이", floor: 7, aliases: ["두", "두바이"] },
   // ── 8층 ───────────────────────────────────────────────
   { code: "BLACK",     label: "블랙",   floor: 8, aliases: ["블", "블랙"] },

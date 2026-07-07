@@ -56,6 +56,8 @@ export default function MePage() {
           커뮤니티 & 마켓
         </div>
         <div className="grid grid-cols-4 gap-2 mb-4">
+          <QuickAction href="/m/waiting" icon="⏰" label="실시간 대기" />
+          <QuickAction href="/m/guests" icon="🧑‍💼" label="손님 관리" />
           <QuickAction href="/m/live" icon="📡" label="실시간현황" />
           <QuickAction href="/m/lounge" icon="🌸" label="라운지" />
           <QuickAction href="/m/place" icon="🎁" label="플레이스" />
