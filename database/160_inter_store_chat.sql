@@ -5,6 +5,11 @@
 --   ALL owner/manager 자동 접근 (chat_participants JOIN 불필요, validator 에서 처리).
 -- ═══════════════════════════════════════════════════════════════
 
+-- 0. type CHECK 제약 확장 (inter_store 추가)
+ALTER TABLE public.chat_rooms DROP CONSTRAINT IF EXISTS chat_rooms_type_check;
+ALTER TABLE public.chat_rooms ADD CONSTRAINT chat_rooms_type_check
+    CHECK (type IN ('global', 'room_session', 'direct', 'group', 'room', 'inter_store'));
+
 -- 1. store_uuid NULL 허용
 ALTER TABLE public.chat_rooms
     ALTER COLUMN store_uuid DROP NOT NULL;
