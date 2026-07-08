@@ -36,7 +36,10 @@ export async function POST(request: Request) {
     //   현재: 동시 fire — 1 RTT.
     const [roomResult, participantError] = await Promise.all([
       loadRoomScoped(supabase, chat_room_id!, authContext.store_uuid),
-      verifyActiveParticipant(supabase, chat_room_id!, authContext.membership_id),
+      verifyActiveParticipant(supabase, chat_room_id!, authContext.membership_id, {
+        role: authContext.role,
+        isOwnerOrManager: authContext.role === "owner" || authContext.role === "manager",
+      }),
     ])
     if (roomResult.error) return roomResult.error
     if (participantError) return participantError
@@ -111,7 +114,10 @@ export async function GET(request: Request) {
     //   현재: 3개 동시 fire — 각 query 가 chatRoomId + membership_id 만 의존.
     const [roomResult, participantError, messagesResult] = await Promise.all([
       loadRoomScoped(supabase, chatRoomId, authContext.store_uuid),
-      verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id),
+      verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id, {
+        role: authContext.role,
+        isOwnerOrManager: authContext.role === "owner" || authContext.role === "manager" || authContext.is_super_admin,
+      }),
       getMessages(supabase, {
         chatRoomId,
         store_uuid: authContext.store_uuid,

@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { PageHeader } from "../../../_components/PageHeader"
 import { TabBar } from "../../../_components/TabBar"
 import { apiFetch } from "@/lib/apiFetch"
@@ -34,6 +34,7 @@ export default function ChatRoomPage() {
   const [patternBusy, setPatternBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
+  const router = useRouter()
 
   // 채팅방의 패턴 인식 활성화 상태 조회
   useEffect(() => {
@@ -76,6 +77,15 @@ export default function ChatRoomPage() {
       if (initial) setLoading(true)
       try {
         const r = await apiFetch(`/api/chat/messages?chat_room_id=${encodeURIComponent(roomId)}&limit=50`)
+        // R-inter-store (2026-07-08): 매장 전환 등으로 방 접근 권한 없으면
+        //   자동으로 채팅 목록으로 이동. 403/404 → redirect.
+        if (r.status === 403 || r.status === 404) {
+          if (initial && !cancelled) {
+            toast("이 채팅방에 접근할 수 없습니다 (매장 전환?)", "error")
+            router.push("/m/chat")
+          }
+          return
+        }
         const j = await r.json()
         // 서버가 created_at DESC 반환 → UI 는 오래된 위/최신 아래.
         // 한 번에 reverse (in-place 아님, 새 배열).

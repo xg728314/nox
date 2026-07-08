@@ -12,8 +12,35 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 export async function verifyActiveParticipant(
   supabase: SupabaseClient,
   chatRoomId: string,
-  membershipId: string
+  membershipId: string,
+  /** R-inter-store (2026-07-08): 권한 확장 컨텍스트. inter_store 방은
+   *  chat_participants JOIN 없이 owner/manager role 기반 허용. */
+  opts?: { role?: string; isOwnerOrManager?: boolean }
 ): Promise<NextResponse | null> {
+  // inter_store 방인지 먼저 확인 — 참여자 검증 skip.
+  const { data: room } = await supabase
+    .from("chat_rooms")
+    .select("type")
+    .eq("id", chatRoomId)
+    .maybeSingle()
+  const roomType = (room as { type: string } | null)?.type
+
+  if (roomType === "inter_store") {
+    // 통합 채팅방 — owner/manager 자동 접근. hostess/counter 는 차단.
+    const allowed =
+      opts?.isOwnerOrManager === true
+      || opts?.role === "owner"
+      || opts?.role === "manager"
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "ROLE_FORBIDDEN", message: "실장/사장 전용 채팅방입니다." },
+        { status: 403 }
+      )
+    }
+    return null
+  }
+
+  // 그 외 (global / room_session / direct) — 기존 participant 검증.
   const { data: participant } = await supabase
     .from("chat_participants")
     .select("id")

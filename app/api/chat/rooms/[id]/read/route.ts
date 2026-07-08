@@ -26,7 +26,10 @@ export async function POST(request: Request, { params }: Params) {
     if (roomResult.error) return roomResult.error
 
     // Participant check
-    const participantError = await verifyActiveParticipant(supabase, roomId, auth.membership_id)
+    const participantError = await verifyActiveParticipant(supabase, roomId, auth.membership_id, {
+      role: auth.role,
+      isOwnerOrManager: auth.role === "owner" || auth.role === "manager" || auth.is_super_admin,
+    })
     if (participantError) return participantError
 
     // Mark as read

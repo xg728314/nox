@@ -87,7 +87,34 @@ export async function getRoomList(
     }
   }
 
-  if (participations.length === 0) return []
+  // R-inter-store (2026-07-08): chat_participants 없어도 owner/manager 는
+  //   inter_store 방 접근 가능. 조기 종료 대신 빈 배열로 진행.
+  if (participations.length === 0) {
+    // inter_store 방만 조회해서 반환
+    if (role === "owner" || role === "manager") {
+      const { data: interRoom } = await supabase
+        .from("chat_rooms")
+        .select("id, store_uuid, type, session_id, room_uuid, name, last_message_text, last_message_at, is_active, created_by, created_at")
+        .eq("type", "inter_store")
+        .eq("is_active", true)
+        .maybeSingle()
+      if (interRoom) {
+        const r = interRoom as RoomRow
+        return [{
+          ...r,
+          display_name: r.name ?? "🏢 실장 통합 톡",
+          title: r.name ?? "🏢 실장 통합 톡",
+          last_message: r.last_message_text,
+          unread_count: 0,
+          pinned_at: null,
+          is_creator: false,
+          participant_names: [],
+          participant_count: 0,
+        }]
+      }
+    }
+    return []
+  }
 
   const roomIds = participations.map((p) => p.chat_room_id)
 
@@ -239,6 +266,36 @@ export async function getRoomList(
       participant_count: groupParticipantCounts.get(r.id) ?? 0,
     }
   })
+
+  // R-inter-store (2026-07-08): 모든 owner/manager 에게 inter_store 방 자동 추가.
+  //   chat_participants JOIN 없이 role 기반 노출 — 카톡 대체 목적.
+  //   super_admin 도 포함.
+  const canAccessInterStore = role === "owner" || role === "manager"
+  if (canAccessInterStore) {
+    const { data: interRoom } = await supabase
+      .from("chat_rooms")
+      .select("id, store_uuid, type, session_id, room_uuid, name, last_message_text, last_message_at, is_active, created_by, created_at")
+      .eq("type", "inter_store")
+      .eq("is_active", true)
+      .maybeSingle()
+    if (interRoom) {
+      const r = interRoom as RoomRow
+      // 이미 목록에 있으면 skip (중복 방지)
+      if (!enriched.some((e) => e.id === r.id)) {
+        enriched.unshift({
+          ...r,
+          display_name: r.name ?? "🏢 실장 통합 톡",
+          title: r.name ?? "🏢 실장 통합 톡",
+          last_message: r.last_message_text,
+          unread_count: 0,
+          pinned_at: null,
+          is_creator: false,
+          participant_names: [],
+          participant_count: 0,
+        })
+      }
+    }
+  }
 
   // 5b. 2026-05-01 R-Hostess-Home: 스태프(staff/hostess) 면 global / group 제외.
   //   chat_participants row 가 남아있어도 (super_admin override 시점의 잔재

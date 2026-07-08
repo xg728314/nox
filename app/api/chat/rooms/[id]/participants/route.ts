@@ -39,7 +39,10 @@ async function resolveRoomAndPermission(
       return { error: NextResponse.json({ error: "ROLE_FORBIDDEN", message: "멤버 관리는 생성자 또는 사장만 가능합니다." }, { status: 403 }) }
     }
   } else {
-    const participantError = await verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id)
+    const participantError = await verifyActiveParticipant(supabase, chatRoomId, authContext.membership_id, {
+      role: authContext.role,
+      isOwnerOrManager: authContext.role === "owner" || authContext.role === "manager" || authContext.is_super_admin,
+    })
     if (participantError) return { error: participantError }
   }
 
@@ -65,7 +68,10 @@ export async function GET(request: Request, { params }: Params) {
     //   → 1 wave + names 1 wave = 총 2 wave.
     const [roomResult, participantError, partsRes] = await Promise.all([
       loadRoomScoped(supabase, id, authContext.store_uuid),
-      verifyActiveParticipant(supabase, id, authContext.membership_id),
+      verifyActiveParticipant(supabase, id, authContext.membership_id, {
+        role: authContext.role,
+        isOwnerOrManager: authContext.role === "owner" || authContext.role === "manager" || authContext.is_super_admin,
+      }),
       supabase
         .from("chat_participants")
         .select("id, membership_id, joined_at, unread_count")
