@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useMemo, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { parseStaffChat, type ParsedStaffEntry } from "@/app/counter/helpers/staffChatParser"
 import { apiFetch } from "@/lib/apiFetch"
 import { useBuildingHostesses, useBuildingStores, useMe } from "../../../_hooks/useMobileData"
@@ -160,13 +160,49 @@ export function ChatPatternAction({
       setServerDispatches(j.dispatches ?? [])
     } catch { /* swallow */ }
   }, [chatMessageId])
+  // R-poll-fix (2026-07-08): 무한 폴링 문제 fix.
+  //   문제: 각 채팅 메시지마다 setInterval 4초 → 20개 메시지 = 2초당 10 요청.
+  //   해결:
+  //     1. dispatch 패턴 감지 안 된 메시지 (resolvedEntries=0) → 폴링 skip
+  //     2. 모든 dispatch 가 종결(confirmed/rejected/cancelled)됐으면 폴링 중단
+  //     3. 최초 5회 조회해도 dispatches 등록 없으면 중단 (미인식 판단)
+  //     ref 로 최신 상태 참조 → useEffect deps 최소화 (interval 재생성 방지).
+  const dispatchesRef = useRef(serverDispatches)
   useEffect(() => {
+    dispatchesRef.current = serverDispatches
+  }, [serverDispatches])
+
+  useEffect(() => {
+    if (resolvedEntries.length === 0) return
+    let attemptCount = 0
+    let stopped = false
     fetchDispatches()
+    attemptCount++
     const id = setInterval(() => {
-      if (document.visibilityState === "visible") fetchDispatches()
+      if (stopped) return
+      if (document.visibilityState !== "visible") return
+      const cur = dispatchesRef.current
+      const activeCount = cur.filter(
+        (d) => d.status !== "confirmed" && d.status !== "rejected" && d.status !== "cancelled",
+      ).length
+      if (cur.length > 0 && activeCount === 0) {
+        stopped = true
+        clearInterval(id)
+        return
+      }
+      if (attemptCount > 5 && cur.length === 0) {
+        stopped = true
+        clearInterval(id)
+        return
+      }
+      attemptCount++
+      fetchDispatches()
     }, 4000)
-    return () => clearInterval(id)
-  }, [fetchDispatches])
+    return () => {
+      stopped = true
+      clearInterval(id)
+    }
+  }, [fetchDispatches, resolvedEntries.length])
 
   // 4. 발신자 — \"확인\" 클릭 → 임시 등록 생성
   async function createPending() {
