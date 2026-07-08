@@ -9,6 +9,7 @@ import { useMe } from "../../../_hooks/useMobileData"
 import { fmtHM } from "../../../_lib/format"
 import { cn } from "../../../_lib/cn"
 import { ChatPatternAction } from "./ChatPatternAction"
+import { ChatAutoActionBadge } from "./ChatAutoActionBadge"
 
 type ChatMessage = {
   id: string
@@ -251,6 +252,8 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
         {patternEnabled && (
           <ChatPatternAction content={msg.content} chatMessageId={msg.id} myStoreUuid={myStoreUuid} />
         )}
+        {/* R-auto-ops-ui (2026-07-08): waiting_request 자동 등록 결과 배지. */}
+        <ChatAutoActionBadge messageId={msg.id} />
         <div className={cn("text-[9px] text-[#7A746A] mt-0.5", isMine ? "text-right" : "text-left", "px-1")}>
           {fmtHM(msg.created_at)}
         </div>
