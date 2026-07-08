@@ -57,6 +57,25 @@ export async function POST(request: Request) {
     })
     if (result.error) return result.error
 
+    // R-auto-ops (2026-07-08): fire-and-forget 자동 처리.
+    //   대기부탁/부탁드립니다 등 카톡 표현 감지 → waiting_requests 자동 등록.
+    //   실패해도 채팅 응답에 영향 X.
+    void (async () => {
+      try {
+        const { autoProcessChatMessage } = await import("@/lib/chat/services/autoProcessMessage")
+        await autoProcessChatMessage({
+          chat_message_id: result.message.id,
+          chat_room_id: result.message.chat_room_id,
+          sender_user_id: authContext.user_id,
+          sender_membership_id: authContext.membership_id,
+          store_uuid: authContext.store_uuid,
+          content: content!,
+        })
+      } catch {
+        // best-effort
+      }
+    })()
+
     return NextResponse.json({
       message_id: result.message.id,
       chat_room_id: result.message.chat_room_id,

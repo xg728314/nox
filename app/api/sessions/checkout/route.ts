@@ -212,6 +212,21 @@ export async function POST(request: Request) {
     invalidateCache("room_participants")
     invalidateCache("session_orders")
 
+    // R-auto-ops (2026-07-08): 손님 프로필 자동 생성/업데이트 (fire-and-forget).
+    //   guest_note 있는 세션 → guest_profiles UPSERT + guest_visits INSERT.
+    void (async () => {
+      try {
+        const { autoProcessGuestProfile } = await import("@/lib/session/services/autoGuestProfile")
+        await autoProcessGuestProfile({
+          session_id: result.session_id,
+          store_uuid: authContext.store_uuid,
+          business_day_id: null,
+        })
+      } catch {
+        // best-effort
+      }
+    })()
+
     return NextResponse.json(
       {
         session_id: result.session_id,
