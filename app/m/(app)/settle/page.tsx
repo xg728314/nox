@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/apiFetch"
 import { invalidateApi } from "../../_hooks/useApi"
 import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
 import { StaffPayoutSheet } from "../../_components/StaffPayoutSheet"
+import { StaffDetailSheet } from "../../_components/StaffDetailSheet"
 import { TrendChart } from "../../_components/TrendChart"
 import { AiSummaryButton } from "../../_components/AiSummaryButton"
 
@@ -33,8 +34,10 @@ export default function SettlePage() {
   const [password, setPassword] = useState("")
   const [verifying, setVerifying] = useState(false)
   const [resetAt, setResetAt] = useState<Date | null>(null)
-  // R-staff-payout (2026-06-26): 스태프 row 클릭 → 정산/보관/팁 시트
+  // R-staff-payout (2026-06-26): 팁/메모용 기존 시트 (💸 버튼 전용)
   const [payoutTarget, setPayoutTarget] = useState<{ id: string; name: string } | null>(null)
+  // R-staff-detail (2026-07-19): 이름 클릭 → 세부 정산 (세션별, 종목별, 시간당 공제)
+  const [detailTarget, setDetailTarget] = useState<{ id: string; name: string } | null>(null)
   // R-quick-payout (2026-06-26): row 우측 [✓완료] [📦보관] 빠른 액션
   //   - 누르면 즉시 PATCH 호출, 시트 안 띄움.
   //   - 로컬 state 로 처리 표시 (서버 응답 후 invalidate).
@@ -325,10 +328,10 @@ export default function SettlePage() {
                     isHeld && "bg-amber-50/60",
                   )}
                 >
-                  {/* 상단 영역 — 클릭 시 상세 시트 */}
+                  {/* 상단 영역 — 클릭 시 세부 정산 시트 (세션별 breakdown) */}
                   <button
                     type="button"
-                    onClick={() => setPayoutTarget({ id: h.hostess_id, name: h.hostess_name })}
+                    onClick={() => setDetailTarget({ id: h.hostess_id, name: h.hostess_name })}
                     className="w-full flex items-center gap-3 text-left active:opacity-60 transition-opacity"
                   >
                     <div className="flex-1 min-w-0">
@@ -427,7 +430,17 @@ export default function SettlePage() {
 
       <TabBar />
 
-      {/* 스태프별 정산 시트 — 정산완료 / 보관 / 팁 */}
+      {/* 세부 정산 시트 — 세션별, 종목별, 시간당 공제 (이름 클릭) */}
+      {detailTarget && (
+        <StaffDetailSheet
+          open={!!detailTarget}
+          onClose={() => setDetailTarget(null)}
+          hostessId={detailTarget.id}
+          hostessName={detailTarget.name}
+        />
+      )}
+
+      {/* 팁 / 메모 시트 — 💸 버튼 전용 (기존) */}
       {payoutTarget && (
         <StaffPayoutSheet
           open={!!payoutTarget}
