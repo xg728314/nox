@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { PhoneFrame } from "../_components/PhoneFrame"
 import { ToastProvider } from "../_components/Toast"
 import { useMe } from "../_hooks/useMobileData"
+import { SuperAdminStoreBar } from "../_components/SuperAdminStoreBar"
 
 /**
  * 스태프동기화 앱 sublayout — /m/(app)/* 만 적용.
@@ -16,6 +17,9 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
       <PhoneFrame>
+        {/* R-super-store-bar (2026-07-19): super_admin 전용 매장 전환 bar.
+            PhoneFrame 안 최상단. 일반 사용자는 렌더 X. */}
+        <SuperAdminStoreBar />
         <AuthGate>{children}</AuthGate>
       </PhoneFrame>
     </ToastProvider>
