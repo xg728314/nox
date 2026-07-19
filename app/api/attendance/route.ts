@@ -206,6 +206,16 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (!record) {
+      // R-attendance-idempotent (2026-07-13): 클라 캐시 stale 대응.
+      //   checkout 은 이미 off_duty 상태와 등가 → 멱등 성공 (200).
+      //   assign/unassign 은 여전히 400 (활성 record 없이는 방 배정 무의미).
+      if (action === "checkout") {
+        return NextResponse.json({
+          ok: true,
+          already_off: true,
+          message: "이미 퇴근 상태입니다.",
+        })
+      }
       return NextResponse.json({ error: "NOT_CHECKED_IN", message: "출근 기록이 없습니다." }, { status: 404 })
     }
 

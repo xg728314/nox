@@ -4,9 +4,26 @@
     {
       "name": "nox-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev"],
+      "runtimeArgs": [
+        "next",
+        "dev"
+      ],
       "port": 3001,
       "autoPort": true
+    },
+    {
+      "name": "luna-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/work/luna",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3100"
+      ],
+      "port": 3100
     }
   ]
 }
