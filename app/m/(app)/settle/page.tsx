@@ -108,6 +108,9 @@ export default function SettlePage() {
   const totalHostessPayout = settledHostessPayout
   // 실장 순수익 = 매출 - 처리된 식구 지급
   const myProfit = isReset ? 0 : Math.max(0, totalGross - settledHostessPayout)
+  // R-jjing (2026-07-20): 찡값 합계 — 종목당 실장이 뗀 금액 (manager_amount).
+  //   "매출-지급-찡값" 을 매출 = 아가씨 지급 + 찡값 + 매장몫 로 명확 분리.
+  const totalManagerJjing = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
 
   // R-payout-hide-3h (2026-06-27): 정산완료 후 3시간 지난 row 는 목록에서 hide.
   //   사용자 요구: "하루 지났는데 목록에 뜨면 더 햇갈린다".
@@ -272,9 +275,10 @@ export default function SettlePage() {
               </span>
               <span className="text-[16px] text-white/70 font-bold">만원</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/15">
+            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/15">
               <Card v={fmtMoneyWon(total)} l="오늘 매출" />
               <Card v={fmtMoneyWon(totalHostessPayout)} l="식구 지급" />
+              <Card v={fmtMoneyWon(totalManagerJjing)} l="찡값 수익" />
             </div>
           </div>
         </div>
@@ -307,7 +311,9 @@ export default function SettlePage() {
                 .join(" · ")
               const gross = h.gross_total ?? 0
               const payout = h.hostess_amount ?? 0
+              const jjing = h.manager_amount ?? 0
               const sameAmount = gross === payout
+              const hasJjing = jjing > 0
               // R-payout-server-state (2026-06-27): 서버 응답 payout_status 우선,
               //   로컬 quickStatus 는 갱신 직후 낙관적 UI.
               const qs = quickStatus.get(h.hostess_id) ?? h.payout_status
@@ -361,12 +367,20 @@ export default function SettlePage() {
                       <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">
                         {fmtMoneyWon(gross)}
                       </div>
-                      {sameAmount ? (
-                        <div className="text-[9px] font-semibold text-[#7A746A]">공제 0원</div>
+                      {sameAmount && !hasJjing ? (
+                        <div className="text-[9px] font-semibold text-[#7A746A]">찡값 X · 전액 지급</div>
                       ) : (
-                        <div className="text-[9px] font-extrabold text-[#A87D45]">
-                          지급 {(payout / 10000).toFixed(payout % 10000 === 0 ? 0 : 1)}만원
-                        </div>
+                        <>
+                          <div className="text-[9px] font-extrabold text-green-700">
+                            지급 {(payout / 10000).toFixed(payout % 10000 === 0 ? 0 : 1)}만
+                          </div>
+                          <div className={cn(
+                            "text-[9px] font-extrabold mt-0.5",
+                            hasJjing ? "text-[#A87D45]" : "text-[#B4B2A9]",
+                          )}>
+                            찡 {(jjing / 10000).toFixed(jjing % 10000 === 0 ? 0 : 1)}만
+                          </div>
+                        </>
                       )}
                     </div>
                   </button>
