@@ -570,7 +570,8 @@ function HostessDispatchRow({
     finally { setLeavingId(null) }
   }
 
-  // 3열 컴팩트 — 이름 + 상태 + 남은분만.
+  // 3열 컴팩트 — 이름 + 매장 + 상태 + 남은분.
+  //   사용자 요청: "3열 아가씨가 어느 가게에 있는지 표시" (2026-07-25)
   if (cols === 3) {
     return (
       <button type="button" onClick={handleTap} className={cn(cardBase, "w-full text-left px-2 py-2 flex flex-col gap-1")}>
@@ -578,6 +579,12 @@ function HostessDispatchRow({
           <span className={cn("text-[10px] font-black", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>#{index}</span>
           <span className="text-[12px] font-extrabold truncate flex-1">{h.hostess_name}</span>
         </div>
+        {/* 매장(+방번호) — live 이면 표시 · wait/done 는 생략 (공간 절약) */}
+        {state === "live" && h.working_store_name && (
+          <div className={cn("text-[10px] font-bold truncate", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>
+            {h.working_store_name}
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-black", statePill)}>
             {stateLabel}
