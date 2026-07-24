@@ -160,11 +160,16 @@ export async function PATCH(
     }
 
     // ── DB write + audit + response ──
+    // R-super-admin-update-fix (2026-07-24): super_admin 은 store_uuid 필터 우회
+    //   (SELECT 는 이미 우회 · UPDATE 도 동일하게 처리 안 하면 0 rows → VERSION_CONFLICT 오탐).
+    //   사용자 증상: 조준성이 신세계 컨텍스트로 라이브 매장 참여자 종료 시
+    //   "참여자 정보가 동시에 수정되었습니다" 에러 반복.
+    const updateStoreUuid = authContext.is_super_admin ? participant.store_uuid : authContext.store_uuid
     const { data: updated, error: updateError } = await supabase
       .from("session_participants")
       .update(updatePayload)
       .eq("id", participant_id)
-      .eq("store_uuid", authContext.store_uuid)
+      .eq("store_uuid", updateStoreUuid)
       .eq("updated_at", participant.updated_at)
       .select("id, session_id, membership_id, category, price_amount, manager_payout_amount, hostess_payout_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount")
       .maybeSingle()
