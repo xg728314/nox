@@ -235,9 +235,9 @@ export function ExtendEndSheet({
         onExtendCustom={extendCustom}
       />
 
-      {/* 종료 섹션 */}
+      {/* 종료 섹션 (심플화 · '그대로 종료' 삭제) */}
       <div className="text-[10px] font-extrabold text-red-700 uppercase tracking-wider mb-2">
-        🚪 종료 (시간에 따라 정산 옵션 선택)
+        🚪 종료
       </div>
       <EndOptions
         category={category}
@@ -246,33 +246,23 @@ export function ExtendEndSheet({
         submitting={submitting}
         onEnd={endWithType}
       />
-      <button
-        type="button"
-        disabled={submitting}
-        onClick={() => endWithType(null)}
-        className="w-full mt-2 bg-white border border-[#D8D2C8] text-[#7A746A] rounded-xl py-2.5 text-[11px] font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
-      >
-        그대로 종료 (현재 정산 유지)
-      </button>
     </Sheet>
   )
 }
 
 /**
- * 연장 컨트롤 — 프로토타입 매칭:
- *   1. 연장 시작 시각 (지금 기준 ± 딜레이 조정) — informational preview
- *   2. 종료 예정 시각 preview (선택한 카드/커스텀 분 기준 · 딜레이 반영)
- *   3. 3 카드: 완티 (60분) · 반티 (30분) · 차3 (15분)
- *   4. 직접 분 입력 + [추가] 버튼
+ * 연장 컨트롤 (심플화 · 2026-07-25):
+ *   - 딜레이 조정 (-5/-1/+1/+5) — 사용자 필수 유지
+ *   - 3 카드: 완티 · 반티 · 차3
+ *   삭제: 종료 예정 preview 라인, 직접 분 입력 → 필수 아님
  *
- * 딜레이는 UI preview 만 — 실제 서버는 지금 시각으로 참여자 등록 (backdated
- * entered_at 은 서버 미지원). 실제 정산 영향은 없음.
+ *   딜레이 값은 UI 표시용 (실 서버는 지금 시각 사용).
  */
 function ExtendControls({
   priceMap,
   submitting,
   onExtend,
-  onExtendCustom,
+  onExtendCustom: _onExtendCustom,
 }: {
   priceMap: Map<TimeKey, { time_minutes: number; price: number; manager_deduction: number }>
   submitting: boolean
@@ -280,43 +270,35 @@ function ExtendControls({
   onExtendCustom: (m: number) => void | Promise<void>
 }) {
   const [delayMin, setDelayMin] = useState(0)
-  const [customMin, setCustomMin] = useState<string>("45")
-  const [hoveredMin, setHoveredMin] = useState<number | null>(null)
+  void _onExtendCustom // 직접 분 UI 삭제로 미사용 · signature 유지
 
   const startMs = Date.now() + delayMin * 60_000
   const startHm = fmtHM(new Date(startMs))
-  const previewMin = hoveredMin ?? (Number(customMin) || 0)
-  const endMs = startMs + previewMin * 60_000
-  const endHm = previewMin > 0 ? fmtHM(new Date(endMs)) : "?"
 
   return (
-    <div className="mb-4">
+    <div className="mb-3">
       <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider mb-2 mt-1">
         ⏱ 연장
       </div>
 
-      {/* 딜레이 조정 (informational preview) */}
-      <div className="bg-[#FAF5EC] border border-[#D8D2C8] rounded-2xl p-3 mb-3">
-        <div className="text-[10px] font-bold text-[#7A746A] mb-1.5">
-          연장 시작 시각 <span className="text-[#A87D45]">(딜레이 조정 · 지금 기준 ±)</span>
+      {/* 딜레이 조정 (컴팩트) */}
+      <div className="bg-[#FAF5EC] border border-[#D8D2C8] rounded-xl p-2 mb-2">
+        <div className="text-[10px] font-bold text-[#7A746A] mb-1">
+          시작 시각 <span className="text-[#A87D45]">(딜레이 ±)</span>
         </div>
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <button type="button" onClick={() => setDelayMin((v) => v - 5)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">-5</button>
-          <button type="button" onClick={() => setDelayMin((v) => v - 1)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">-1</button>
-          <div className="flex-1 text-center bg-white border border-[#D8D2C8] rounded-lg py-2 text-[14px] font-extrabold text-[#2D2B26] font-mono">
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setDelayMin((v) => v - 5)} className="w-8 h-8 rounded-md bg-white border border-[#D8D2C8] text-[11px] font-extrabold text-[#2D2B26]">-5</button>
+          <button type="button" onClick={() => setDelayMin((v) => v - 1)} className="w-8 h-8 rounded-md bg-white border border-[#D8D2C8] text-[11px] font-extrabold text-[#2D2B26]">-1</button>
+          <div className="flex-1 text-center bg-white border border-[#D8D2C8] rounded-md py-1.5 text-[13px] font-extrabold text-[#2D2B26] font-mono">
             {startHm}
           </div>
-          <button type="button" onClick={() => setDelayMin((v) => v + 1)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">+1</button>
-          <button type="button" onClick={() => setDelayMin((v) => v + 5)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">+5</button>
-        </div>
-        <div className="text-center bg-[#5FAB4E]/12 text-[#3E7A32] rounded-lg py-1.5 text-[11px] font-extrabold">
-          종료 예정 <span className="font-mono">{endHm}</span>
-          {previewMin > 0 && <span className="text-[#7A746A] font-bold ml-1">({previewMin}분 연장)</span>}
+          <button type="button" onClick={() => setDelayMin((v) => v + 1)} className="w-8 h-8 rounded-md bg-white border border-[#D8D2C8] text-[11px] font-extrabold text-[#2D2B26]">+1</button>
+          <button type="button" onClick={() => setDelayMin((v) => v + 5)} className="w-8 h-8 rounded-md bg-white border border-[#D8D2C8] text-[11px] font-extrabold text-[#2D2B26]">+5</button>
         </div>
       </div>
 
-      {/* 3 카드 */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
+      {/* 3 카드 (컴팩트) */}
+      <div className="grid grid-cols-3 gap-1.5">
         {(["기본", "반티", "차3"] as TimeKey[]).map((t) => {
           const info = priceMap.get(t)
           const label = t === "기본" ? "완티" : t === "반티" ? "반티" : "차3"
@@ -326,45 +308,21 @@ function ExtendControls({
               type="button"
               disabled={submitting || !info}
               onClick={() => info && onExtend(t)}
-              onMouseEnter={() => info && setHoveredMin(info.time_minutes)}
-              onMouseLeave={() => setHoveredMin(null)}
               className={cn(
-                "rounded-2xl px-2 py-3 flex flex-col items-center gap-1 border-2 active:scale-95 transition-transform shadow-sm",
+                "rounded-xl px-2 py-2 flex flex-col items-center gap-0.5 border-2 active:scale-95 transition-transform",
                 info ? "bg-white border-[#D8D2C8]" : "bg-[#F0EDE7] border-[#D8D2C8] opacity-60 cursor-not-allowed",
               )}
             >
-              <div className="w-10 h-10 rounded-full bg-[#C49B61]/15 text-[#A87D45] flex items-center justify-center text-[14px] font-extrabold">
+              <div className="w-7 h-7 rounded-full bg-[#C49B61]/15 text-[#A87D45] flex items-center justify-center text-[11px] font-extrabold">
                 {label === "완티" ? "완" : label === "반티" ? "반" : "차"}
               </div>
-              <div className="text-[12px] font-extrabold text-[#2D2B26]">{label}</div>
-              <div className="text-[10px] font-bold text-[#A87D45]">
-                {info ? `${info.time_minutes}분 · ${(info.price / 10000).toFixed(0)}만` : "단가 없음"}
+              <div className="text-[11px] font-extrabold text-[#2D2B26]">{label}</div>
+              <div className="text-[9px] font-bold text-[#A87D45]">
+                {info ? `${info.time_minutes}분·${(info.price / 10000).toFixed(0)}만` : "미설정"}
               </div>
             </button>
           )
         })}
-      </div>
-
-      {/* 직접 분 입력 */}
-      <div className="flex items-center gap-2 bg-white border border-[#D8D2C8] rounded-2xl p-2">
-        <span className="text-[11px] font-bold text-[#7A746A] pl-1 shrink-0">직접</span>
-        <input
-          type="number"
-          value={customMin}
-          onChange={(e) => setCustomMin(e.target.value)}
-          min="1"
-          max="240"
-          className="flex-1 min-w-0 bg-transparent text-[14px] font-extrabold text-right text-[#2D2B26] outline-none border-b border-[#D8D2C8] px-1"
-        />
-        <span className="text-[11px] font-bold text-[#7A746A]">분</span>
-        <button
-          type="button"
-          disabled={submitting || !Number(customMin) || Number(customMin) < 1}
-          onClick={() => onExtendCustom(Number(customMin))}
-          className="rounded-xl bg-[#2D2B26] text-white text-[12px] font-extrabold px-4 py-2 disabled:opacity-40"
-        >
-          추가
-        </button>
       </div>
     </div>
   )
