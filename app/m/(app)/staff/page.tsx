@@ -418,17 +418,42 @@ function EmptyRoomCard({
  *   같은 매장은 항상 같은 색 · 다른 매장은 시각적 구분 쉬움.
  */
 const STORE_COLOR_PALETTE = [
-  { bg: "bg-[#DE3A7B]", text: "text-white" },        // pink
-  { bg: "bg-[#6B8AFD]", text: "text-white" },        // blue
-  { bg: "bg-[#8B5CF6]", text: "text-white" },        // purple
-  { bg: "bg-[#D97757]", text: "text-white" },        // orange
-  { bg: "bg-[#059669]", text: "text-white" },        // green
-  { bg: "bg-[#DC2626]", text: "text-white" },        // red
-  { bg: "bg-[#0891B2]", text: "text-white" },        // cyan
-  { bg: "bg-[#CA8A04]", text: "text-white" },        // amber
+  { bg: "bg-[#DE3A7B]", text: "text-white" },        // 0 pink
+  { bg: "bg-[#6B8AFD]", text: "text-white" },        // 1 blue
+  { bg: "bg-[#8B5CF6]", text: "text-white" },        // 2 purple
+  { bg: "bg-[#D97757]", text: "text-white" },        // 3 orange
+  { bg: "bg-[#059669]", text: "text-white" },        // 4 green
+  { bg: "bg-[#DC2626]", text: "text-white" },        // 5 red
+  { bg: "bg-[#0891B2]", text: "text-white" },        // 6 cyan
+  { bg: "bg-[#CA8A04]", text: "text-white" },        // 7 amber
+  { bg: "bg-[#EC4899]", text: "text-white" },        // 8 hot pink
+  { bg: "bg-[#3B82F6]", text: "text-white" },        // 9 sky
+  { bg: "bg-[#10B981]", text: "text-white" },        // 10 emerald
+  { bg: "bg-[#6D28D9]", text: "text-white" },        // 11 deep purple
 ]
+// R-store-color-explicit (2026-07-24): 알려진 매장 색상 고정 · hash collision 방지.
+//   사용자 요청: 마블·아우라 등 각 매장이 서로 다른 색.
+const STORE_COLOR_FIXED: Record<string, number> = {
+  "마블": 0,     // pink
+  "아우라": 2,   // purple
+  "발리": 1,     // blue
+  "토끼": 3,     // orange
+  "신세계": 4,   // green
+  "아지트": 5,   // red
+  "파티": 6,     // cyan
+  "8번가": 7,    // amber
+  "라이브": 8,   // hot pink
+  "버닝": 9,     // sky
+  "두바이": 10,  // emerald
+  "황진이": 11,  // deep purple
+  "썸": 8,       // fallback → hot pink
+  "퍼스트": 9,   // fallback → sky
+}
 function storeColorFor(name: string | null | undefined) {
-  if (!name) return { bg: "bg-[#DE3A7B]", text: "text-white" }
+  if (!name) return STORE_COLOR_PALETTE[0]
+  const fixed = STORE_COLOR_FIXED[name.trim()]
+  if (fixed !== undefined) return STORE_COLOR_PALETTE[fixed]
+  // 알려지지 않은 매장 — hash fallback
   let hash = 0
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
   return STORE_COLOR_PALETTE[hash % STORE_COLOR_PALETTE.length]
