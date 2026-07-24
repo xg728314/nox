@@ -629,31 +629,36 @@ function HostessDispatchRow({
     )
   }
 
-  // 1열 (기본 · 프로토타입 매칭)
+  // 1열 (기본 · 프로토타입 매칭 · 정렬 강화)
+  //   슬롯 폭 고정 → 모든 row 정렬됨:
+  //     [▶ 14px] [● 8px] [# 20px 우정렬] [name flex-1] [🔀 auto] [pill ml-auto] [warn? auto]
   return (
     <div className={cn(cardBase, "text-left")}>
-      {/* Header (클릭 가능 · 상태별 라우팅) */}
       <button
         type="button"
         onClick={handleTap}
         className="w-full text-left px-3 py-2.5"
       >
         <div className="flex items-center gap-2 min-w-0">
-          {/* ▶ chevron — 세션 이력 있으면 클릭 가능 */}
-          {todaySessions.length > 0 && (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
-              className={cn(
-                "shrink-0 text-[10px] transition-transform cursor-pointer px-1.5 py-1 -my-1",
-                expanded ? "rotate-90" : "",
-                dark ? "text-[#8A8578]" : "text-[#7A746A]",
-              )}
-            >
-              ▶
-            </span>
-          )}
+          {/* ▶ chevron — 항상 자리 확보 (세션 이력 없으면 투명 placeholder) */}
+          <span
+            role={todaySessions.length > 0 ? "button" : undefined}
+            tabIndex={todaySessions.length > 0 ? 0 : -1}
+            onClick={(e) => {
+              if (todaySessions.length === 0) return
+              e.stopPropagation()
+              setExpanded((v) => !v)
+            }}
+            className={cn(
+              "w-3.5 shrink-0 text-[10px] transition-transform text-center",
+              expanded ? "rotate-90" : "",
+              todaySessions.length > 0
+                ? (dark ? "text-[#8A8578] cursor-pointer" : "text-[#7A746A] cursor-pointer")
+                : "opacity-0 cursor-default",
+            )}
+          >
+            ▶
+          </span>
           <span
             className={cn(
               "w-2 h-2 rounded-full shrink-0",
@@ -663,7 +668,7 @@ function HostessDispatchRow({
                     : "bg-[#8A8578]",
             )}
           />
-          <span className={cn("text-[11px] font-black shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+          <span className={cn("text-[11px] font-black shrink-0 tabular-nums w-5 text-right", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
             {index}
           </span>
           <span className="text-[14px] font-extrabold truncate min-w-0">
@@ -674,8 +679,8 @@ function HostessDispatchRow({
             onClick={(e) => e.stopPropagation()}
             aria-label="세부"
             className={cn(
-              "shrink-0 text-[10px] px-1.5 py-0.5 rounded no-underline",
-              dark ? "text-[#8A8578] hover:bg-[#302a20]" : "text-[#7A746A] hover:bg-[#EDE7DA]",
+              "shrink-0 text-[10px] px-1 rounded no-underline",
+              dark ? "text-[#8A8578]" : "text-[#7A746A]",
             )}
           >
             🔀
@@ -697,7 +702,7 @@ function HostessDispatchRow({
         {state === "live" && (
           <div
             className={cn(
-              "mt-1 pl-4 text-[11px] font-bold leading-tight",
+              "mt-1 pl-[64px] text-[11px] font-bold leading-tight",
               dark ? "text-[#8A8578]" : "text-[#7A746A]",
             )}
           >
@@ -721,7 +726,7 @@ function HostessDispatchRow({
           </div>
         )}
         {state === "done" && (
-          <div className={cn("mt-1 pl-4 text-[11px] font-bold leading-tight", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+          <div className={cn("mt-1 pl-[64px] text-[11px] font-bold leading-tight", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
             ✓ {waitMin !== null && waitMin < 10 ? "방금 종료" : `종료 ${waitMin}분 전`} · 오늘 <b>{h.today_session_count ?? 0}건</b>
             {todayStores.length > 0 && (
               <> · <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{todayStores.slice(0, 4).join(" · ")}</b></>
