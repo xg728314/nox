@@ -32,12 +32,20 @@ import { cn } from "../_lib/cn"
 type FilterKey = "all" | "live" | "wait" | "onduty"
 type ColKey = 1 | 2 | 3
 
-type HostessState = "live" | "wait" | "off"
+type HostessState = "live" | "done" | "wait" | "off"
 
-function classify(h: HostessPreview, attendedSet: Set<string>): HostessState {
+// R-dispatch-history (2026-07-24) — 프로토타입 3-state 매칭:
+//   live  : is_working=true (현재 방중)
+//   done  : 60분 내 세션 종료 + 여전히 출근 상태 (attended)
+//   wait  : 출근 · 방중 아님 · 최근 종료도 아님
+//   off   : 미출근 (조판에서 제외)
+function classify(h: HostessPreview, attendedSet: Set<string>, nowTs: number): HostessState {
   if (h.is_working) return "live"
-  if (attendedSet.has(h.membership_id)) return "wait"
-  return "off"
+  const attended = attendedSet.has(h.membership_id)
+  if (!attended) return "off"
+  const lastLeft = h.last_left_at ? new Date(h.last_left_at).getTime() : 0
+  if (lastLeft && nowTs - lastLeft <= 60 * 60_000) return "done"
+  return "wait"
 }
 
 function fmtHM(iso: string | null | undefined): string {
@@ -107,21 +115,31 @@ export default function DispatchPage() {
     return raw.filter((h) => h.is_working || attendedSet.has(h.membership_id))
   }, [hostesses.data, attendedSet])
 
-  // 카운트 (결근 제외 · 전체 = 출근한 인원 전체)
+  // 출근 시각 map (attendance.checked_in_at → 대기 duration 계산용)
+  const checkedInAtMap = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const a of attendance.data?.attendance ?? []) {
+      m.set(a.membership_id, a.checked_in_at)
+    }
+    return m
+  }, [attendance.data])
+
+  // 카운트 (프로토타입 4-state: live · done · wait · off)
   const counts = useMemo(() => {
-    let live = 0, wait = 0
+    let live = 0, done = 0, wait = 0
     for (const h of all) {
-      const s = classify(h, attendedSet)
+      const s = classify(h, attendedSet, nowTick)
       if (s === "live") live++
+      else if (s === "done") done++
       else if (s === "wait") wait++
     }
-    return { live, wait, all: live + wait }
-  }, [all, attendedSet])
+    return { live, done, wait, all: live + done + wait, onduty: live + wait }
+  }, [all, attendedSet, nowTick])
 
-  // 필터 + 검색 (아가씨 이름만) + 정렬 (진행중 임박순 → 대기)
+  // 필터 + 검색 + 정렬 (진행중 임박순 → 종료 → 대기)
   const filteredSorted = useMemo(() => {
     const norm = q.trim().toLowerCase()
-    const withState = all.map((h) => ({ h, state: classify(h, attendedSet) }))
+    const withState = all.map((h) => ({ h, state: classify(h, attendedSet, nowTick) }))
     const filtered = withState.filter(({ h, state }) => {
       if (norm) {
         const name = (h.hostess_name ?? "").toLowerCase()
@@ -129,11 +147,11 @@ export default function DispatchPage() {
       }
       if (filter === "all") return true
       if (filter === "live") return state === "live"
-      if (filter === "wait") return state === "wait"
-      if (filter === "onduty") return true // 이미 결근 제외됨 → all 과 동일
+      if (filter === "wait") return state === "wait" || state === "done"
+      if (filter === "onduty") return state === "live" || state === "wait"
       return true
     })
-    const order = { live: 0, wait: 1, off: 2 } as const
+    const order = { live: 0, done: 1, wait: 2, off: 3 } as const
     filtered.sort((a, b) => {
       if (order[a.state] !== order[b.state]) return order[a.state] - order[b.state]
       if (a.state === "live" && b.state === "live") {
@@ -144,7 +162,7 @@ export default function DispatchPage() {
       return (a.h.hostess_name ?? "").localeCompare(b.h.hostess_name ?? "")
     })
     return filtered
-  }, [all, attendedSet, filter, q, remainingMinutesOf])
+  }, [all, attendedSet, filter, q, remainingMinutesOf, nowTick])
 
   return (
     <div
@@ -330,6 +348,8 @@ export default function DispatchPage() {
                 hostess={h}
                 state={state}
                 remaining={state === "live" ? remainingMinutesOf(h) : null}
+                waitStartIso={checkedInAtMap.get(h.membership_id) ?? null}
+                nowTick={nowTick}
                 dark={dark}
                 cols={cols}
                 onOpenExtend={() => { setExtendTarget(h); setExtendOpen(true) }}
@@ -469,6 +489,8 @@ function HostessDispatchRow({
   hostess: h,
   state,
   remaining,
+  waitStartIso,
+  nowTick,
   dark,
   cols,
   onOpenExtend,
@@ -478,31 +500,40 @@ function HostessDispatchRow({
   hostess: HostessPreview
   state: HostessState
   remaining: number | null
+  waitStartIso: string | null
+  nowTick: number
   dark: boolean
   cols: ColKey
   onOpenExtend: () => void
   onOpenAssign: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const [leavingId, setLeavingId] = useState<string | null>(null)
+
   const imminent = state === "live" && remaining !== null && remaining <= 10
 
   const stripe =
     state === "live" ? "border-l-[#5FAB4E]"
-      : state === "wait" ? "border-l-[#D9A557]"
-        : "border-l-[#8A8578]"
+      : state === "done" ? "border-l-[#8A8578]"
+        : state === "wait" ? "border-l-[#D9A557]"
+          : "border-l-[#8A8578]"
 
   const stateLabel =
     state === "live" ? "방중"
-      : state === "wait" ? "대기"
-        : "결근"
+      : state === "done" ? "종료"
+        : state === "wait" ? "대기"
+          : "결근"
 
   const statePill =
     state === "live"
       ? "bg-[#5FAB4E]/18 text-[#3E7A32]"
-      : state === "wait"
-        ? "bg-[#D9A557]/22 text-[#8C6A2A]"
-        : dark
-          ? "bg-[#302a20] text-[#8A8578]"
-          : "bg-[#EDE7DA] text-[#7A746A]"
+      : state === "done"
+        ? dark ? "bg-[#302a20] text-[#8A8578]" : "bg-[#EDE7DA] text-[#7A746A]"
+        : state === "wait"
+          ? "bg-[#D9A557]/22 text-[#8C6A2A]"
+          : dark
+            ? "bg-[#302a20] text-[#8A8578]"
+            : "bg-[#EDE7DA] text-[#7A746A]"
 
   const cardBase = cn(
     "rounded-xl border border-l-4 overflow-hidden active:opacity-70 transition",
@@ -513,6 +544,30 @@ function HostessDispatchRow({
   const handleTap = () => {
     if (state === "live") onOpenExtend()
     else onOpenAssign()
+  }
+
+  // 대기 duration (분) — checked_in_at 기준 · done 상태는 last_left_at 기준
+  const waitMin = useMemo(() => {
+    let baseIso: string | null = null
+    if (state === "done" && h.last_left_at) baseIso = h.last_left_at
+    else if (state === "wait") baseIso = waitStartIso
+    if (!baseIso) return null
+    const t = new Date(baseIso).getTime()
+    if (Number.isNaN(t)) return null
+    return Math.max(0, Math.round((nowTick - t) / 60_000))
+  }, [state, h.last_left_at, waitStartIso, nowTick])
+
+  const todaySessions = h.today_sessions ?? []
+  const todayStores = h.today_stores ?? []
+
+  // per-row leave (참여자 개별 종료 — 프로토타입 [-] 버튼)
+  const leaveParticipant = async (participantId: string) => {
+    if (leavingId) return
+    setLeavingId(participantId)
+    try {
+      await fetch(`/api/sessions/participants/${encodeURIComponent(participantId)}/leave`, { method: "POST" })
+    } catch { /* silent — cache 자동 갱신 */ }
+    finally { setLeavingId(null) }
   }
 
   // 3열 컴팩트 — 이름 + 상태 + 남은분만.
@@ -569,81 +624,160 @@ function HostessDispatchRow({
 
   // 1열 (기본 · 프로토타입 매칭)
   return (
-    <button type="button" onClick={handleTap} className={cn(cardBase, "w-full text-left px-3 py-2.5")}>
-      {/* 1행: index · 이름 · 상태뱃지 · imminent 뱃지 */}
-      <div className="flex items-center gap-2 min-w-0">
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full shrink-0",
-            state === "live" ? "bg-[#5FAB4E]"
-              : state === "wait" ? "bg-[#D9A557]"
-                : "bg-[#8A8578]",
-          )}
-        />
-        <span className={cn("text-[11px] font-black shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-          {index}
-        </span>
-        <span className="text-[14px] font-extrabold truncate min-w-0">
-          <span className="underline underline-offset-2 decoration-dotted">{h.hostess_name}</span>
-        </span>
-        <Link
-          href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="세부"
-          className={cn(
-            "shrink-0 text-[10px] px-1.5 py-0.5 rounded no-underline",
-            dark ? "text-[#8A8578] hover:bg-[#302a20]" : "text-[#7A746A] hover:bg-[#EDE7DA]",
-          )}
-        >
-          🔀
-        </Link>
-        <span className={cn("ml-auto inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black shrink-0", statePill)}>
-          {state === "live" ? "● 방중" : state === "wait" ? "🕐 대기" : "결근"}
-        </span>
-        {imminent && (
-          <span className="shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black bg-red-500 text-white animate-pulse">
-            ⚠ {remaining}분
-          </span>
-        )}
-      </div>
-
-      {/* 2행: 상태별 상세 */}
-      {state === "live" && (
-        <div
-          className={cn(
-            "mt-1 pl-4 text-[11px] font-bold leading-tight",
-            dark ? "text-[#8A8578]" : "text-[#7A746A]",
-          )}
-        >
-          지금 · <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{h.working_store_name || "?"}</b>
-          {h.working_category && <> · {h.working_category}</>}
-          {h.working_entered_at && (
-            <>
-              {" · "}
-              {fmtHM(h.working_entered_at)}
-              {h.working_time_minutes && (
-                <>~{fmtHM(new Date(new Date(h.working_entered_at).getTime() + h.working_time_minutes * 60_000).toISOString())}</>
+    <div className={cn(cardBase, "text-left")}>
+      {/* Header (클릭 가능 · 상태별 라우팅) */}
+      <button
+        type="button"
+        onClick={handleTap}
+        className="w-full text-left px-3 py-2.5"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {/* ▶ chevron — 세션 이력 있으면 클릭 가능 */}
+          {todaySessions.length > 0 && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
+              className={cn(
+                "shrink-0 text-[10px] transition-transform cursor-pointer px-1.5 py-1 -my-1",
+                expanded ? "rotate-90" : "",
+                dark ? "text-[#8A8578]" : "text-[#7A746A]",
               )}
-            </>
+            >
+              ▶
+            </span>
           )}
-          {remaining !== null && !imminent && (
-            <>
-              {" · "}
-              <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{remaining}분 남음</b>
-            </>
+          <span
+            className={cn(
+              "w-2 h-2 rounded-full shrink-0",
+              state === "live" ? "bg-[#5FAB4E]"
+                : state === "done" ? "bg-[#8A8578]"
+                  : state === "wait" ? "bg-[#D9A557]"
+                    : "bg-[#8A8578]",
+            )}
+          />
+          <span className={cn("text-[11px] font-black shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+            {index}
+          </span>
+          <span className="text-[14px] font-extrabold truncate min-w-0">
+            <span className="underline underline-offset-2 decoration-dotted">{h.hostess_name}</span>
+          </span>
+          <Link
+            href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="세부"
+            className={cn(
+              "shrink-0 text-[10px] px-1.5 py-0.5 rounded no-underline",
+              dark ? "text-[#8A8578] hover:bg-[#302a20]" : "text-[#7A746A] hover:bg-[#EDE7DA]",
+            )}
+          >
+            🔀
+          </Link>
+          <span className={cn("ml-auto inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black shrink-0", statePill)}>
+            {state === "live" ? "● 방중"
+              : state === "done" ? "✓ 종료"
+                : state === "wait" ? "🕐 대기"
+                  : "결근"}
+          </span>
+          {imminent && (
+            <span className="shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black bg-red-500 text-white animate-pulse">
+              ⚠ {remaining}분
+            </span>
           )}
         </div>
-      )}
-      {state === "wait" && (
-        <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-          🕐 대기중 · 배정 필요
+
+        {/* 2행: 상태별 상세 */}
+        {state === "live" && (
+          <div
+            className={cn(
+              "mt-1 pl-4 text-[11px] font-bold leading-tight",
+              dark ? "text-[#8A8578]" : "text-[#7A746A]",
+            )}
+          >
+            지금 · <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{h.working_store_name || "?"}</b>
+            {h.working_category && <> · {h.working_category}</>}
+            {h.working_entered_at && (
+              <>
+                {" · "}
+                {fmtHM(h.working_entered_at)}
+                {h.working_time_minutes && (
+                  <>~{fmtHM(new Date(new Date(h.working_entered_at).getTime() + h.working_time_minutes * 60_000).toISOString())}</>
+                )}
+              </>
+            )}
+            {remaining !== null && !imminent && (
+              <>
+                {" · "}
+                <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{remaining}분 남음</b>
+              </>
+            )}
+          </div>
+        )}
+        {state === "done" && (
+          <div className={cn("mt-1 pl-4 text-[11px] font-bold leading-tight", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+            ✓ {waitMin !== null && waitMin < 10 ? "방금 종료" : `종료 ${waitMin}분 전`} · 오늘 <b>{h.today_session_count ?? 0}건</b>
+            {todayStores.length > 0 && (
+              <> · <b className={dark ? "text-[#F2ECE0]" : "text-[#2D2B26]"}>{todayStores.slice(0, 4).join(" · ")}</b></>
+            )}
+          </div>
+        )}
+        {state === "wait" && (
+          <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+            🕐 {waitMin !== null ? `대기 ${waitMin}분` : "대기중"} · 배정 필요
+          </div>
+        )}
+        {state === "off" && (
+          <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+            결근 · 미출근
+          </div>
+        )}
+      </button>
+
+      {/* ad-detail — chevron 클릭 시 오늘 세션 이력 */}
+      {expanded && todaySessions.length > 0 && (
+        <div className={cn("border-t px-3 py-2 flex flex-col gap-1", dark ? "border-[#302a20] bg-[#0f0d0a]" : "border-[#EDE7DA] bg-[#FAF5EC]/40")}>
+          {todaySessions.map((s) => {
+            const roomLabel = `${s.store_name}${s.room_no ? s.room_no : ""}`
+            const isActive = s.status === "active"
+            const catLetter = s.category === "퍼블릭" ? "P" : s.category === "하퍼" ? "H" : s.category === "셔츠" ? "S" : null
+            const catCls = catLetter === "P" ? "bg-[#6B8AFD]/22 text-[#3E5EDB]"
+              : catLetter === "H" ? "bg-[#D97757]/22 text-[#A94B2A]"
+                : catLetter === "S" ? "bg-[#D9A557]/22 text-[#8C6A2A]"
+                  : "bg-[#8A8578]/22 text-[#7A746A]"
+            return (
+              <div key={s.participant_id} className="flex items-center gap-2 text-[11px]">
+                <span className={cn("font-mono font-bold shrink-0 w-10", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{fmtHM(s.entered_at)}</span>
+                <span className={cn("truncate flex-1 font-bold", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>{roomLabel}</span>
+                {catLetter && (
+                  <span className={cn("inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded text-[9px] font-black shrink-0", catCls)}>
+                    {catLetter}
+                  </span>
+                )}
+                {s.ticket && (
+                  <span className={cn("text-[10px] font-bold shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{s.ticket}</span>
+                )}
+                {isActive ? (
+                  <button
+                    type="button"
+                    onClick={() => leaveParticipant(s.participant_id)}
+                    disabled={leavingId === s.participant_id}
+                    className={cn(
+                      "shrink-0 rounded-full w-6 h-6 flex items-center justify-center text-[12px] font-black border transition",
+                      dark ? "border-[#5a4a2a] text-[#E0C89A] hover:bg-[#3a2f1a]" : "border-[#C49B61]/40 text-[#8C6A3A] hover:bg-[#FBF6EC]",
+                      leavingId === s.participant_id ? "opacity-40" : "",
+                    )}
+                    aria-label="종료"
+                  >
+                    {leavingId === s.participant_id ? "…" : "−"}
+                  </button>
+                ) : (
+                  <span className={cn("text-[9px] font-bold shrink-0", dark ? "text-[#5a5348]" : "text-[#B0A99B]")}>종료</span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
-      {state === "off" && (
-        <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-          결근 · 미출근
-        </div>
-      )}
-    </button>
+    </div>
   )
 }

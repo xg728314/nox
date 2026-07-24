@@ -1,6 +1,21 @@
 import type { AuthContext } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 
+/** R-dispatch-history (2026-07-24): 조판 row 확장 뷰용 오늘 세션 이력. */
+export type TodaySessionEntry = {
+  participant_id: string
+  session_id: string
+  store_uuid: string
+  store_name: string
+  room_no: string | null
+  category: string | null
+  ticket: string | null
+  entered_at: string
+  left_at: string | null
+  status: string
+  time_minutes: number | null
+}
+
 export type HostessPreview = {
   hostess_id: string
   hostess_name: string
@@ -25,6 +40,21 @@ export type HostessPreview = {
   /** R-extend-end (2026-06-25): 일하는 식구의 현재 participant + session ID — 연장/종료 액션용 */
   working_participant_id: string | null
   working_session_id: string | null
+  /** R-dispatch-history (2026-07-24) — 조판 프로토타입 매칭 */
+  today_session_count?: number
+  today_stores?: string[]
+  last_left_at?: string | null
+  today_sessions?: TodaySessionEntry[]
+}
+
+// 프로토타입 매칭: time_minutes + category → 완메/반티/차3/무료 표시명.
+function deriveTicket(timeMinutes: number | null, category: string | null): string | null {
+  if (!timeMinutes) return null
+  if (timeMinutes <= 8) return "무료"
+  if (timeMinutes <= 15) return "차3"
+  const halfTime = category === "퍼블릭" ? 45 : 30
+  if (timeMinutes <= halfTime + 10) return "반티"
+  return "완메"
 }
 
 /** R-사전등록 (2026-06-08): 아직 NOX 가입 안 된 사전등록 row. */
@@ -176,6 +206,8 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
   }
   const workingMap = new Map<string, WorkInfo>()
   const workingStoreUuids = new Set<string>()
+  // R-dispatch-history: 이력 lookup 에서도 재사용 위해 hoist.
+  const storeNameMap = new Map<string, string>()
   {
     const { data: parts } = await supabase
       .from("session_participants")
@@ -209,8 +241,111 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     }
   }
 
-  // working store 이름 매핑 (id → store_name)
-  const storeNameMap = new Map<string, string>()
+  // R-dispatch-history (2026-07-24): 오늘 세션 이력 (조판 확장 뷰용).
+  //   - 지난 24h 참여한 모든 세션 (status 무관)
+  //   - hostess 별: today_session_count, today_stores, last_left_at, today_sessions[]
+  //   - 카드 확장 시 rendering
+  type TodaySession = {
+    participant_id: string
+    session_id: string
+    store_uuid: string
+    store_name: string
+    room_no: string | null
+    category: string | null
+    ticket: string | null
+    entered_at: string
+    left_at: string | null
+    status: string
+    time_minutes: number | null
+  }
+  const historyMap = new Map<string, {
+    sessions: TodaySession[]
+    stores: Set<string>
+    last_left_at: string | null
+  }>()
+  if (hostessIds.length > 0) {
+    const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { data: historyParts } = await supabase
+      .from("session_participants")
+      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, left_at, status, room_sessions!inner(room_uuid)")
+      .in("membership_id", hostessIds)
+      .gte("entered_at", dayAgoIso)
+      .is("deleted_at", null)
+      .order("entered_at", { ascending: true })
+    type HistoryRow = {
+      id: string
+      session_id: string
+      membership_id: string
+      store_uuid: string
+      category: string | null
+      time_minutes: number | null
+      entered_at: string
+      left_at: string | null
+      status: string
+      room_sessions: { room_uuid: string } | { room_uuid: string }[] | null
+    }
+    const rows = ((historyParts ?? []) as HistoryRow[])
+    // room 조회 (room_uuid → room_no)
+    const roomUuids = new Set<string>()
+    for (const r of rows) {
+      const sess = Array.isArray(r.room_sessions) ? r.room_sessions[0] : r.room_sessions
+      if (sess?.room_uuid) roomUuids.add(sess.room_uuid)
+    }
+    const roomNoByUuid = new Map<string, string>()
+    if (roomUuids.size > 0) {
+      const { data: roomRows } = await supabase
+        .from("rooms")
+        .select("id, room_no")
+        .in("id", Array.from(roomUuids))
+      for (const r of ((roomRows ?? []) as { id: string; room_no: string }[])) {
+        roomNoByUuid.set(r.id, r.room_no)
+      }
+    }
+    // 이력 store name lookup
+    const historyStoreIds = new Set<string>()
+    for (const r of rows) historyStoreIds.add(r.store_uuid)
+    if (historyStoreIds.size > 0) {
+      const { data: sRows } = await supabase
+        .from("stores")
+        .select("id, store_name")
+        .in("id", Array.from(historyStoreIds))
+      for (const s of ((sRows ?? []) as { id: string; store_name: string }[])) {
+        if (!storeNameMap.has(s.id)) storeNameMap.set(s.id, s.store_name)
+      }
+    }
+    for (const r of rows) {
+      const sess = Array.isArray(r.room_sessions) ? r.room_sessions[0] : r.room_sessions
+      const storeName = storeNameMap.get(r.store_uuid) ?? ""
+      const roomNo = sess?.room_uuid ? (roomNoByUuid.get(sess.room_uuid) ?? null) : null
+      const ticket = deriveTicket(r.time_minutes, r.category)
+      const entry: TodaySession = {
+        participant_id: r.id,
+        session_id: r.session_id,
+        store_uuid: r.store_uuid,
+        store_name: storeName,
+        room_no: roomNo,
+        category: r.category,
+        ticket,
+        entered_at: r.entered_at,
+        left_at: r.left_at,
+        status: r.status,
+        time_minutes: r.time_minutes,
+      }
+      const bucket = historyMap.get(r.membership_id) ?? {
+        sessions: [],
+        stores: new Set<string>(),
+        last_left_at: null,
+      }
+      bucket.sessions.push(entry)
+      if (storeName) bucket.stores.add(storeName)
+      if (r.left_at && (!bucket.last_left_at || r.left_at > bucket.last_left_at)) {
+        bucket.last_left_at = r.left_at
+      }
+      historyMap.set(r.membership_id, bucket)
+    }
+  }
+
+  // working store 이름 매핑 (id → store_name) — storeNameMap 는 hoist 됨
   if (workingStoreUuids.size > 0) {
     const { data: storeRows } = await supabase
       .from("stores")
@@ -243,6 +378,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     hostesses: (hostesses ?? []).map((h: Row) => {
       const extras = hostessExtras.get(h.id) ?? { manager_membership_id: null, origin_store_uuid: null }
       const workInfo = workingMap.get(h.id) ?? null
+      const history = historyMap.get(h.id)
       return {
         hostess_id: h.id,
         hostess_name: pickFullName(h.profiles),
@@ -260,6 +396,11 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
         working_entered_at: workInfo?.entered_at ?? null,
         working_participant_id: workInfo?.participant_id ?? null,
         working_session_id: workInfo?.session_id ?? null,
+        // R-dispatch-history — 프로토타입 매칭
+        today_session_count: history?.sessions.length ?? 0,
+        today_stores: history ? Array.from(history.stores) : [],
+        last_left_at: history?.last_left_at ?? null,
+        today_sessions: history?.sessions ?? [],
       }
     }),
     pre_registrations: preRegistrations,

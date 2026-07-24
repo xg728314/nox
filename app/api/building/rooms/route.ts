@@ -29,6 +29,9 @@ type RoomRow = {
   is_active: boolean
   floor_no: number | null
   sort_order: number | null
+  reserved_by_membership_id?: string | null
+  reserved_by_name?: string | null
+  reserved_at?: string | null
 }
 type SessionRow = {
   id: string
@@ -103,6 +106,13 @@ export type BuildingRoomsResponse = {
       room_name: string
       floor_no: number | null
       is_active: boolean
+      /** R30-A: 예약 상태 (migration 171 apply 후 활성) */
+      reservation: null | {
+        reserved_by_membership_id: string
+        reserved_by_name: string | null
+        reserved_at: string
+        is_mine: boolean
+      }
       session: null | {
         session_id: string
         started_at: string
@@ -222,9 +232,11 @@ export async function GET(request: Request) {
         //    영업일 (business_day) 정확 스코프는 별도 라운드 — 지금은 24h 창.
         const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
         const [roomsRes, sessionsRes, closedRes] = await Promise.all([
+          // R30-A: reserved_* 컬럼은 migration 171 apply 후 존재.
+          //   미적용 환경에서도 500 안 나도록 fallback 처리 (아래 try/catch).
           sb
             .from("rooms")
-            .select("id, store_uuid, room_no, room_name, is_active, floor_no, sort_order")
+            .select("id, store_uuid, room_no, room_name, is_active, floor_no, sort_order, reserved_by_membership_id, reserved_by_name, reserved_at")
             .in("store_uuid", storeIds)
             .is("deleted_at", null)
             .order("sort_order", { ascending: true }),
@@ -244,8 +256,20 @@ export async function GET(request: Request) {
             .order("ended_at", { ascending: false })
             .limit(80),
         ])
-        if (roomsRes.error) throw new Error("ROOMS_QUERY_FAILED")
-        const rooms = (roomsRes.data as RoomRow[] | null) ?? []
+        // R30-A fallback: 신규 예약 컬럼 미존재 시 (migration 171 미적용) 컬럼 제외 재조회
+        let rooms: RoomRow[] = []
+        if (!roomsRes.error && roomsRes.data) {
+          rooms = roomsRes.data as RoomRow[]
+        } else {
+          const { data: rooms2, error: err2 } = await sb
+            .from("rooms")
+            .select("id, store_uuid, room_no, room_name, is_active, floor_no, sort_order")
+            .in("store_uuid", storeIds)
+            .is("deleted_at", null)
+            .order("sort_order", { ascending: true })
+          if (err2) throw new Error("ROOMS_QUERY_FAILED")
+          rooms = (rooms2 as RoomRow[] | null) ?? []
+        }
         const sessions: SessionRow[] = !sessionsRes.error && sessionsRes.data
           ? (sessionsRes.data as SessionRow[])
           : []
@@ -382,6 +406,14 @@ export async function GET(request: Request) {
         const storeBlocks: BuildingRoomsResponse["stores"] = stores.map((s) => {
           const storeRooms = (roomsByStore.get(s.id) ?? []).map((r) => {
             const sess = sessionByRoom.get(r.id) ?? null
+            const reservation = r.reserved_by_membership_id
+              ? {
+                  reserved_by_membership_id: r.reserved_by_membership_id,
+                  reserved_by_name: r.reserved_by_name ?? null,
+                  reserved_at: r.reserved_at ?? new Date().toISOString(),
+                  is_mine: r.reserved_by_membership_id === authContext.membership_id,
+                }
+              : null
             if (!sess) {
               return {
                 room_uuid: r.id,
@@ -389,6 +421,7 @@ export async function GET(request: Request) {
                 room_name: r.room_name,
                 floor_no: r.floor_no,
                 is_active: r.is_active,
+                reservation,
                 session: null,
               }
             }
@@ -427,6 +460,7 @@ export async function GET(request: Request) {
               room_name: r.room_name,
               floor_no: r.floor_no,
               is_active: r.is_active,
+              reservation,
               session: {
                 session_id: sess.id,
                 started_at: sess.started_at,

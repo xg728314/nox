@@ -6,6 +6,7 @@ import { parseJsonBody } from "@/lib/session/parseBody"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
+import { publishManagerCheckinMessage } from "@/lib/chat/publishManagerCheckinMessage"
 import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { lookupServiceType, lookupCategoryPricing } from "@/lib/session/services/pricingLookup"
@@ -116,7 +117,9 @@ export async function POST(request: Request) {
     if (session.status !== "active") {
       return NextResponse.json({ error: "SESSION_NOT_ACTIVE", message: "Session is not active." }, { status: 400 })
     }
-    if (session.store_uuid !== authContext.store_uuid) {
+    // R-super-admin-cross-store (2026-07-24): super_admin 은 매장 무관 조작 허용
+    //   (오버라이드 컨텍스트로 신세계 있어도 라이브 세션 연장/종료 가능).
+    if (session.store_uuid !== authContext.store_uuid && !authContext.is_super_admin) {
       return NextResponse.json({ error: "STORE_MISMATCH", message: "Session does not belong to your store." }, { status: 403 })
     }
     // Business day closure guard — Promise.all prefetch 매칭 우선, fallback 만 추가 RTT.
@@ -349,6 +352,54 @@ export async function POST(request: Request) {
       store_uuid: authContext.store_uuid,
       actor_membership_id: authContext.membership_id,
     }).catch(() => { /* best-effort */ })
+
+    // R30-B (2026-07-24): 담당실장 그룹 채팅방에 auto-post (best-effort · fire-and-forget)
+    void (async () => {
+      try {
+        // 호스티스 이름 lookup
+        let hostessName = ""
+        if (membership_id) {
+          const { data: mem } = await supabase
+            .from("store_memberships")
+            .select("profile_id")
+            .eq("id", membership_id)
+            .maybeSingle()
+          if (mem?.profile_id) {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("full_name")
+              .eq("id", mem.profile_id)
+              .maybeSingle()
+            hostessName = (p as { full_name?: string } | null)?.full_name ?? ""
+          }
+        }
+        // 매장 이름 · 방 번호 lookup
+        const { data: sessRow } = await supabase
+          .from("room_sessions")
+          .select("room_uuid, store_uuid")
+          .eq("id", session_id)
+          .maybeSingle()
+        let storeName: string | null = null
+        let roomNo: string | null = null
+        if (sessRow) {
+          const [{ data: storeRow }, { data: roomRow }] = await Promise.all([
+            supabase.from("stores").select("store_name").eq("id", (sessRow as { store_uuid: string }).store_uuid).maybeSingle(),
+            supabase.from("rooms").select("room_no").eq("id", (sessRow as { room_uuid: string }).room_uuid).maybeSingle(),
+          ])
+          storeName = (storeRow as { store_name?: string } | null)?.store_name ?? null
+          roomNo = (roomRow as { room_no?: string } | null)?.room_no ?? null
+        }
+        await publishManagerCheckinMessage({
+          auth: authContext,
+          storeUuid: authContext.store_uuid,
+          storeName,
+          roomNo,
+          hostessNames: [hostessName || (isPlaceholder ? "미지정" : "?")],
+          category: category ?? null,
+          ticket: resolvedTimeType,
+        })
+      } catch { /* silent */ }
+    })()
     invalidateCache("monitor")
     // 2026-05-06: room_participants scope 도 invalidate.
     //   기존: 빠짐 → 8s TTL 동안 server cache 가 추가 전 empty 응답 → 클라

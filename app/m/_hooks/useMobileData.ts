@@ -42,6 +42,23 @@ export type HostessPreview = {
   /** R-extend-end (2026-06-25): 연장/종료 시트용 식별자 */
   working_participant_id?: string | null
   working_session_id?: string | null
+  /** R-dispatch-history (2026-07-24) — 프로토타입 조판 확장 뷰 */
+  today_session_count?: number
+  today_stores?: string[]
+  last_left_at?: string | null
+  today_sessions?: Array<{
+    participant_id: string
+    session_id: string
+    store_uuid: string
+    store_name: string
+    room_no: string | null
+    category: string | null
+    ticket: string | null
+    entered_at: string
+    left_at: string | null
+    status: string
+    time_minutes: number | null
+  }>
 }
 /** 사전등록 row (가입 대기) */
 export type PreRegistrationPreview = {
@@ -134,12 +151,19 @@ export type BuildingRoomSession = {
   categories: Array<"P" | "H" | "S">
   participant_count: number
 }
+export type BuildingRoomReservation = {
+  reserved_by_membership_id: string
+  reserved_by_name: string | null
+  reserved_at: string
+  is_mine: boolean
+}
 export type BuildingRoom = {
   room_uuid: string
   room_no: string
   room_name: string
   floor_no: number | null
   is_active: boolean
+  reservation: BuildingRoomReservation | null
   session: BuildingRoomSession | null
 }
 export type BuildingRoomsStoreBlock = {
