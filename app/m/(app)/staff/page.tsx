@@ -3,8 +3,16 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
-import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
+import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
+import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
+
+// R-external-extend-modal (2026-07-24): 참여자 [연장] 버튼 클릭 → 시트 오픈용 상태.
+type ExtendTarget = {
+  participant: BuildingRoomParticipant
+  sessionId: string
+  storeName: string
+}
 
 /**
  * 외부조판 — /m/staff (URL 유지 · 라벨만 "외부조판")
@@ -29,6 +37,16 @@ export default function ExternalDispatchPage() {
   const [storeFilter, setStoreFilter] = useState<string | null>(null) // store_uuid | null(전체)
   const [closedFilter, setClosedFilter] = useState<ClosedFilter>("all")
   const [expandAllClosed, setExpandAllClosed] = useState(false)
+  const [extendTarget, setExtendTarget] = useState<ExtendTarget | null>(null)
+
+  // 진행분 계산 (entered_at → now)
+  const extendRemainingMin = useMemo(() => {
+    if (!extendTarget?.participant.entered_at || !extendTarget.participant.time_minutes) return null
+    const ent = new Date(extendTarget.participant.entered_at).getTime()
+    if (Number.isNaN(ent)) return null
+    const endMs = ent + extendTarget.participant.time_minutes * 60_000
+    return Math.max(0, Math.round((endMs - Date.now()) / 60_000))
+  }, [extendTarget])
 
   const stores = useMemo(() => data?.stores ?? [], [data?.stores])
   const totals = useMemo(() => {
@@ -115,6 +133,7 @@ export default function ExternalDispatchPage() {
               key={store.store_uuid}
               store={store}
               currentMembershipId={me.data?.membership_id ?? null}
+              onOpenExtend={(participant, sessionId) => setExtendTarget({ participant, sessionId, storeName: store.store_name })}
             />
           ))}
         </div>
@@ -130,6 +149,24 @@ export default function ExternalDispatchPage() {
       </main>
 
       <TabBar />
+
+      {/* R-external-extend-modal (2026-07-24): 참여자 [연장] 시트.
+          조판 (/m) 과 동일 컴포넌트 재사용. participant 정보를 ExtendEndSheet
+          prop 으로 매핑. */}
+      {extendTarget && extendTarget.participant.membership_id && (
+        <ExtendEndSheet
+          open={true}
+          onClose={() => setExtendTarget(null)}
+          membershipId={extendTarget.participant.membership_id}
+          hostessName={extendTarget.participant.name}
+          participantId={extendTarget.participant.participant_id}
+          sessionId={extendTarget.sessionId}
+          category={extendTarget.participant.category}
+          storeName={extendTarget.storeName}
+          remainingMinutes={extendRemainingMin}
+          startedAt={extendTarget.participant.entered_at}
+        />
+      )}
     </>
   )
 }
@@ -201,9 +238,11 @@ function StoreChip({
 function StoreBlock({
   store,
   currentMembershipId,
+  onOpenExtend,
 }: {
   store: BuildingRoomsStoreBlock
   currentMembershipId: string | null
+  onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
   const live = store.rooms.filter((r) => r.session).length
   const empty = store.rooms.length - live
@@ -227,6 +266,7 @@ function StoreBlock({
             room={r}
             storeUuid={store.store_uuid}
             currentMembershipId={currentMembershipId}
+            onOpenExtend={onOpenExtend}
           />
         ))}
       </div>
@@ -238,13 +278,15 @@ function RoomCard({
   room,
   storeUuid,
   currentMembershipId,
+  onOpenExtend,
 }: {
   room: BuildingRoom
   storeUuid: string
   currentMembershipId: string | null
+  onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
   if (room.session) {
-    return <LiveRoomCard room={room} currentMembershipId={currentMembershipId} />
+    return <LiveRoomCard room={room} currentMembershipId={currentMembershipId} onOpenExtend={onOpenExtend} />
   }
   return <EmptyRoomCard room={room} storeUuid={storeUuid} />
 }
@@ -252,9 +294,11 @@ function RoomCard({
 function LiveRoomCard({
   room,
   currentMembershipId,
+  onOpenExtend,
 }: {
   room: BuildingRoom
   currentMembershipId: string | null
+  onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const s = room.session!
@@ -326,7 +370,12 @@ function LiveRoomCard({
             <div className="text-[10px] font-bold text-[#7A746A] py-1">참여자 없음</div>
           )}
           {s.participants.map((p) => (
-            <ParticipantRow key={p.participant_id} participant={p} sessionId={s.session_id} />
+            <ParticipantRow
+              key={p.participant_id}
+              participant={p}
+              sessionId={s.session_id}
+              onOpenExtend={() => onOpenExtend(p, s.session_id)}
+            />
           ))}
         </div>
       )}
@@ -363,47 +412,41 @@ function EmptyRoomCard({
 /**
  * R-participant-actions (2026-07-24): 사용중 방 참여자 row.
  *   프로토타입 매칭: [매장뱃지] 이름 [티켓] [P/H/S pill] [⏱ 연장] [○ 종료]
- *   본 매장 참여자 = [내] 뱃지 (accent), 외부 = [매장명] 뱃지 (pink)
+ *   본 매장 = "내" (검은 뱃지) · 외부 = 매장명 (매장별 색상 팔레트)
+ *
+ *   R-store-palette (2026-07-24): 매장별 배지 색상 hash → 팔레트 매핑.
+ *   같은 매장은 항상 같은 색 · 다른 매장은 시각적 구분 쉬움.
  */
+const STORE_COLOR_PALETTE = [
+  { bg: "bg-[#DE3A7B]", text: "text-white" },        // pink
+  { bg: "bg-[#6B8AFD]", text: "text-white" },        // blue
+  { bg: "bg-[#8B5CF6]", text: "text-white" },        // purple
+  { bg: "bg-[#D97757]", text: "text-white" },        // orange
+  { bg: "bg-[#059669]", text: "text-white" },        // green
+  { bg: "bg-[#DC2626]", text: "text-white" },        // red
+  { bg: "bg-[#0891B2]", text: "text-white" },        // cyan
+  { bg: "bg-[#CA8A04]", text: "text-white" },        // amber
+]
+function storeColorFor(name: string | null | undefined) {
+  if (!name) return { bg: "bg-[#DE3A7B]", text: "text-white" }
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return STORE_COLOR_PALETTE[hash % STORE_COLOR_PALETTE.length]
+}
+
 function ParticipantRow({
   participant,
   sessionId,
+  onOpenExtend,
 }: {
-  participant: import("../../_hooks/useMobileData").BuildingRoomParticipant
+  participant: BuildingRoomParticipant
   sessionId: string
+  onOpenExtend: () => void
 }) {
-  const [busy, setBusy] = useState<"extend" | "leave" | null>(null)
+  const [busy, setBusy] = useState<"leave" | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-
-  async function extend() {
-    if (!participant.membership_id || !participant.category || busy) return
-    setBusy("extend")
-    setMsg(null)
-    try {
-      const res = await fetch("/api/sessions/participants", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          membership_id: participant.membership_id,
-          role: "hostess",
-          category: participant.category,
-          time_minutes: participant.time_minutes,
-          time_type: participant.ticket === "완메" ? "기본" : participant.ticket,
-        }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.message || `HTTP ${res.status}`)
-      }
-      setMsg("연장 완료")
-    } catch (e) {
-      setMsg(`실패: ${(e as Error).message}`)
-    } finally {
-      setBusy(null)
-    }
-  }
+  // sessionId 는 종료 endpoint 에 직접 필요 없지만 audit 목적으로 참조 유지.
+  void sessionId
 
   async function leave() {
     if (busy) return
@@ -431,14 +474,17 @@ function ParticipantRow({
     }
   }
 
+  const storeColor = participant.is_external
+    ? storeColorFor(participant.origin_store_name)
+    : { bg: "bg-[#2D2B26]", text: "text-white" }
+
   return (
     <div className="flex items-center gap-1.5 py-1 px-2 rounded-lg bg-[#F8F4ED]/60">
       <span
         className={cn(
           "text-[9px] font-black rounded px-1.5 py-0.5 shrink-0",
-          participant.is_external
-            ? "bg-[#DE3A7B] text-white"
-            : "bg-[#2D2B26] text-white",
+          storeColor.bg,
+          storeColor.text,
         )}
       >
         {participant.is_external ? (participant.origin_store_name || "외부") : "내"}
@@ -448,7 +494,7 @@ function ParticipantRow({
       {participant.category_letter && <CategoryPill letter={participant.category_letter} />}
       <button
         type="button"
-        onClick={extend}
+        onClick={onOpenExtend}
         disabled={busy !== null || !participant.membership_id}
         className={cn(
           "shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-black inline-flex items-center gap-0.5",
@@ -456,7 +502,7 @@ function ParticipantRow({
           "disabled:opacity-40",
         )}
       >
-        {busy === "extend" ? "…" : "⏱ 연장"}
+        ⏱ 연장
       </button>
       <button
         type="button"

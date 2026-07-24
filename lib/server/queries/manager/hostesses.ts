@@ -203,15 +203,21 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     entered_at: string | null
     participant_id: string
     session_id: string
+    /** R-room-no-display (2026-07-24): 프로토타입 조판 "지금 · 라이브1" 매칭 */
+    room_uuid: string | null
+    room_no: string | null
   }
   const workingMap = new Map<string, WorkInfo>()
   const workingStoreUuids = new Set<string>()
+  const workingRoomUuids = new Set<string>()
   // R-dispatch-history: 이력 lookup 에서도 재사용 위해 hoist.
   const storeNameMap = new Map<string, string>()
+  // R-room-no-display (2026-07-24): 방번호 lookup.
+  const roomNoMap = new Map<string, string>()
   {
     const { data: parts } = await supabase
       .from("session_participants")
-      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status)")
+      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status, room_uuid)")
       .in("membership_id", hostessIds)
       .eq("status", "active")
       .is("deleted_at", null)
@@ -223,7 +229,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       category: string | null
       time_minutes: number | null
       entered_at: string | null
-      room_sessions: { status: string } | { status: string }[] | null
+      room_sessions: { status: string; room_uuid: string | null } | { status: string; room_uuid: string | null }[] | null
     }
     for (const p of ((parts ?? []) as PartRow[])) {
       const sess = Array.isArray(p.room_sessions) ? p.room_sessions[0] : p.room_sessions
@@ -235,8 +241,28 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
           entered_at: p.entered_at,
           participant_id: p.id,
           session_id: p.session_id,
+          room_uuid: sess.room_uuid ?? null,
+          room_no: null,
         })
         workingStoreUuids.add(p.store_uuid)
+        if (sess.room_uuid) workingRoomUuids.add(sess.room_uuid)
+      }
+    }
+  }
+
+  // R-room-no-display: room_no lookup + workingMap 에 재주입.
+  if (workingRoomUuids.size > 0) {
+    const { data: rooms } = await supabase
+      .from("rooms")
+      .select("id, room_no")
+      .in("id", Array.from(workingRoomUuids))
+    for (const r of ((rooms ?? []) as { id: string; room_no: string }[])) {
+      roomNoMap.set(r.id, r.room_no)
+    }
+    for (const [membershipId, info] of workingMap.entries()) {
+      if (info.room_uuid) {
+        info.room_no = roomNoMap.get(info.room_uuid) ?? null
+        workingMap.set(membershipId, info)
       }
     }
   }
