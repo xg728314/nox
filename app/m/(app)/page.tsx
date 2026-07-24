@@ -29,7 +29,7 @@ import { cn } from "../_lib/cn"
  *  - 스탯: 필터 chips 카운트가 대체
  */
 
-type FilterKey = "all" | "live" | "wait" | "onduty"
+type FilterKey = "all" | "live" | "wait"
 type ColKey = 1 | 2 | 3
 
 type HostessState = "live" | "wait" | "off"
@@ -97,33 +97,36 @@ export default function DispatchPage() {
     }
   }, [nowTick])
 
-  const all = useMemo(() => hostesses.data?.hostesses ?? [], [hostesses.data])
+  // R-onduty-only (2026-07-24): 조판은 "출근한 아가씨" 만 표시.
+  //   결근 (attended=false && !is_working) 은 완전 제외 — 사용자 요구.
+  const all = useMemo(() => {
+    const raw = hostesses.data?.hostesses ?? []
+    return raw.filter((h) => h.is_working || attendedSet.has(h.membership_id))
+  }, [hostesses.data, attendedSet])
 
-  // 카운트
+  // 카운트 (결근 제외 · 전체 = 출근한 인원 전체)
   const counts = useMemo(() => {
-    let live = 0, wait = 0, off = 0
+    let live = 0, wait = 0
     for (const h of all) {
       const s = classify(h, attendedSet)
       if (s === "live") live++
       else if (s === "wait") wait++
-      else off++
     }
-    return { live, wait, onduty: live + wait, all: live + wait + off, off }
+    return { live, wait, all: live + wait }
   }, [all, attendedSet])
 
-  // 필터 + 검색 + 정렬 (진행중 임박순 → 대기 → 결근)
+  // 필터 + 검색 (아가씨 이름만) + 정렬 (진행중 임박순 → 대기)
   const filteredSorted = useMemo(() => {
     const norm = q.trim().toLowerCase()
     const withState = all.map((h) => ({ h, state: classify(h, attendedSet) }))
     const filtered = withState.filter(({ h, state }) => {
       if (norm) {
-        const hay = `${h.hostess_name} ${h.working_store_name ?? ""} ${h.working_category ?? ""}`.toLowerCase()
-        if (!hay.includes(norm)) return false
+        const name = (h.hostess_name ?? "").toLowerCase()
+        if (!name.includes(norm)) return false
       }
       if (filter === "all") return true
       if (filter === "live") return state === "live"
       if (filter === "wait") return state === "wait"
-      if (filter === "onduty") return state !== "off"
       return true
     })
     const order = { live: 0, wait: 1, off: 2 } as const
@@ -219,7 +222,7 @@ export default function DispatchPage() {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="이름 · 매장 · 종목 검색"
+          placeholder="아가씨 이름 검색"
           className={cn(
             "w-full rounded-2xl px-4 py-2.5 text-[13px] font-semibold border outline-none",
             dark
@@ -277,7 +280,7 @@ export default function DispatchPage() {
               dark ? "bg-[#5a4a2a] text-[#F8E9C4]" : "bg-[#C49B61]/25 text-[#8C6A3A]",
             )}
           >
-            {counts.onduty}
+            {counts.all}
           </span>
         </Link>
         <Link
@@ -291,12 +294,11 @@ export default function DispatchPage() {
         </Link>
       </div>
 
-      {/* 필터 chips */}
+      {/* 필터 chips — 출근한 아가씨만 (결근 제외) */}
       <div className="mx-4 mb-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <FilterChip label="전체" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} dark={dark} />
         <FilterChip label="진행중" count={counts.live} dot="live" active={filter === "live"} onClick={() => setFilter("live")} dark={dark} />
         <FilterChip label="대기중" count={counts.wait} dot="wait" active={filter === "wait"} onClick={() => setFilter("wait")} dark={dark} />
-        <FilterChip label="일중" count={counts.onduty} dot="onduty" active={filter === "onduty"} onClick={() => setFilter("onduty")} dark={dark} />
       </div>
 
       {/* 리스트 */}
@@ -388,15 +390,14 @@ function FilterChip({
   label: string
   count: number
   active: boolean
-  dot?: "live" | "wait" | "onduty"
+  dot?: "live" | "wait"
   dark: boolean
   onClick: () => void
 }) {
   const dotColor =
     dot === "live" ? "bg-[#5FAB4E]"
       : dot === "wait" ? "bg-[#D9A557]"
-        : dot === "onduty" ? "bg-[#C49B61]"
-          : ""
+        : ""
   return (
     <button
       type="button"

@@ -62,7 +62,7 @@ export default function ExternalDispatchPage() {
   return (
     <>
       <PageHeader
-        title="외부조판"
+        title="내 관리 매장 · 방 현황"
         subtitle={
           data
             ? `${totals.stores}매장 · ${totals.rooms}방 · 사용중 ${totals.live} · 빈방 ${totals.empty}`

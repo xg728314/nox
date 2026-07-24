@@ -16,8 +16,17 @@ import { type ReactNode } from "react"
 export function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     <div className="h-[100dvh] bg-black flex items-center justify-center overflow-hidden">
-      <div className="w-full h-full md:w-[420px] md:h-[min(900px,calc(100dvh-2rem))] md:rounded-[44px] md:overflow-hidden md:border-[10px] md:border-black md:shadow-[0_30px_60px_rgba(0,0,0,0.4)] relative bg-[#F8F4ED]">
-        <div className="w-full h-full relative overflow-y-auto overflow-x-hidden">
+      {/* R-tabbar-fixed-in-frame (2026-07-24): md 프레임에 translateZ(0) → 자식
+          fixed 요소의 containing block 을 프레임으로 설정. TabBar 가 phone frame
+          하단에 anchored. */}
+      <div
+        className="w-full h-full md:w-[420px] md:h-[min(900px,calc(100dvh-2rem))] md:rounded-[44px] md:overflow-hidden md:border-[10px] md:border-black md:shadow-[0_30px_60px_rgba(0,0,0,0.4)] relative bg-[#F8F4ED]"
+        style={{ transform: "translateZ(0)" }}
+      >
+        <div
+          className="w-full h-full relative overflow-y-auto overflow-x-hidden"
+          style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom))" }}
+        >
           {/* iOS notch (데스크탑에서만) */}
           <div className="hidden md:block absolute top-2 left-1/2 -translate-x-1/2 w-[110px] h-[28px] bg-black rounded-full z-50 pointer-events-none" />
           {children}
