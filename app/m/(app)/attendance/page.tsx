@@ -30,12 +30,19 @@ export default function AttendancePage() {
     setPending((s) => new Set(s).add(membershipId))
     haptic(8)
     try {
+      // R-attendance-action-fix (2026-07-24): API 는 checkin/checkout/assign/unassign 만
+      //   수용 (underscore 없음). 이전 코드 check_in/break/check_out 는 400 이었음.
+      //   휴식(on_break) 은 서버 미지원 → unassign 으로 매핑 (배정 해제 = 임시 대기).
+      const apiAction =
+        status === "present" ? "checkin"
+          : status === "on_break" ? "unassign"
+            : "checkout"
       const res = await apiFetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           membership_id: membershipId,
-          action: status === "present" ? "check_in" : status === "on_break" ? "break" : "check_out",
+          action: apiAction,
         }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
