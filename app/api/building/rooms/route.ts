@@ -75,6 +75,20 @@ function deriveTicket(timeMinutes: number, category: string | null): string {
   return "기본"
 }
 
+export type ClosedSessionLog = {
+  session_id: string
+  store_uuid: string
+  store_name: string
+  room_uuid: string
+  room_no: string
+  ended_at: string
+  manager_name: string | null
+  participant_count: number
+  capacity_hint: number
+  /** 'unsettled' = 영수증 없음 · 'settled' = 정산완료 (receipts row 존재) · 'edited' = 정산 후 수정 (updated_at > finalized_at). */
+  settlement_status: "unsettled" | "settled" | "edited"
+}
+
 export type BuildingRoomsResponse = {
   scope: "super_admin" | "own_store"
   current_store_uuid: string
@@ -112,6 +126,8 @@ export type BuildingRoomsResponse = {
       }
     }>
   }>
+  /** 종료된 세션 로그 (오늘 · 대상 매장 전체) — 프로토타입 하단 섹션. */
+  closed_sessions_log: ClosedSessionLog[]
 }
 
 export async function GET(request: Request) {
@@ -127,9 +143,18 @@ export async function GET(request: Request) {
     }
 
     const isSuper = authContext.is_super_admin === true
-    const cacheKey = isSuper
-      ? "super:v1"
-      : `own:${authContext.store_uuid}:v1`
+    const isOverridden = authContext.is_overridden_view === true
+    // Scope rule (R-external-dispatch v2 · 2026-07-24):
+    //   1) super_admin + no active-context override    → 5~8F 전체 (건물 전체 뷰)
+    //   2) super_admin + active-context override 존재   → 그 매장만 (컨텍스트 존중)
+    //   3) 일반 사용자 (owner/manager)                  → 본인 profile 이 owner 로
+    //      멤버십을 가진 모든 매장 (예: 사장이 여러 매장 소유 → 한 뷰에 aggregate)
+    //      + 자기 primary store (fallback)
+    const cacheKey = isSuper && !isOverridden
+      ? "super:v2"
+      : isSuper
+        ? `super_over:${authContext.store_uuid}:v2`
+        : `owner:${authContext.user_id}:v2`
 
     const payload = await cached<BuildingRoomsResponse>(
       "building_rooms",
@@ -139,20 +164,38 @@ export async function GET(request: Request) {
         const sb = getServiceClient()
 
         // 1) 대상 매장 확정
-        //    super_admin → 5~8F 전체
-        //    others      → 자기 store_uuid 만
         const storesQ = sb
           .from("stores")
           .select("id, store_name, floor")
           .is("deleted_at", null)
-        if (isSuper) {
+        if (isSuper && !isOverridden) {
           // 외부조판은 접객 매장 (5~8F) 만. 카페(3F) 는 별개 흐름이라 제외.
           const entertainmentFloors = (BUILDING_FLOORS as readonly number[]).filter(
             (f) => !isCafeFloor(f),
           )
           storesQ.in("floor", entertainmentFloors)
-        } else {
+        } else if (isSuper && isOverridden) {
+          // super_admin 이 특정 매장으로 active context 오버라이드 → 그 매장만.
           storesQ.eq("id", authContext.store_uuid)
+        } else {
+          // 일반 사용자 — 본인 profile 이 owner 인 매장 전부 (여러 매장 소유 시 aggregate).
+          //   NULL fallback: primary store_uuid 만.
+          const { data: ownerMems } = await sb
+            .from("store_memberships")
+            .select("store_uuid")
+            .eq("profile_id", authContext.user_id)
+            .eq("role", "owner")
+            .eq("status", "approved")
+            .is("deleted_at", null)
+          const ownerStoreIds = Array.from(
+            new Set(
+              [
+                ...((ownerMems as Array<{ store_uuid: string }> | null) ?? []).map((m) => m.store_uuid),
+                authContext.store_uuid,
+              ].filter(Boolean),
+            ),
+          )
+          storesQ.in("id", ownerStoreIds)
         }
         const { data: storesData, error: storesErr } = await storesQ
         if (storesErr) throw new Error("STORES_QUERY_FAILED")
@@ -171,11 +214,14 @@ export async function GET(request: Request) {
             current_store_uuid: authContext.store_uuid,
             current_manager_name: null,
             stores: [],
+            closed_sessions_log: [],
           }
         }
 
-        // 2) 모든 방 + 활성 세션 + 참여자 병렬 fetch
-        const [roomsRes, sessionsRes] = await Promise.all([
+        // 2) 모든 방 + 활성 세션 + 종료 세션 (지난 24h · 최근 80건) 병렬 fetch.
+        //    영업일 (business_day) 정확 스코프는 별도 라운드 — 지금은 24h 창.
+        const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        const [roomsRes, sessionsRes, closedRes] = await Promise.all([
           sb
             .from("rooms")
             .select("id, store_uuid, room_no, room_name, is_active, floor_no, sort_order")
@@ -188,16 +234,30 @@ export async function GET(request: Request) {
             .in("store_uuid", storeIds)
             .eq("status", "active")
             .is("archived_at", null),
+          sb
+            .from("room_sessions")
+            .select("id, store_uuid, room_uuid, status, started_at, ended_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size")
+            .in("store_uuid", storeIds)
+            .eq("status", "closed")
+            .gte("ended_at", dayAgoIso)
+            .is("archived_at", null)
+            .order("ended_at", { ascending: false })
+            .limit(80),
         ])
         if (roomsRes.error) throw new Error("ROOMS_QUERY_FAILED")
         const rooms = (roomsRes.data as RoomRow[] | null) ?? []
         const sessions: SessionRow[] = !sessionsRes.error && sessionsRes.data
           ? (sessionsRes.data as SessionRow[])
           : []
+        const closedSessions: SessionRow[] = !closedRes.error && closedRes.data
+          ? (closedRes.data as SessionRow[])
+          : []
 
-        // 3) 참여자 fetch (활성 세션 only)
+        // 3) 참여자 fetch (활성 세션 only) + 종료 세션 참여자 카운트
         const sessionIds = sessions.map((s) => s.id)
+        const closedSessionIds = closedSessions.map((s) => s.id)
         let participants: ParticipantRow[] = []
+        const closedParticipantCount = new Map<string, number>()
         if (sessionIds.length > 0) {
           const { data: pData } = await sb
             .from("session_participants")
@@ -207,6 +267,31 @@ export async function GET(request: Request) {
             .is("deleted_at", null)
             .is("archived_at", null)
           participants = (pData as ParticipantRow[] | null) ?? []
+        }
+        if (closedSessionIds.length > 0) {
+          const { data: cpData } = await sb
+            .from("session_participants")
+            .select("session_id")
+            .in("session_id", closedSessionIds)
+            .is("deleted_at", null)
+          for (const row of ((cpData as Array<{ session_id: string }> | null) ?? [])) {
+            closedParticipantCount.set(row.session_id, (closedParticipantCount.get(row.session_id) ?? 0) + 1)
+          }
+        }
+        // 종료 세션 정산 상태 lookup (receipts)
+        const receiptBySession = new Map<string, { status: string; version: number; finalized_at: string | null }>()
+        if (closedSessionIds.length > 0) {
+          const { data: recData } = await sb
+            .from("receipts")
+            .select("session_id, status, version, finalized_at")
+            .in("session_id", closedSessionIds)
+          for (const r of ((recData as Array<{ session_id: string; status: string; version: number; finalized_at: string | null }> | null) ?? [])) {
+            // 같은 session 여러 receipts 가능 (version) — 최신만.
+            const prev = receiptBySession.get(r.session_id)
+            if (!prev || r.version > prev.version) {
+              receiptBySession.set(r.session_id, { status: r.status, version: r.version, finalized_at: r.finalized_at })
+            }
+          }
         }
 
         // 4) 참여자 이름 해석 — membership_id → profiles.full_name
@@ -364,11 +449,44 @@ export async function GET(request: Request) {
           }
         })
 
+        // 8) 종료된 세션 로그 (프로토타입 하단 섹션)
+        const roomByUuid = new Map<string, RoomRow>()
+        for (const r of rooms) roomByUuid.set(r.id, r)
+        // 방 정원 힌트 — 지금 스키마엔 capacity 필드 없음 · 참여자 카운트 기반 3~5 추정.
+        const closedLog: ClosedSessionLog[] = []
+        for (const cs of closedSessions) {
+          const room = roomByUuid.get(cs.room_uuid)
+          if (!room) continue // 삭제된 방 무시
+          const store = storeMap.get(cs.store_uuid)
+          if (!store) continue
+          const partCount = closedParticipantCount.get(cs.id) ?? 0
+          const rec = receiptBySession.get(cs.id)
+          let settlement: "unsettled" | "settled" | "edited" = "unsettled"
+          if (rec) {
+            if (rec.status === "finalized" && rec.version <= 1) settlement = "settled"
+            else if (rec.status === "finalized" && rec.version > 1) settlement = "edited"
+            else settlement = "unsettled" // draft 도 미정산 취급
+          }
+          closedLog.push({
+            session_id: cs.id,
+            store_uuid: cs.store_uuid,
+            store_name: store.store_name,
+            room_uuid: cs.room_uuid,
+            room_no: room.room_no,
+            ended_at: cs.ended_at || cs.started_at,
+            manager_name: cs.manager_name,
+            participant_count: partCount,
+            capacity_hint: Math.max(partCount, 3),
+            settlement_status: settlement,
+          })
+        }
+
         return {
           scope: isSuper ? "super_admin" : "own_store",
           current_store_uuid: authContext.store_uuid,
           current_manager_name: currentManagerName,
           stores: storeBlocks,
+          closed_sessions_log: closedLog,
         }
       },
     )

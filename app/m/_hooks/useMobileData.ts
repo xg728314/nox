@@ -148,11 +148,24 @@ export type BuildingRoomsStoreBlock = {
   floor: number | null
   rooms: BuildingRoom[]
 }
+export type ClosedSessionLogEntry = {
+  session_id: string
+  store_uuid: string
+  store_name: string
+  room_uuid: string
+  room_no: string
+  ended_at: string
+  manager_name: string | null
+  participant_count: number
+  capacity_hint: number
+  settlement_status: "unsettled" | "settled" | "edited"
+}
 export type BuildingRoomsResponse = {
   scope: "super_admin" | "own_store"
   current_store_uuid: string
   current_manager_name: string | null
   stores: BuildingRoomsStoreBlock[]
+  closed_sessions_log: ClosedSessionLogEntry[]
 }
 export function useBuildingRooms() {
   return useApi<BuildingRoomsResponse>("/api/building/rooms", { ttl: 8_000 })

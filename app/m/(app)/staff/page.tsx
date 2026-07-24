@@ -3,7 +3,7 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
-import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomsStoreBlock } from "../../_hooks/useMobileData"
+import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
 /**
@@ -20,12 +20,15 @@ import { cn } from "../../_lib/cn"
  */
 
 type FilterKey = "all" | "live" | "empty" | "mine"
+type ClosedFilter = "all" | "unsettled" | "settled" | "edited"
 
 export default function ExternalDispatchPage() {
   const me = useMe()
   const { data, isLoading, error } = useBuildingRooms()
   const [filter, setFilter] = useState<FilterKey>("all")
   const [storeFilter, setStoreFilter] = useState<string | null>(null) // store_uuid | null(전체)
+  const [closedFilter, setClosedFilter] = useState<ClosedFilter>("all")
+  const [expandAllClosed, setExpandAllClosed] = useState(false)
 
   const stores = useMemo(() => data?.stores ?? [], [data?.stores])
   const totals = useMemo(() => {
@@ -115,6 +118,15 @@ export default function ExternalDispatchPage() {
             />
           ))}
         </div>
+
+        {/* ── 종료된 세션 로그 (프로토타입 하단) ── */}
+        <ClosedSessionsLog
+          entries={data?.closed_sessions_log ?? []}
+          filter={closedFilter}
+          onFilterChange={setClosedFilter}
+          expandAll={expandAllClosed}
+          onToggleExpandAll={() => setExpandAllClosed((v) => !v)}
+        />
       </main>
 
       <TabBar />
@@ -392,6 +404,178 @@ function SkeletonBlocks() {
       ))}
     </div>
   )
+}
+
+/* ─────────────── 종료 세션 로그 ─────────────── */
+
+function ClosedSessionsLog({
+  entries,
+  filter,
+  onFilterChange,
+  expandAll,
+  onToggleExpandAll,
+}: {
+  entries: ClosedSessionLogEntry[]
+  filter: ClosedFilter
+  onFilterChange: (f: ClosedFilter) => void
+  expandAll: boolean
+  onToggleExpandAll: () => void
+}) {
+  const counts = useMemo(() => {
+    let all = 0, unsettled = 0, settled = 0, edited = 0
+    for (const e of entries) {
+      all++
+      if (e.settlement_status === "unsettled") unsettled++
+      else if (e.settlement_status === "settled") settled++
+      else if (e.settlement_status === "edited") edited++
+    }
+    return { all, unsettled, settled, edited }
+  }, [entries])
+
+  const filtered = useMemo(() => {
+    if (filter === "all") return entries
+    return entries.filter((e) => e.settlement_status === filter)
+  }, [entries, filter])
+
+  if (entries.length === 0) return null
+
+  return (
+    <section className="mt-4 rounded-2xl border border-[#D8D2C8] bg-[#FDFCF9] p-2.5">
+      <header className="flex items-center justify-between px-1 pb-2">
+        <div className="text-[13px] font-extrabold text-[#2D2B26]">
+          종료된 세션 · 로그
+        </div>
+        <span className="text-[10px] font-bold text-[#7A746A]">
+          {counts.all}건 {counts.edited > 0 && `· 수정 ${counts.edited}건`}
+        </span>
+      </header>
+
+      {/* 상태 필터 chips */}
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1.5 px-0.5">
+        <ClosedStateChip label="전체" count={counts.all} active={filter === "all"} onClick={() => onFilterChange("all")} />
+        <ClosedStateChip label="미정산" count={counts.unsettled} dot="unsettled" active={filter === "unsettled"} onClick={() => onFilterChange("unsettled")} />
+        <ClosedStateChip label="정산완료" count={counts.settled} dot="settled" active={filter === "settled"} onClick={() => onFilterChange("settled")} />
+        <ClosedStateChip label="수정됨" count={counts.edited} dot="edited" active={filter === "edited"} onClick={() => onFilterChange("edited")} />
+      </div>
+
+      {/* 모두 펼치기/접기 */}
+      <div className="grid grid-cols-2 gap-1.5 mb-1.5 px-0.5">
+        <button
+          type="button"
+          onClick={onToggleExpandAll}
+          className={cn(
+            "rounded-lg border py-1.5 text-[11px] font-extrabold",
+            expandAll ? "bg-[#2D2B26] text-white border-[#2D2B26]" : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+          )}
+        >
+          ▼ 모두 펼치기
+        </button>
+        <button
+          type="button"
+          onClick={onToggleExpandAll}
+          className={cn(
+            "rounded-lg border py-1.5 text-[11px] font-extrabold",
+            !expandAll ? "bg-[#2D2B26] text-white border-[#2D2B26]" : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+          )}
+        >
+          ▲ 모두 접기
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {filtered.length === 0 && (
+          <div className="text-center text-[11px] font-bold text-[#7A746A] py-4">
+            해당 상태 없음
+          </div>
+        )}
+        {filtered.map((e) => (
+          <ClosedSessionRow key={e.session_id} entry={e} expanded={expandAll} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ClosedStateChip({
+  label,
+  count,
+  active,
+  dot,
+  onClick,
+}: {
+  label: string
+  count: number
+  active: boolean
+  dot?: "unsettled" | "settled" | "edited"
+  onClick: () => void
+}) {
+  const dotColor =
+    dot === "unsettled" ? "bg-[#D9A557]"
+      : dot === "settled" ? "bg-[#5FAB4E]"
+        : dot === "edited" ? "bg-[#DE8A3A]"
+          : ""
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full px-3 py-1 border text-[11px] font-extrabold inline-flex items-center gap-1.5",
+        active
+          ? "bg-[#2D2B26] text-white border-[#2D2B26]"
+          : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+      )}
+    >
+      {dotColor && <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />}
+      <span>{label}</span>
+      <span className={cn("text-[10px] font-black", active ? "opacity-90" : "text-[#7A746A]")}>{count}</span>
+    </button>
+  )
+}
+
+function ClosedSessionRow({ entry, expanded }: { entry: ClosedSessionLogEntry; expanded: boolean }) {
+  const endTime = fmtHm(entry.ended_at)
+  const stripeCls =
+    entry.settlement_status === "edited" ? "border-l-[#DE8A3A]"
+      : entry.settlement_status === "settled" ? "border-l-[#5FAB4E]"
+        : "border-l-[#D9A557]"
+  const badge =
+    entry.settlement_status === "edited"
+      ? { txt: "🖊 수정됨", cls: "bg-[#DE8A3A]/18 text-[#8A5325]" }
+      : entry.settlement_status === "settled"
+        ? { txt: "✓ 정산완료", cls: "bg-[#5FAB4E]/18 text-[#3E7A32]" }
+        : null
+  return (
+    <div className={cn("rounded-xl border-l-4 border border-[#D8D2C8] bg-white overflow-hidden", stripeCls)}>
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="text-[11px]">▶</span>
+        <span className="text-[13px] font-extrabold text-[#2D2B26]">
+          {entry.room_no}
+          <span className="text-[10px] font-bold text-[#7A746A] ml-0.5">번방</span>
+        </span>
+        <span className="text-[10px] font-bold text-[#7A746A]">종료 {endTime}</span>
+        {badge && (
+          <span className={cn("inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black", badge.cls)}>
+            {badge.txt}
+          </span>
+        )}
+        <span className="ml-auto text-[10px] font-black text-[#7A746A]">
+          {entry.participant_count}/{entry.capacity_hint}
+        </span>
+      </div>
+      {expanded && (
+        <div className="border-t border-[#EDE7DA] px-3 py-2 text-[10px] font-bold text-[#7A746A] flex flex-col gap-0.5">
+          <div>매장: {entry.store_name}</div>
+          {entry.manager_name && <div>실장: {entry.manager_name}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtHm(iso: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return "?"
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
 
 /* ─────────────── 유틸 ─────────────── */
