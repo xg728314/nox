@@ -52,6 +52,7 @@ type ParticipantRow = {
   external_name: string | null
   category: string | null
   time_minutes: number
+  entered_at: string | null
   status: string
   origin_store_uuid: string | null
   memo: string | null
@@ -123,6 +124,10 @@ export type BuildingRoomsResponse = {
         customer_party_size: number
         participants: Array<{
           participant_id: string
+          /** R-participant-actions (2026-07-24): 연장/종료 액션용 */
+          membership_id: string | null
+          time_minutes: number
+          entered_at: string | null
           name: string
           category: string | null
           category_letter: "P" | "H" | "S" | null
@@ -285,7 +290,7 @@ export async function GET(request: Request) {
         if (sessionIds.length > 0) {
           const { data: pData } = await sb
             .from("session_participants")
-            .select("id, session_id, membership_id, external_name, category, time_minutes, status, origin_store_uuid, memo")
+            .select("id, session_id, membership_id, external_name, category, time_minutes, entered_at, status, origin_store_uuid, memo")
             .in("session_id", sessionIds)
             .eq("status", "active")
             .is("deleted_at", null)
@@ -440,6 +445,9 @@ export async function GET(request: Request) {
                 : null
               return {
                 participant_id: p.id,
+                membership_id: p.membership_id,
+                time_minutes: p.time_minutes,
+                entered_at: p.entered_at,
                 name,
                 category: p.category,
                 category_letter: cletter,

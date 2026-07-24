@@ -131,6 +131,9 @@ export function useRooms() {
  *  응답 shape 는 서버 route (app/api/building/rooms/route.ts) BuildingRoomsResponse 와 일치. */
 export type BuildingRoomParticipant = {
   participant_id: string
+  membership_id: string | null
+  time_minutes: number
+  entered_at: string | null
   name: string
   category: string | null
   category_letter: "P" | "H" | "S" | null

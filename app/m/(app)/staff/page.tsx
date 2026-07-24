@@ -326,19 +326,7 @@ function LiveRoomCard({
             <div className="text-[10px] font-bold text-[#7A746A] py-1">참여자 없음</div>
           )}
           {s.participants.map((p) => (
-            <div
-              key={p.participant_id}
-              className="flex items-center gap-2 py-1 px-2 rounded-lg bg-[#F8F4ED]/60"
-            >
-              {p.is_external && (
-                <span className="text-[9px] font-black bg-[#DE3A7B] text-white rounded px-1.5 py-0.5 shrink-0">
-                  {p.origin_store_name || "외부"}
-                </span>
-              )}
-              <span className="text-[12px] font-bold text-[#2D2B26] flex-1 truncate">{p.name}</span>
-              <span className="text-[10px] font-bold text-[#7A746A]">{p.ticket}</span>
-              {p.category_letter && <CategoryPill letter={p.category_letter} />}
-            </div>
+            <ParticipantRow key={p.participant_id} participant={p} sessionId={s.session_id} />
           ))}
         </div>
       )}
@@ -368,6 +356,125 @@ function EmptyRoomCard({
           + 체크인
         </Link>
       </div>
+    </div>
+  )
+}
+
+/**
+ * R-participant-actions (2026-07-24): 사용중 방 참여자 row.
+ *   프로토타입 매칭: [매장뱃지] 이름 [티켓] [P/H/S pill] [⏱ 연장] [○ 종료]
+ *   본 매장 참여자 = [내] 뱃지 (accent), 외부 = [매장명] 뱃지 (pink)
+ */
+function ParticipantRow({
+  participant,
+  sessionId,
+}: {
+  participant: import("../../_hooks/useMobileData").BuildingRoomParticipant
+  sessionId: string
+}) {
+  const [busy, setBusy] = useState<"extend" | "leave" | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function extend() {
+    if (!participant.membership_id || !participant.category || busy) return
+    setBusy("extend")
+    setMsg(null)
+    try {
+      const res = await fetch("/api/sessions/participants", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          membership_id: participant.membership_id,
+          role: "hostess",
+          category: participant.category,
+          time_minutes: participant.time_minutes,
+          time_type: participant.ticket === "완메" ? "기본" : participant.ticket,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.message || `HTTP ${res.status}`)
+      }
+      setMsg("연장 완료")
+    } catch (e) {
+      setMsg(`실패: ${(e as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function leave() {
+    if (busy) return
+    setBusy("leave")
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/sessions/participants/${encodeURIComponent(participant.participant_id)}/leave`, {
+        method: "POST",
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        if (j.error === "ALREADY_LEFT") {
+          setMsg("이미 종료")
+        } else {
+          throw new Error(j.message || `HTTP ${res.status}`)
+        }
+      } else {
+        setMsg("종료 완료")
+      }
+    } catch (e) {
+      setMsg(`실패: ${(e as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 py-1 px-2 rounded-lg bg-[#F8F4ED]/60">
+      <span
+        className={cn(
+          "text-[9px] font-black rounded px-1.5 py-0.5 shrink-0",
+          participant.is_external
+            ? "bg-[#DE3A7B] text-white"
+            : "bg-[#2D2B26] text-white",
+        )}
+      >
+        {participant.is_external ? (participant.origin_store_name || "외부") : "내"}
+      </span>
+      <span className="text-[12px] font-bold text-[#2D2B26] flex-1 truncate">{participant.name}</span>
+      <span className="text-[10px] font-bold text-[#7A746A]">{participant.ticket}</span>
+      {participant.category_letter && <CategoryPill letter={participant.category_letter} />}
+      <button
+        type="button"
+        onClick={extend}
+        disabled={busy !== null || !participant.membership_id}
+        className={cn(
+          "shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-black inline-flex items-center gap-0.5",
+          "bg-[#5FAB4E]/12 text-[#3E7A32] border-[#5FAB4E]/30",
+          "disabled:opacity-40",
+        )}
+      >
+        {busy === "extend" ? "…" : "⏱ 연장"}
+      </button>
+      <button
+        type="button"
+        onClick={leave}
+        disabled={busy !== null}
+        className={cn(
+          "shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-black inline-flex items-center gap-0.5",
+          "bg-[#DE3A7B]/12 text-[#B22563] border-[#DE3A7B]/30",
+          "disabled:opacity-40",
+        )}
+      >
+        {busy === "leave" ? "…" : "○ 종료"}
+      </button>
+      {msg && (
+        <span className={cn("text-[9px] font-bold shrink-0", msg.startsWith("실패") ? "text-red-600" : "text-[#3E7A32]")}>
+          {msg}
+        </span>
+      )}
     </div>
   )
 }

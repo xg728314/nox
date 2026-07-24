@@ -676,7 +676,7 @@ function HostessDispatchRow({
           <span className={cn("ml-auto inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black shrink-0", statePill)}>
             {state === "live" ? "● 방중"
               : state === "done" ? "✓ 종료"
-                : state === "wait" ? "🕐 대기"
+                : state === "wait" ? (waitMin !== null ? `🕐 대기 ${waitMin}분` : "🕐 대기")
                   : "결근"}
           </span>
           {imminent && (
@@ -721,16 +721,7 @@ function HostessDispatchRow({
             )}
           </div>
         )}
-        {state === "wait" && (
-          <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-            🕐 {waitMin !== null ? `대기 ${waitMin}분` : "대기중"} · 배정 필요
-          </div>
-        )}
-        {state === "off" && (
-          <div className={cn("mt-1 pl-4 text-[11px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-            결근 · 미출근
-          </div>
-        )}
+        {/* wait / off — 한 줄 표시. 상태 pill 이 이미 우측에 표시되므로 2번째 줄 생략 */}
       </button>
 
       {/* ad-detail — chevron 클릭 시 오늘 세션 이력 */}
