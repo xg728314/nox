@@ -417,22 +417,23 @@ function EmptyRoomCard({
  *   R-store-palette (2026-07-24): 매장별 배지 색상 hash → 팔레트 매핑.
  *   같은 매장은 항상 같은 색 · 다른 매장은 시각적 구분 쉬움.
  */
-const STORE_COLOR_PALETTE = [
-  { bg: "bg-[#DE3A7B]", text: "text-white" },        // 0 pink
-  { bg: "bg-[#6B8AFD]", text: "text-white" },        // 1 blue
-  { bg: "bg-[#8B5CF6]", text: "text-white" },        // 2 purple
-  { bg: "bg-[#D97757]", text: "text-white" },        // 3 orange
-  { bg: "bg-[#059669]", text: "text-white" },        // 4 green
-  { bg: "bg-[#DC2626]", text: "text-white" },        // 5 red
-  { bg: "bg-[#0891B2]", text: "text-white" },        // 6 cyan
-  { bg: "bg-[#CA8A04]", text: "text-white" },        // 7 amber
-  { bg: "bg-[#EC4899]", text: "text-white" },        // 8 hot pink
-  { bg: "bg-[#3B82F6]", text: "text-white" },        // 9 sky
-  { bg: "bg-[#10B981]", text: "text-white" },        // 10 emerald
-  { bg: "bg-[#6D28D9]", text: "text-white" },        // 11 deep purple
+// R-store-color-inline (2026-07-24): Tailwind arbitrary class (bg-[#hex]) 가
+//   production build 에서 CSS 에 포함 안 되는 이슈 관측 → inline style 로 전환.
+//   safelist 하는 것보다 명시적이고 조회 안 필요.
+const STORE_COLOR_PALETTE: Array<{ bg: string; text: string }> = [
+  { bg: "#DE3A7B", text: "#ffffff" },   // 0 pink
+  { bg: "#6B8AFD", text: "#ffffff" },   // 1 blue
+  { bg: "#8B5CF6", text: "#ffffff" },   // 2 purple
+  { bg: "#D97757", text: "#ffffff" },   // 3 orange
+  { bg: "#059669", text: "#ffffff" },   // 4 green
+  { bg: "#DC2626", text: "#ffffff" },   // 5 red
+  { bg: "#0891B2", text: "#ffffff" },   // 6 cyan
+  { bg: "#CA8A04", text: "#ffffff" },   // 7 amber
+  { bg: "#EC4899", text: "#ffffff" },   // 8 hot pink
+  { bg: "#3B82F6", text: "#ffffff" },   // 9 sky
+  { bg: "#10B981", text: "#ffffff" },   // 10 emerald
+  { bg: "#6D28D9", text: "#ffffff" },   // 11 deep purple
 ]
-// R-store-color-explicit (2026-07-24): 알려진 매장 색상 고정 · hash collision 방지.
-//   사용자 요청: 마블·아우라 등 각 매장이 서로 다른 색.
 const STORE_COLOR_FIXED: Record<string, number> = {
   "마블": 0,     // pink
   "아우라": 2,   // purple
@@ -446,14 +447,13 @@ const STORE_COLOR_FIXED: Record<string, number> = {
   "버닝": 9,     // sky
   "두바이": 10,  // emerald
   "황진이": 11,  // deep purple
-  "썸": 8,       // fallback → hot pink
-  "퍼스트": 9,   // fallback → sky
+  "썸": 8,
+  "퍼스트": 9,
 }
-function storeColorFor(name: string | null | undefined) {
+function storeColorFor(name: string | null | undefined): { bg: string; text: string } {
   if (!name) return STORE_COLOR_PALETTE[0]
   const fixed = STORE_COLOR_FIXED[name.trim()]
   if (fixed !== undefined) return STORE_COLOR_PALETTE[fixed]
-  // 알려지지 않은 매장 — hash fallback
   let hash = 0
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
   return STORE_COLOR_PALETTE[hash % STORE_COLOR_PALETTE.length]
@@ -501,16 +501,13 @@ function ParticipantRow({
 
   const storeColor = participant.is_external
     ? storeColorFor(participant.origin_store_name)
-    : { bg: "bg-[#2D2B26]", text: "text-white" }
+    : { bg: "#2D2B26", text: "#ffffff" }
 
   return (
     <div className="flex items-center gap-1.5 py-1 px-2 rounded-lg bg-[#F8F4ED]/60">
       <span
-        className={cn(
-          "text-[9px] font-black rounded px-1.5 py-0.5 shrink-0",
-          storeColor.bg,
-          storeColor.text,
-        )}
+        className="text-[9px] font-black rounded px-1.5 py-0.5 shrink-0"
+        style={{ backgroundColor: storeColor.bg, color: storeColor.text }}
       >
         {participant.is_external ? (participant.origin_store_name || "외부") : "내"}
       </span>
