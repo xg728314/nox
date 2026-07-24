@@ -3,355 +3,415 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
-import { useHostesses, useAttendance } from "../../_hooks/useMobileData"
-import { invalidateApi } from "../../_hooks/useApi"
-import { initialOf } from "../../_lib/format"
+import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomsStoreBlock } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
-import { apiFetch } from "@/lib/apiFetch"
-import { useToast, haptic } from "../../_components/Toast"
 
-type FilterKey = "all" | "working" | "waiting" | "rest"
+/**
+ * 외부조판 — /m/staff (URL 유지 · 라벨만 "외부조판")
+ *
+ * R-external-dispatch (2026-07-24): 프로토타입 참고본 기반으로 완전 재구현.
+ *  - super_admin → 건물 전체 (5~8F) 매장 방 aggregate
+ *  - owner/manager → 자기 매장만
+ *  - 방 카드: live (참여자·실장 pill·종목 pill) / empty (+ 체크인 → /m/assign)
+ *  - 필터 chips: 전체 · 사용중 · 빈방 · 내방 · 매장별
+ *
+ *  이전 페이지 (아가씨 리스트 · 일하는중/대기/휴식 필터 · 일괄 출근)는
+ *  프로토타입에 대응 개념이 없어 삭제. 아가씨 관리는 조판 탭 (/m) 에서.
+ */
 
-export default function StaffListPage() {
-  const { data, isLoading, error } = useHostesses()
-  const attendance = useAttendance()
-  const toast = useToast()
+type FilterKey = "all" | "live" | "empty" | "mine"
+
+export default function ExternalDispatchPage() {
+  const me = useMe()
+  const { data, isLoading, error } = useBuildingRooms()
   const [filter, setFilter] = useState<FilterKey>("all")
-  const [q, setQ] = useState("")
-  const [toggleBusy, setToggleBusy] = useState<string | null>(null)
+  const [storeFilter, setStoreFilter] = useState<string | null>(null) // store_uuid | null(전체)
 
-  const all = data?.hostesses ?? []
-
-  // R-attendance-enum-fix (2026-06-28): DB status 는 available/in_room/
-  //   assigned/off_duty. off_duty 아니면 출근으로 인식.
-  const attendedSet = useMemo(() => {
-    const s = new Set<string>()
-    for (const a of attendance.data?.attendance ?? []) {
-      if (a.status !== "off_duty") s.add(a.membership_id)
-    }
-    return s
-  }, [attendance.data])
-
-  // R-attendance-bulk (2026-06-27): 진짜 출근자 수 — 일하는 중 + 출근 chip 켜진 식구.
-  //   이전엔 attendedSet.size 만 — 일하는중 1명 있어도 카운트 0 으로 표시되던 버그.
-  const trulyAttendedCount = useMemo(() => {
-    let n = 0
-    for (const h of all) {
-      if (h.is_working || attendedSet.has(h.membership_id)) n++
-    }
-    return n
-  }, [all, attendedSet])
-
-  // R-bulk-attend (2026-06-28): 일괄 출근 / 퇴근.
-  //   퇴근(checkout) 시 일하는중 식구도 포함 — session leave + attendance checkout 둘 다.
-  //   출근(checkin) 시 일하는중 식구는 자동 출근이라 skip (멱등).
-  //   '이미 출근' 에러는 silent (이미 출근이면 OK 로 처리, 사용자에게 노이즈 X).
-  async function bulkAttendance(action: "checkin" | "checkout") {
-    if (toggleBusy) return
-    setToggleBusy("bulk")
-    haptic([10, 30, 10])
-    try {
-      const targets = all.filter((h) => {
-        const isAttended = h.is_working || attendedSet.has(h.membership_id)
-        if (action === "checkin") {
-          if (h.is_working) return false  // 일하는중 — 이미 자동 출근 (skip)
-          return !isAttended  // 결근만 출근 처리
-        }
-        // checkout — 출근 상태(일하는중 포함) 모두 퇴근
-        return isAttended
-      })
-      if (targets.length === 0) {
-        toast(action === "checkin" ? "이미 전원 출근 상태" : "퇴근할 식구 없음", "info")
-        return
+  const stores = useMemo(() => data?.stores ?? [], [data?.stores])
+  const totals = useMemo(() => {
+    let rooms = 0, live = 0, empty = 0
+    for (const s of stores) {
+      for (const r of s.rooms) {
+        rooms++
+        if (r.session) live++
+        else empty++
       }
-      let ok = 0, fail = 0
-      for (const h of targets) {
-        try {
-          // 일하는중 식구 퇴근 시 session 도 함께 leave (working_participant_id 있을 때만)
-          if (action === "checkout" && h.is_working && h.working_participant_id) {
-            try {
-              await apiFetch(`/api/sessions/participants/${encodeURIComponent(h.working_participant_id)}/leave`, {
-                method: "POST",
-              })
-            } catch { /* best-effort — attendance 만이라도 처리 */ }
-          }
-          const res = await apiFetch("/api/attendance", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ membership_id: h.membership_id, action }),
-          })
-          if (res.ok) ok++
-          else {
-            // '이미 출근/퇴근' 류 에러는 success 로 간주 (멱등)
-            const j = await res.json().catch(() => ({}))
-            const msg = String(j?.message ?? "")
-            if (msg.includes("이미") || msg.includes("already")) ok++
-            else fail++
-          }
-        } catch { fail++ }
-      }
-      invalidateApi("/api/attendance")
-      invalidateApi("/api/manager/hostesses")
-      invalidateApi("/api/rooms")
-      toast(`${action === "checkin" ? "출근" : "퇴근"} ${ok}명 ${fail > 0 ? `(실패 ${fail})` : ""}`, "success")
-    } finally {
-      setToggleBusy(null)
     }
-  }
+    return { rooms, live, empty, stores: stores.length }
+  }, [stores])
 
-  // R-toggle-attend (2026-06-28): 일하는중 식구도 OFF 가능 — session leave + attendance checkout.
-  async function toggleAttendance(membershipId: string, isAttended: boolean, isWorking: boolean) {
-    if (toggleBusy) return
-    setToggleBusy(membershipId)
-    haptic([10, 20, 10])
-    try {
-      // 일하는중 식구 OFF 시 working_participant_id leave 먼저
-      if (isAttended && isWorking) {
-        const h = all.find((x) => x.membership_id === membershipId)
-        if (h?.working_participant_id) {
-          try {
-            await apiFetch(`/api/sessions/participants/${encodeURIComponent(h.working_participant_id)}/leave`, {
-              method: "POST",
-            })
-          } catch { /* best-effort */ }
-        }
-      }
-      const res = await apiFetch("/api/attendance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          membership_id: membershipId,
-          action: isAttended ? "checkout" : "checkin",
+  // 필터 적용 (store + state)
+  const filteredStores = useMemo<BuildingRoomsStoreBlock[]>(() => {
+    return stores
+      .filter((s) => !storeFilter || s.store_uuid === storeFilter)
+      .map((s) => ({
+        ...s,
+        rooms: s.rooms.filter((r) => {
+          if (filter === "live") return !!r.session
+          if (filter === "empty") return !r.session
+          if (filter === "mine") return r.session?.is_mine === true
+          return true
         }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        const msg = String(j?.message ?? "")
-        // '이미 출근/퇴근' 멱등 — silent
-        if (!(msg.includes("이미") || msg.includes("already"))) {
-          throw new Error(j?.message ?? `HTTP ${res.status}`)
-        }
-      }
-      invalidateApi("/api/attendance")
-      invalidateApi("/api/manager/hostesses")
-      invalidateApi("/api/rooms")
-    } catch (e) {
-      toast(`처리 실패: ${(e as Error).message}`, "error")
-    } finally {
-      setToggleBusy(null)
-    }
-  }
-
-  // 2026-06-12 R-phantom-immediate: 사전등록도 즉시 정식 식구가 됨 →
-  //   pre_registrations 별도 섹션 표시 불필요. all 에 다 포함됨.
-  // 2026-06-26 R-filter-fix: working/waiting 필터 실제 적용 — 이전엔 상태만 저장하고
-  //   필터링 안 했음. is_working 기준. (rest 는 데이터 모델 없음 — UI 만 표시).
-  // 2026-06-26 R-search-fix: 한글은 toLowerCase 무의미하지만 includes 는 작동. 다만
-  //   매장/종목 검색도 지원하도록 search field 확장 (placeholder 가 이미 "이름/매장/종목").
-  const counts = useMemo(() => {
-    let w = 0, wt = 0
-    for (const h of all) { if (h.is_working) w++; else wt++ }
-    return { all: all.length, working: w, waiting: wt, rest: 0 }
-  }, [all])
-  const filtered = useMemo(() => {
-    let list = all
-    if (filter === "working") list = list.filter((h) => h.is_working)
-    else if (filter === "waiting") list = list.filter((h) => !h.is_working)
-    // rest 는 미구현 — UI 만 표시
-    if (q.trim()) {
-      const needle = q.trim().toLowerCase()
-      list = list.filter((h) => {
-        const name = (h.hostess_name ?? "").toLowerCase()
-        const cat = (h.working_category ?? "").toLowerCase()
-        const store = (h.working_store_name ?? "").toLowerCase()
-        return name.includes(needle) || cat.includes(needle) || store.includes(needle)
-      })
-    }
-    return list
-  }, [all, q, filter])
+      }))
+      .filter((s) => s.rooms.length > 0 || filter === "all" || !storeFilter)
+  }, [stores, filter, storeFilter])
 
   return (
-    <div className="flex flex-col min-h-full">
+    <>
       <PageHeader
-        title="내 스태프"
+        title="외부조판"
         subtitle={
-          data?.role === "owner" || data?.role === "manager"
-            ? `${data?.role === "owner" ? "사장" : "실장"} · 출근 ${trulyAttendedCount}/${all.length}`
+          data
+            ? `${totals.stores}매장 · ${totals.rooms}방 · 사용중 ${totals.live} · 빈방 ${totals.empty}`
             : undefined
-        }
-        backHref="/m"
-        right={
-          <Link
-            href="/m/staff/new"
-            aria-label="새 스태프 등록"
-            className="w-9 h-9 rounded-full bg-[#2D2B26] text-white flex items-center justify-center no-underline text-[14px] font-bold"
-          >
-            +
-          </Link>
         }
       />
 
-      {/* 검색 + 필터 */}
-      <div className="px-5 py-3 flex flex-col gap-2">
-        <input
-          type="text"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="이름 검색"
-          className="w-full bg-white border border-[#D8D2C8] rounded-xl px-4 py-2.5 text-[13px] font-semibold outline-none focus:border-[#C49B61]"
-        />
-        {/* 일괄 출근 / 결근 버튼 */}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={toggleBusy === "bulk"}
-            onClick={() => bulkAttendance("checkin")}
-            className="flex-1 rounded-xl py-2 text-[12px] font-extrabold border-2 bg-white border-green-300 text-green-700 active:bg-green-50 disabled:opacity-40"
-          >
-            {toggleBusy === "bulk" ? "..." : "● 전체 출근"}
-          </button>
-          <button
-            type="button"
-            disabled={toggleBusy === "bulk"}
-            onClick={() => bulkAttendance("checkout")}
-            className="flex-1 rounded-xl py-2 text-[12px] font-extrabold border-2 bg-white border-[#D8D2C8] text-[#7A746A] active:bg-[#FAF5EC] disabled:opacity-40"
-          >
-            ○ 전체 퇴근
-          </button>
+      <main className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+        {/* ── 상태 필터 chips ── */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <StateChip label="전체" count={totals.rooms} active={filter === "all"} onClick={() => setFilter("all")} />
+          <StateChip label="사용중" count={totals.live} dot="live" active={filter === "live"} onClick={() => setFilter("live")} />
+          <StateChip label="빈방" count={totals.empty} active={filter === "empty"} onClick={() => setFilter("empty")} />
+          <StateChip label="내방" count={countMine(stores)} dot="mine" active={filter === "mine"} onClick={() => setFilter("mine")} />
         </div>
-        <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
-          {(
-            [
-              { k: "all", lbl: "전체", n: counts.all },
-              { k: "working", lbl: "일하는 중", n: counts.working },
-              { k: "waiting", lbl: "대기", n: counts.waiting },
-            ] as const
-          ).map((c) => (
-            <button
-              key={c.k}
-              type="button"
-              onClick={() => setFilter(c.k)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-extrabold border transition-colors",
-                filter === c.k ? "bg-[#2D2B26] text-white border-[#2D2B26]" : "bg-white text-[#7A746A] border-[#D8D2C8]",
-              )}
-            >
-              {c.lbl} <span className="opacity-70">{c.n}</span>
-            </button>
+
+        {/* ── 매장 필터 chips ── */}
+        {stores.length > 1 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1.5 pb-1">
+            <StoreChip label="전체 매장" active={storeFilter === null} onClick={() => setStoreFilter(null)} />
+            {stores.map((s) => (
+              <StoreChip
+                key={s.store_uuid}
+                label={`${s.floor != null ? `${s.floor}F ` : ""}${s.store_name}`}
+                count={s.rooms.length}
+                active={storeFilter === s.store_uuid}
+                onClick={() => setStoreFilter((cur) => (cur === s.store_uuid ? null : s.store_uuid))}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── 상태 ── */}
+        {isLoading && <SkeletonBlocks />}
+        {error && (
+          <div className="text-center text-[#B85450] text-[13px] font-bold py-8">
+            불러오기 실패. 잠시 후 다시 시도.
+          </div>
+        )}
+        {!isLoading && !error && filteredStores.length === 0 && (
+          <div className="text-center text-[#7A746A] text-[13px] font-bold py-8">
+            표시할 방이 없습니다.
+          </div>
+        )}
+
+        {/* ── 매장별 방 블록 ── */}
+        <div className="flex flex-col gap-3 pt-2">
+          {filteredStores.map((store) => (
+            <StoreBlock
+              key={store.store_uuid}
+              store={store}
+              currentMembershipId={me.data?.membership_id ?? null}
+            />
           ))}
         </div>
-      </div>
-
-      {/* 리스트 */}
-      <div className="px-5 pb-24">
-        {isLoading && <SkelList />}
-        {error && <Err msg="식구 목록을 불러올 수 없습니다" />}
-        {!isLoading && !error && filtered.length === 0 && (
-          <div className="text-center text-[12px] text-[#7A746A] font-semibold py-10">
-            {q ? "검색 결과 없음" : "등록된 식구가 없습니다"}
-          </div>
-        )}
-        {filtered.length > 0 && (
-          <div className="bg-white rounded-2xl overflow-hidden border border-[#D8D2C8]/60">
-            {filtered.map((h, i) => {
-              const isWorking = !!h.is_working
-              const isAttended = isWorking || attendedSet.has(h.membership_id)
-              const busy = toggleBusy === h.membership_id
-              return (
-                <div
-                  key={h.membership_id}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-3",
-                    i > 0 && "border-t border-[#D8D2C8]/40",
-                    !isAttended && "bg-[#FAFAF7]",
-                    isAttended && !isWorking && "bg-green-50/40",
-                  )}
-                >
-                  {/* R-row-tap-toggle (2026-06-27): row 좌측 영역 클릭 = 출근 토글.
-                      이전에 chip 영역만 클릭 가능해서 사용자가 못 알아봄 (POST 0건).
-                      이젠 row 의 아바타+이름 영역도 누르면 토글. */}
-                  <button
-                    type="button"
-                    disabled={busy || isWorking}
-                    onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
-                    className="flex items-center gap-3 flex-1 min-w-0 text-left active:opacity-60 transition-opacity disabled:cursor-default"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#EFEBE3] to-[#DDD5C5] flex items-center justify-center text-[16px] font-extrabold text-[#A87D45] shrink-0">
-                      {initialOf(h.hostess_name)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-extrabold tracking-tight truncate">{h.hostess_name}</div>
-                      <div className="text-[10px] font-semibold text-[#7A746A] truncate">
-                        {isWorking
-                          ? `🟢 일하는 중 · ${h.working_store_name ?? ""} ${h.working_category ?? ""}`
-                          : `${h.status === "approved" ? "승인됨" : h.status} · ${h.role}`}
-                      </div>
-                    </div>
-                  </button>
-                  {/* 상세 페이지 이동 (별도 작은 링크) */}
-                  <Link
-                    href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
-                    aria-label="상세"
-                    className="shrink-0 px-2 py-2 rounded-lg text-[#A87D45] no-underline text-[14px] active:bg-[#FAF5EC]"
-                  >
-                    ›
-                  </Link>
-                  {/* R-attendance-switch (2026-06-28): iOS 스타일 ON/OFF 토글 스위치.
-                      사용자 요구: '이름 옆에 출근 ON/OFF 기능'. 이전 chip 은 인식 어려움. */}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => toggleAttendance(h.membership_id, isAttended, isWorking)}
-                    aria-label={isAttended ? "출근 ON — 클릭하여 OFF" : "출근 OFF — 클릭하여 ON"}
-                    className={cn(
-                      "shrink-0 flex items-center gap-2 transition-all disabled:opacity-60",
-                    )}
-                  >
-                    <span className={cn(
-                      "text-[11px] font-extrabold transition-colors",
-                      isAttended ? "text-green-700" : "text-[#7A746A]",
-                    )}>
-                      {busy ? "..." : isWorking ? "일하는중" : isAttended ? "ON" : "OFF"}
-                    </span>
-                    {/* 스위치 트랙 */}
-                    <span className={cn(
-                      "relative inline-block w-[44px] h-[26px] rounded-full transition-colors border-2",
-                      isWorking
-                        ? "bg-green-200 border-green-400"
-                        : isAttended
-                          ? "bg-green-500 border-green-600"
-                          : "bg-[#E5E0D6] border-[#D8D2C8]",
-                    )}>
-                      {/* 스위치 노브 */}
-                      <span
-                        className={cn(
-                          "absolute top-[1px] w-[18px] h-[18px] rounded-full bg-white shadow-md transition-all duration-200",
-                        )}
-                        style={{ left: isAttended ? "20px" : "2px" }}
-                      />
-                    </span>
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      </main>
 
       <TabBar />
+    </>
+  )
+}
+
+/* ─────────────── 하위 컴포넌트 ─────────────── */
+
+function StateChip({
+  label,
+  count,
+  active,
+  dot,
+  onClick,
+}: {
+  label: string
+  count: number
+  active: boolean
+  dot?: "live" | "mine"
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full px-3 py-1.5 border text-[11px] font-extrabold tracking-tight inline-flex items-center gap-1.5",
+        active
+          ? "bg-[#2D2B26] text-white border-[#2D2B26]"
+          : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+      )}
+    >
+      {dot === "live" && <span className="w-1.5 h-1.5 rounded-full bg-[#5FAB4E] shrink-0" />}
+      {dot === "mine" && <span className="w-1.5 h-1.5 rounded-full bg-[#C49B61] shrink-0" />}
+      <span>{label}</span>
+      <span className={cn("text-[10px] font-black", active ? "opacity-90" : "text-[#7A746A]")}>{count}</span>
+    </button>
+  )
+}
+
+function StoreChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string
+  count?: number
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full px-3 py-1.5 border text-[11px] font-extrabold tracking-tight",
+        active
+          ? "bg-[#C49B61] text-white border-[#C49B61]"
+          : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+      )}
+    >
+      {label}
+      {typeof count === "number" && (
+        <span className={cn("ml-1.5 text-[10px] font-black", active ? "opacity-90" : "text-[#7A746A]")}>{count}</span>
+      )}
+    </button>
+  )
+}
+
+function StoreBlock({
+  store,
+  currentMembershipId,
+}: {
+  store: BuildingRoomsStoreBlock
+  currentMembershipId: string | null
+}) {
+  const live = store.rooms.filter((r) => r.session).length
+  const empty = store.rooms.length - live
+  return (
+    <section className="rounded-2xl border border-[#D8D2C8] bg-[#FDFCF9] p-2.5">
+      <header className="flex items-center justify-between px-1 pb-2">
+        <div className="inline-flex items-center gap-2">
+          <span className="bg-[#C49B61] text-white text-[10px] font-black rounded-md px-2 py-0.5">
+            {store.floor != null ? `${store.store_name} · ${store.floor}F` : store.store_name}
+          </span>
+        </div>
+        <span className="text-[10px] font-bold text-[#7A746A]">
+          {store.rooms.length}방 · 사용중 {live} · 빈방 {empty}
+        </span>
+      </header>
+
+      <div className="flex flex-col gap-1.5">
+        {store.rooms.map((r) => (
+          <RoomCard
+            key={r.room_uuid}
+            room={r}
+            storeUuid={store.store_uuid}
+            currentMembershipId={currentMembershipId}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function RoomCard({
+  room,
+  storeUuid,
+  currentMembershipId,
+}: {
+  room: BuildingRoom
+  storeUuid: string
+  currentMembershipId: string | null
+}) {
+  if (room.session) {
+    return <LiveRoomCard room={room} currentMembershipId={currentMembershipId} />
+  }
+  return <EmptyRoomCard room={room} storeUuid={storeUuid} />
+}
+
+function LiveRoomCard({
+  room,
+  currentMembershipId,
+}: {
+  room: BuildingRoom
+  currentMembershipId: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const s = room.session!
+  const isMine =
+    (currentMembershipId != null && s.manager_membership_id === currentMembershipId) || s.is_mine
+
+  const elapsedMin = elapsedMinutesSince(s.started_at)
+  return (
+    <div
+      className={cn(
+        "rounded-xl border-l-4 border border-[#D8D2C8] bg-white overflow-hidden",
+        isMine ? "border-l-[#C49B61] bg-[#FBF6EC]" : "border-l-[#5FAB4E]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className={cn("text-[11px] transition-transform", open ? "rotate-90" : "")}>▶</span>
+        <span className="text-[13px] font-extrabold text-[#2D2B26]">
+          {room.room_no}
+          <span className="text-[10px] font-bold text-[#7A746A] ml-0.5">번방</span>
+        </span>
+
+        {/* 종목 pills */}
+        {s.categories.length > 0 && (
+          <span className="inline-flex items-center gap-0.5 ml-1">
+            {s.categories.map((c) => (
+              <CategoryPill key={c} letter={c} />
+            ))}
+          </span>
+        )}
+
+        {/* 진행 시간 */}
+        <span className="inline-flex items-center gap-1 ml-1 bg-[#5FAB4E]/12 text-[#468838] rounded-md px-1.5 py-0.5 text-[10px] font-black">
+          진행 {formatElapsed(elapsedMin)}
+        </span>
+
+        {/* 실장 pill */}
+        {(s.manager_name || isMine) && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 ml-auto rounded-md px-1.5 py-0.5 text-[10px] font-black border",
+              isMine
+                ? "bg-[#C49B61]/16 text-[#8C6A3A] border-[#C49B61]/40"
+                : "bg-[#DE3A7B]/10 text-[#B22563] border-[#DE3A7B]/30",
+            )}
+          >
+            {isMine ? "✓" : "실"} {s.manager_name || "?"}
+          </span>
+        )}
+
+        {/* 인원 카운트 */}
+        <span className="text-[10px] font-black text-[#7A746A] ml-1 shrink-0">
+          {s.participant_count}/{Math.max(s.participant_count, 3)}
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-[#EDE7DA] px-3 py-2 flex flex-col gap-1.5">
+          {s.customer_name && (
+            <div className="text-[10px] font-bold text-[#7A746A]">
+              손님: {s.customer_name}
+              {s.customer_party_size > 0 && ` · ${s.customer_party_size}명`}
+            </div>
+          )}
+          {s.participants.length === 0 && (
+            <div className="text-[10px] font-bold text-[#7A746A] py-1">참여자 없음</div>
+          )}
+          {s.participants.map((p) => (
+            <div
+              key={p.participant_id}
+              className="flex items-center gap-2 py-1 px-2 rounded-lg bg-[#F8F4ED]/60"
+            >
+              {p.is_external && (
+                <span className="text-[9px] font-black bg-[#DE3A7B] text-white rounded px-1.5 py-0.5 shrink-0">
+                  {p.origin_store_name || "외부"}
+                </span>
+              )}
+              <span className="text-[12px] font-bold text-[#2D2B26] flex-1 truncate">{p.name}</span>
+              <span className="text-[10px] font-bold text-[#7A746A]">{p.ticket}</span>
+              {p.category_letter && <CategoryPill letter={p.category_letter} />}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function SkelList() {
+function EmptyRoomCard({
+  room,
+  storeUuid,
+}: {
+  room: BuildingRoom
+  storeUuid: string
+}) {
   return (
-    <div className="space-y-1.5">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-16 rounded-xl bg-[#EFEBE3] animate-pulse" />
+    <div className="rounded-xl border border-dashed border-[#D8D2C8] bg-white/70 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="text-[13px] font-extrabold text-[#7A746A]">
+          {room.room_no}
+          <span className="text-[10px] font-bold text-[#B0A99B] ml-0.5">번방</span>
+        </span>
+        <span className="text-[10px] font-bold text-[#B0A99B]">빈방</span>
+        <Link
+          href={`/m/assign?destStore=${encodeURIComponent(storeUuid)}&room=${encodeURIComponent(room.room_uuid)}`}
+          className="ml-auto rounded-full bg-[#2D2B26] text-white text-[10px] font-black tracking-tight px-3 py-1 no-underline"
+        >
+          + 체크인
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function CategoryPill({ letter }: { letter: "P" | "H" | "S" }) {
+  const cls =
+    letter === "P"
+      ? "bg-[#6B8AFD]/18 text-[#3E5EDB]"
+      : letter === "H"
+        ? "bg-[#D97757]/18 text-[#A94B2A]"
+        : "bg-[#D9A557]/22 text-[#8C6A2A]"
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded text-[9px] font-black tracking-tight",
+        cls,
+      )}
+    >
+      {letter}
+    </span>
+  )
+}
+
+function SkeletonBlocks() {
+  return (
+    <div className="flex flex-col gap-3 pt-3">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="rounded-2xl border border-[#D8D2C8] bg-[#FDFCF9] p-3">
+          <div className="h-4 w-32 bg-[#EDE7DA] rounded mb-3 animate-pulse" />
+          {[0, 1, 2].map((j) => (
+            <div key={j} className="h-9 bg-[#F3EEE3] rounded-xl mb-1.5 animate-pulse" />
+          ))}
+        </div>
       ))}
     </div>
   )
 }
-function Err({ msg }: { msg: string }) {
-  return <div className="text-center text-red-600 text-[12px] font-semibold py-6">{msg}</div>
+
+/* ─────────────── 유틸 ─────────────── */
+
+function elapsedMinutesSince(iso: string): number {
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return 0
+  const diffMs = Date.now() - t
+  return Math.max(0, Math.round(diffMs / 60000))
+}
+
+function formatElapsed(min: number): string {
+  if (min < 60) return `${min}분`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m === 0 ? `${h}시간` : `${h}시간 ${m}분`
+}
+
+function countMine(stores: BuildingRoomsStoreBlock[]): number {
+  let n = 0
+  for (const s of stores) for (const r of s.rooms) if (r.session?.is_mine) n++
+  return n
 }

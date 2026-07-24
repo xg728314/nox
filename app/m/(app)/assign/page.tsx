@@ -37,17 +37,21 @@ export default function AssignSessionPage() {
   const types = useServiceTypes()
 
   const initialStaff = search?.get("staff") ?? ""
+  // R-external-dispatch (2026-07-24): 외부조판 (/m/staff) 에서 "+ 체크인" 클릭 시
+  //   해당 방·매장 pre-select 하도록 destStore + room query param 지원.
+  const initialDestStore = search?.get("destStore") ?? ""
+  const initialRoom = search?.get("room") ?? ""
   const [scope, setScope] = useState<"mine" | "all">("mine")
   const [q, setQ] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set(initialStaff ? [initialStaff] : []))
-  const [destStoreUuid, setDestStoreUuid] = useState<string>("")
-  const [roomUuid, setRoomUuid] = useState<string>("")
+  const [destStoreUuid, setDestStoreUuid] = useState<string>(initialDestStore)
+  const [roomUuid, setRoomUuid] = useState<string>(initialRoom)
   const [cat, setCat] = useState<CatKey | null>(null)
   const [time, setTime] = useState<TimeKey | null>(null)
   const [offsetMin, setOffsetMin] = useState<number>(0)
   const [submitting, setSubmitting] = useState(false)
 
-  // 본인 매장 기본값
+  // 본인 매장 기본값 — query param 이 있으면 그것 우선, 없으면 본인 매장.
   useEffect(() => {
     if (me.data?.store_uuid && !destStoreUuid) {
       setDestStoreUuid(me.data.store_uuid)

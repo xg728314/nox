@@ -109,6 +109,55 @@ export function useRooms() {
   return useApi<{ store_uuid: string; rooms: RoomWithSession[] }>("/api/rooms", { ttl: 10_000 })
 }
 
+/** R-external-dispatch (2026-07-24): 외부조판 탭 — 건물 전체 방 aggregate.
+ *  super_admin 은 5~8층 전체, 그 외는 자기 매장만.
+ *  응답 shape 는 서버 route (app/api/building/rooms/route.ts) BuildingRoomsResponse 와 일치. */
+export type BuildingRoomParticipant = {
+  participant_id: string
+  name: string
+  category: string | null
+  category_letter: "P" | "H" | "S" | null
+  ticket: string
+  is_external: boolean
+  origin_store_uuid: string | null
+  origin_store_name: string | null
+}
+export type BuildingRoomSession = {
+  session_id: string
+  started_at: string
+  manager_name: string | null
+  manager_membership_id: string | null
+  is_mine: boolean
+  customer_name: string | null
+  customer_party_size: number
+  participants: BuildingRoomParticipant[]
+  categories: Array<"P" | "H" | "S">
+  participant_count: number
+}
+export type BuildingRoom = {
+  room_uuid: string
+  room_no: string
+  room_name: string
+  floor_no: number | null
+  is_active: boolean
+  session: BuildingRoomSession | null
+}
+export type BuildingRoomsStoreBlock = {
+  store_uuid: string
+  store_name: string
+  floor: number | null
+  rooms: BuildingRoom[]
+}
+export type BuildingRoomsResponse = {
+  scope: "super_admin" | "own_store"
+  current_store_uuid: string
+  current_manager_name: string | null
+  stores: BuildingRoomsStoreBlock[]
+}
+export function useBuildingRooms() {
+  return useApi<BuildingRoomsResponse>("/api/building/rooms", { ttl: 8_000 })
+}
+
 /** 종목 단가 */
 export type ServiceType = {
   service_type: string

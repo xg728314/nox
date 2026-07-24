@@ -4,8 +4,8 @@ import { usePathname } from "next/navigation"
 import { cn } from "../_lib/cn"
 
 const TABS = [
-  { href: "/m", label: "홈", icon: "🏠", match: (p: string) => p === "/m" },
-  { href: "/m/staff", label: "스태프", icon: "👥", match: (p: string) => p.startsWith("/m/staff") || p.startsWith("/m/attendance") },
+  { href: "/m", label: "조판", icon: "🏠", match: (p: string) => p === "/m" },
+  { href: "/m/staff", label: "외부조판", icon: "🏢", match: (p: string) => p.startsWith("/m/staff") || p.startsWith("/m/attendance") },
   { href: "/m/chat", label: "채팅", icon: "💬", match: (p: string) => p.startsWith("/m/chat") },
   { href: "/m/settle", label: "정산", icon: "📊", match: (p: string) => p.startsWith("/m/settle") },
   { href: "/m/me", label: "전체메뉴", icon: "☰", match: (p: string) => p.startsWith("/m/me") || p.startsWith("/m/store") },
