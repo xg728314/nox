@@ -68,12 +68,12 @@ export function ExtendEndSheet({
     return m
   }, [types.data, category])
 
-  async function extend(timeType: TimeKey) {
+  async function extendWithMinutes(timeMinutes: number, timeType?: TimeKey) {
     if (!category || submitting) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
-      const info = priceMap.get(timeType)
+      const info = timeType ? priceMap.get(timeType) : undefined
       const res = await apiFetch("/api/sessions/participants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,7 +82,7 @@ export function ExtendEndSheet({
           membership_id: membershipId,
           role: "hostess",
           category,
-          time_minutes: info?.time_minutes ?? null,
+          time_minutes: timeMinutes,
           time_type: timeType,
           manager_deduction: info?.manager_deduction ?? 0,
           greeting_confirmed: category === "셔츠" ? true : undefined,
@@ -104,7 +104,7 @@ export function ExtendEndSheet({
         }
         throw new Error(j?.message ?? `HTTP ${res.status}`)
       }
-      toast(`${hostessName} 연장 ${timeType}`, "success")
+      toast(`${hostessName} 연장 ${timeType ?? `${timeMinutes}분`}`, "success")
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/hostesses")
       invalidateApi("/api/manager/incoming-staff")
@@ -116,6 +116,19 @@ export function ExtendEndSheet({
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // preset 연장 (기본/반티/차3) — 기존 코드 호환.
+  async function extend(timeType: TimeKey) {
+    const info = priceMap.get(timeType)
+    if (!info) return
+    await extendWithMinutes(info.time_minutes, timeType)
+  }
+
+  // 직접 분 입력 연장 (custom)
+  async function extendCustom(minutes: number) {
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 240) return
+    await extendWithMinutes(minutes)
   }
 
   /**
@@ -214,36 +227,13 @@ export function ExtendEndSheet({
         </button>
       }
     >
-      {/* 연장 섹션 */}
-      <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider mb-2 mt-1">
-        ⏱ 연장
-      </div>
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {(["기본", "반티", "차3"] as TimeKey[]).map((t) => {
-          const info = priceMap.get(t)
-          const label = t === "기본" ? "완티" : t === "반티" ? "반티" : "차3"
-          return (
-            <button
-              key={t}
-              type="button"
-              disabled={submitting || !info}
-              onClick={() => extend(t)}
-              className={cn(
-                "rounded-2xl px-2 py-3 flex flex-col items-center gap-1 border-2 active:scale-95 transition-transform shadow-sm",
-                info ? "bg-white border-[#D8D2C8]" : "bg-[#F0EDE7] border-[#D8D2C8] opacity-60 cursor-not-allowed",
-              )}
-            >
-              <div className="w-10 h-10 rounded-full bg-[#C49B61]/15 text-[#A87D45] flex items-center justify-center text-[14px] font-extrabold">
-                {label === "완티" ? "완" : label === "반티" ? "반" : "차"}
-              </div>
-              <div className="text-[12px] font-extrabold text-[#2D2B26]">{label}</div>
-              <div className="text-[10px] font-bold text-[#A87D45]">
-                {info ? `${info.time_minutes}분 · ${(info.price / 10000).toFixed(0)}만` : "단가 없음"}
-              </div>
-            </button>
-          )
-        })}
-      </div>
+      {/* 연장 · 딜레이 조정 (프로토타입 매칭 · informational preview) */}
+      <ExtendControls
+        priceMap={priceMap}
+        submitting={submitting}
+        onExtend={extend}
+        onExtendCustom={extendCustom}
+      />
 
       {/* 종료 섹션 */}
       <div className="text-[10px] font-extrabold text-red-700 uppercase tracking-wider mb-2">
@@ -266,6 +256,122 @@ export function ExtendEndSheet({
       </button>
     </Sheet>
   )
+}
+
+/**
+ * 연장 컨트롤 — 프로토타입 매칭:
+ *   1. 연장 시작 시각 (지금 기준 ± 딜레이 조정) — informational preview
+ *   2. 종료 예정 시각 preview (선택한 카드/커스텀 분 기준 · 딜레이 반영)
+ *   3. 3 카드: 완티 (60분) · 반티 (30분) · 차3 (15분)
+ *   4. 직접 분 입력 + [추가] 버튼
+ *
+ * 딜레이는 UI preview 만 — 실제 서버는 지금 시각으로 참여자 등록 (backdated
+ * entered_at 은 서버 미지원). 실제 정산 영향은 없음.
+ */
+function ExtendControls({
+  priceMap,
+  submitting,
+  onExtend,
+  onExtendCustom,
+}: {
+  priceMap: Map<TimeKey, { time_minutes: number; price: number; manager_deduction: number }>
+  submitting: boolean
+  onExtend: (t: TimeKey) => void | Promise<void>
+  onExtendCustom: (m: number) => void | Promise<void>
+}) {
+  const [delayMin, setDelayMin] = useState(0)
+  const [customMin, setCustomMin] = useState<string>("45")
+  const [hoveredMin, setHoveredMin] = useState<number | null>(null)
+
+  const startMs = Date.now() + delayMin * 60_000
+  const startHm = fmtHM(new Date(startMs))
+  const previewMin = hoveredMin ?? (Number(customMin) || 0)
+  const endMs = startMs + previewMin * 60_000
+  const endHm = previewMin > 0 ? fmtHM(new Date(endMs)) : "?"
+
+  return (
+    <div className="mb-4">
+      <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider mb-2 mt-1">
+        ⏱ 연장
+      </div>
+
+      {/* 딜레이 조정 (informational preview) */}
+      <div className="bg-[#FAF5EC] border border-[#D8D2C8] rounded-2xl p-3 mb-3">
+        <div className="text-[10px] font-bold text-[#7A746A] mb-1.5">
+          연장 시작 시각 <span className="text-[#A87D45]">(딜레이 조정 · 지금 기준 ±)</span>
+        </div>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <button type="button" onClick={() => setDelayMin((v) => v - 5)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">-5</button>
+          <button type="button" onClick={() => setDelayMin((v) => v - 1)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">-1</button>
+          <div className="flex-1 text-center bg-white border border-[#D8D2C8] rounded-lg py-2 text-[14px] font-extrabold text-[#2D2B26] font-mono">
+            {startHm}
+          </div>
+          <button type="button" onClick={() => setDelayMin((v) => v + 1)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">+1</button>
+          <button type="button" onClick={() => setDelayMin((v) => v + 5)} className="w-9 h-9 rounded-lg bg-white border border-[#D8D2C8] text-[13px] font-extrabold text-[#2D2B26]">+5</button>
+        </div>
+        <div className="text-center bg-[#5FAB4E]/12 text-[#3E7A32] rounded-lg py-1.5 text-[11px] font-extrabold">
+          종료 예정 <span className="font-mono">{endHm}</span>
+          {previewMin > 0 && <span className="text-[#7A746A] font-bold ml-1">({previewMin}분 연장)</span>}
+        </div>
+      </div>
+
+      {/* 3 카드 */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {(["기본", "반티", "차3"] as TimeKey[]).map((t) => {
+          const info = priceMap.get(t)
+          const label = t === "기본" ? "완티" : t === "반티" ? "반티" : "차3"
+          return (
+            <button
+              key={t}
+              type="button"
+              disabled={submitting || !info}
+              onClick={() => info && onExtend(t)}
+              onMouseEnter={() => info && setHoveredMin(info.time_minutes)}
+              onMouseLeave={() => setHoveredMin(null)}
+              className={cn(
+                "rounded-2xl px-2 py-3 flex flex-col items-center gap-1 border-2 active:scale-95 transition-transform shadow-sm",
+                info ? "bg-white border-[#D8D2C8]" : "bg-[#F0EDE7] border-[#D8D2C8] opacity-60 cursor-not-allowed",
+              )}
+            >
+              <div className="w-10 h-10 rounded-full bg-[#C49B61]/15 text-[#A87D45] flex items-center justify-center text-[14px] font-extrabold">
+                {label === "완티" ? "완" : label === "반티" ? "반" : "차"}
+              </div>
+              <div className="text-[12px] font-extrabold text-[#2D2B26]">{label}</div>
+              <div className="text-[10px] font-bold text-[#A87D45]">
+                {info ? `${info.time_minutes}분 · ${(info.price / 10000).toFixed(0)}만` : "단가 없음"}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 직접 분 입력 */}
+      <div className="flex items-center gap-2 bg-white border border-[#D8D2C8] rounded-2xl p-2">
+        <span className="text-[11px] font-bold text-[#7A746A] pl-1 shrink-0">직접</span>
+        <input
+          type="number"
+          value={customMin}
+          onChange={(e) => setCustomMin(e.target.value)}
+          min="1"
+          max="240"
+          className="flex-1 min-w-0 bg-transparent text-[14px] font-extrabold text-right text-[#2D2B26] outline-none border-b border-[#D8D2C8] px-1"
+        />
+        <span className="text-[11px] font-bold text-[#7A746A]">분</span>
+        <button
+          type="button"
+          disabled={submitting || !Number(customMin) || Number(customMin) < 1}
+          onClick={() => onExtendCustom(Number(customMin))}
+          className="rounded-xl bg-[#2D2B26] text-white text-[12px] font-extrabold px-4 py-2 disabled:opacity-40"
+        >
+          추가
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function fmtHM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
 
 function elapsedMinutes(startedAt?: string | null): number | null {

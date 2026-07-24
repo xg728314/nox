@@ -93,29 +93,17 @@ export default function AttendancePage() {
                           : "미출근"}
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  {(["present", "on_break", "absent"] as Status[]).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      disabled={isPending}
-                      onClick={() => setStatus(h.membership_id, s)}
-                      className={cn(
-                        "px-2 py-1.5 rounded-lg text-[10px] font-extrabold transition-colors",
-                        cur?.status === uiToDb(s)
-                          ? s === "present"
-                            ? "bg-green-500 text-white"
-                            : s === "on_break"
-                              ? "bg-amber-500 text-white"
-                              : "bg-[#7A746A] text-white"
-                          : "bg-[#EFEBE3] text-[#7A746A]",
-                        isPending && "opacity-40",
-                      )}
-                    >
-                      {s === "present" ? "출근" : s === "on_break" ? "휴식" : "결근"}
-                    </button>
-                  ))}
-                </div>
+                {/* R-attendance-toggle (2026-07-24): 출근 on/off 스위치.
+                    사용자 요청: "출근 on,off 스위치 기능만 넣어주고".
+                    ON = checkin (available), OFF = checkout (off_duty).
+                    휴식 상태는 제거 (사용 안 함 · 서버도 미지원). */}
+                <AttendanceSwitch
+                  on={cur ? cur.status !== "off_duty" : false}
+                  disabled={isPending}
+                  onToggle={(next) => setStatus(h.membership_id, next ? "present" : "absent")}
+                />
+                {/* uiToDb 는 setStatus 내부에서만 사용 · 리액트 warning 회피 목적 참조 유지 */}
+                <span style={{ display: "none" }}>{uiToDb("present")}</span>
               </div>
             )
           })}
@@ -123,5 +111,43 @@ export default function AttendancePage() {
       </div>
       <TabBar />
     </div>
+  )
+}
+
+/**
+ * R-attendance-toggle (2026-07-24): 출근 on/off 스위치.
+ *   iOS 스타일 · 초록=ON=출근 / 회색=OFF=결근.
+ */
+function AttendanceSwitch({
+  on,
+  disabled,
+  onToggle,
+}: {
+  on: boolean
+  disabled?: boolean
+  onToggle: (next: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onToggle(!on)}
+      className={cn(
+        "relative w-14 h-7 rounded-full transition-colors border-2 shrink-0",
+        on ? "bg-[#5FAB4E] border-[#5FAB4E]" : "bg-[#E5E1D8] border-[#D8D2C8]",
+        disabled ? "opacity-40" : "",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform inline-flex items-center justify-center text-[8px] font-black",
+          on ? "translate-x-7 text-[#5FAB4E]" : "translate-x-0 text-[#7A746A]",
+        )}
+      >
+        {on ? "출근" : "결근"}
+      </span>
+    </button>
   )
 }
