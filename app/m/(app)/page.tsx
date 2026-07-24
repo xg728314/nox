@@ -29,7 +29,7 @@ import { cn } from "../_lib/cn"
  *  - 스탯: 필터 chips 카운트가 대체
  */
 
-type FilterKey = "all" | "live" | "wait"
+type FilterKey = "all" | "live" | "wait" | "onduty"
 type ColKey = 1 | 2 | 3
 
 type HostessState = "live" | "wait" | "off"
@@ -61,6 +61,9 @@ export default function DispatchPage() {
   // 다크 모드 — /m 페이지 내 격리 (전역 아님).
   //   next-themes 연동은 별도 라운드. 여기선 페이지 컨테이너 로컬 토글.
   const [dark, setDark] = useState(false)
+
+  // 컬럼 밀도 선택 모달
+  const [colsModalOpen, setColsModalOpen] = useState(false)
 
   // 시트
   const [assignOpen, setAssignOpen] = useState(false)
@@ -127,6 +130,7 @@ export default function DispatchPage() {
       if (filter === "all") return true
       if (filter === "live") return state === "live"
       if (filter === "wait") return state === "wait"
+      if (filter === "onduty") return true // 이미 결근 제외됨 → all 과 동일
       return true
     })
     const order = { live: 0, wait: 1, off: 2 } as const
@@ -244,28 +248,17 @@ export default function DispatchPage() {
         >
           {dark ? "☀️ 라이트" : "🌙 다크"}
         </button>
-        <div
+        <button
+          type="button"
+          onClick={() => setColsModalOpen(true)}
           className={cn(
-            "shrink-0 inline-flex rounded-xl border overflow-hidden",
-            dark ? "border-[#302a20] bg-[#1a1712]" : "border-[#D8D2C8] bg-white",
+            "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold inline-flex items-center gap-1.5",
+            dark ? "bg-[#1a1712] border-[#302a20] text-[#F2ECE0]" : "bg-white border-[#D8D2C8] text-[#2D2B26]",
           )}
         >
-          {([1, 2, 3] as const).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCols(c)}
-              className={cn(
-                "px-3 py-1.5 text-[11px] font-extrabold",
-                cols === c
-                  ? dark ? "bg-[#2D2B26] text-white" : "bg-[#2D2B26] text-white"
-                  : dark ? "text-[#F2ECE0]" : "text-[#2D2B26]",
-              )}
-            >
-              {c}열
-            </button>
-          ))}
-        </div>
+          <span>▦ {cols}열</span>
+          <span className="text-[9px] opacity-70">▾</span>
+        </button>
         <Link
           href="/m/attendance"
           className={cn(
@@ -294,11 +287,12 @@ export default function DispatchPage() {
         </Link>
       </div>
 
-      {/* 필터 chips — 출근한 아가씨만 (결근 제외) */}
+      {/* 필터 chips (프로토타입 매칭) — 출근한 아가씨만 (결근 제외) */}
       <div className="mx-4 mb-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <FilterChip label="전체" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} dark={dark} />
         <FilterChip label="진행중" count={counts.live} dot="live" active={filter === "live"} onClick={() => setFilter("live")} dark={dark} />
         <FilterChip label="대기중" count={counts.wait} dot="wait" active={filter === "wait"} onClick={() => setFilter("wait")} dark={dark} />
+        <FilterChip label="일중" count={counts.all} dot="onduty" active={filter === "onduty"} onClick={() => setFilter("onduty")} dark={dark} />
       </div>
 
       {/* 리스트 */}
@@ -359,6 +353,50 @@ export default function DispatchPage() {
         hostessIds={pendingIds}
         hostessNames={pendingNames}
       />
+      {/* 컬럼 밀도 선택 모달 */}
+      {colsModalOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-50"
+            onClick={() => setColsModalOpen(false)}
+          />
+          <div
+            className={cn(
+              "fixed left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 rounded-2xl border p-3 z-50 w-[220px] shadow-2xl",
+              dark ? "bg-[#1a1712] border-[#302a20] text-[#F2ECE0]" : "bg-white border-[#D8D2C8]",
+            )}
+          >
+            <div className={cn("text-[13px] font-extrabold mb-2 text-center", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>
+              컬럼 밀도 선택
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {([1, 2, 3] as const).map((c) => {
+                const active = cols === c
+                const label = c === 1 ? "1열 (넓게 · 기본)" : c === 2 ? "2열 (컴팩트)" : "3열 (요약)"
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => { setCols(c); setColsModalOpen(false) }}
+                    className={cn(
+                      "w-full rounded-lg border py-2 px-3 text-[12px] font-extrabold text-left inline-flex items-center gap-2",
+                      active
+                        ? dark ? "bg-[#F2ECE0] text-[#0f0d0a] border-[#F2ECE0]" : "bg-[#2D2B26] text-white border-[#2D2B26]"
+                        : dark ? "bg-[#0f0d0a] text-[#F2ECE0] border-[#302a20]" : "bg-white text-[#2D2B26] border-[#D8D2C8]",
+                    )}
+                  >
+                    <span className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center", active ? "border-current" : dark ? "border-[#5a5348]" : "border-[#B0A99B]")}>
+                      {active && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
+                    </span>
+                    <span className="flex-1">{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
       {extendTarget && extendTarget.working_participant_id && extendTarget.working_session_id && (
         <ExtendEndSheet
           open={extendOpen}
@@ -390,14 +428,15 @@ function FilterChip({
   label: string
   count: number
   active: boolean
-  dot?: "live" | "wait"
+  dot?: "live" | "wait" | "onduty"
   dark: boolean
   onClick: () => void
 }) {
   const dotColor =
     dot === "live" ? "bg-[#5FAB4E]"
       : dot === "wait" ? "bg-[#D9A557]"
-        : ""
+        : dot === "onduty" ? "bg-[#C49B61]"
+          : ""
   return (
     <button
       type="button"
