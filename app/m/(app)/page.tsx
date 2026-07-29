@@ -736,7 +736,7 @@ function HostessDispatchRow({
         {/* wait / off — 한 줄 표시. 상태 pill 이 이미 우측에 표시되므로 2번째 줄 생략 */}
       </button>
 
-      {/* ad-detail — chevron 클릭 시 오늘 세션 이력 */}
+      {/* ad-detail — chevron 클릭 시 오늘 세션 이력 (프로토타입 매칭) */}
       {expanded && todaySessions.length > 0 && (
         <div className={cn("border-t px-3 py-2 flex flex-col gap-1", dark ? "border-[#302a20] bg-[#0f0d0a]" : "border-[#EDE7DA] bg-[#FAF5EC]/40")}>
           {todaySessions.map((s) => {
@@ -747,38 +747,87 @@ function HostessDispatchRow({
               : catLetter === "H" ? "bg-[#D97757]/22 text-[#A94B2A]"
                 : catLetter === "S" ? "bg-[#D9A557]/22 text-[#8C6A2A]"
                   : "bg-[#8A8578]/22 text-[#7A746A]"
+            // 진행중 세션 남은 분 계산
+            const remainingMin = isActive && s.entered_at && s.time_minutes
+              ? Math.max(0, Math.round((new Date(s.entered_at).getTime() + s.time_minutes * 60_000 - nowTick) / 60_000))
+              : null
             return (
-              <div key={s.participant_id} className="flex items-center gap-2 text-[11px]">
-                <span className={cn("font-mono font-bold shrink-0 w-10", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{fmtHM(s.entered_at)}</span>
-                <span className={cn("truncate flex-1 font-bold", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>{roomLabel}</span>
+              <div key={s.participant_id} className={cn("flex items-center gap-2 text-[11px] py-0.5", isActive && "bg-[#5FAB4E]/8 -mx-3 px-3 rounded")}>
+                <span className={cn("font-mono font-bold shrink-0 w-10 text-right", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{fmtHM(s.entered_at)}</span>
+                <span className={cn("truncate w-14 font-extrabold", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>{roomLabel}</span>
                 {catLetter && (
-                  <span className={cn("inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded text-[9px] font-black shrink-0", catCls)}>
+                  <span className={cn("inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded text-[9px] font-black shrink-0", catCls)}>
                     {catLetter}
                   </span>
                 )}
                 {s.ticket && (
                   <span className={cn("text-[10px] font-bold shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{s.ticket}</span>
                 )}
-                {isActive ? (
-                  <button
-                    type="button"
-                    onClick={() => leaveParticipant(s.participant_id)}
-                    disabled={leavingId === s.participant_id}
-                    className={cn(
-                      "shrink-0 rounded-full w-6 h-6 flex items-center justify-center text-[12px] font-black border transition",
-                      dark ? "border-[#5a4a2a] text-[#E0C89A] hover:bg-[#3a2f1a]" : "border-[#C49B61]/40 text-[#8C6A3A] hover:bg-[#FBF6EC]",
-                      leavingId === s.participant_id ? "opacity-40" : "",
-                    )}
-                    aria-label="종료"
-                  >
-                    {leavingId === s.participant_id ? "…" : "−"}
-                  </button>
-                ) : (
-                  <span className={cn("text-[9px] font-bold shrink-0", dark ? "text-[#5a5348]" : "text-[#B0A99B]")}>종료</span>
+                {isActive && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => leaveParticipant(s.participant_id)}
+                      disabled={leavingId === s.participant_id}
+                      className={cn(
+                        "shrink-0 rounded-full w-5 h-5 flex items-center justify-center text-[11px] font-black border transition",
+                        dark ? "border-[#5a4a2a] text-[#E0C89A]" : "border-[#C49B61]/40 text-[#8C6A3A]",
+                        leavingId === s.participant_id ? "opacity-40" : "",
+                      )}
+                      aria-label="종료"
+                    >
+                      {leavingId === s.participant_id ? "…" : "−"}
+                    </button>
+                    <span className="ml-auto shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black bg-[#5FAB4E]/18 text-[#3E7A32]">
+                      {remainingMin !== null ? (remainingMin <= 10 ? `${remainingMin}m` : `진행 ${remainingMin}분`) : "진행중"}
+                    </span>
+                  </>
+                )}
+                {!isActive && (
+                  <>
+                    <span className="shrink-0 w-5"></span>
+                    <span className={cn("ml-auto text-[9px] font-bold shrink-0", dark ? "text-[#5a5348]" : "text-[#B0A99B]")}>종료</span>
+                  </>
                 )}
               </div>
             )
           })}
+
+          {/* 진행중 세션 경고 + 퇴근 버튼 (프로토타입 매칭) */}
+          {state === "live" && (
+            <>
+              <div className={cn(
+                "mt-1 text-[10px] font-bold px-2 py-1.5 rounded-md border-l-2 border-[#DE8A3A] flex items-start gap-1",
+                dark ? "bg-[#3a2f1a] text-[#E0C89A]" : "bg-[#FBF6EC] text-[#8C6A3A]",
+              )}>
+                <span>⚠</span>
+                <span>진행중 세션 있음 · 종료 후 퇴근 가능</span>
+              </div>
+              <button
+                type="button"
+                disabled={true}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "mt-1 w-full rounded-md py-2 text-[11px] font-black border-2 inline-flex items-center justify-center gap-1 opacity-50 cursor-not-allowed",
+                  dark ? "border-[#302a20] text-[#8A8578] bg-[#0f0d0a]" : "border-[#D8D2C8] text-[#7A746A] bg-white",
+                )}
+              >
+                🚪 퇴근
+              </button>
+            </>
+          )}
+          {state === "done" && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); alert("퇴근 처리 (정산으로 이동)") }}
+              className={cn(
+                "mt-1 w-full rounded-md py-2 text-[11px] font-black border-2 inline-flex items-center justify-center gap-1",
+                dark ? "border-[#5a4a2a] text-[#E0C89A] bg-[#3a2f1a]" : "border-[#C49B61] text-[#8C6A3A] bg-[#FBF6EC]",
+              )}
+            >
+              🚪 퇴근 · 정산 처리
+            </button>
+          )}
         </div>
       )}
     </div>
