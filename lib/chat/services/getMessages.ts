@@ -21,6 +21,11 @@ type EnrichedMessage = {
   is_mine: boolean
   read_count: number
   is_read_by_me: boolean
+  /** Sprint 2 (2026-07-29): 3-column UI · undo · superseded 지원 필드 (migration 174) */
+  macro_context?: Record<string, unknown> | null
+  undo_deadline_at?: string | null
+  superseded_at?: string | null
+  session_id?: string | null
 }
 
 type GetMessagesResult = {
@@ -39,9 +44,10 @@ export async function getMessages(
   input: GetMessagesInput
 ): Promise<GetMessagesResult> {
   // Build query with cursor pagination
+  // Sprint 2 (2026-07-29): 신규 필드 select · migration 174 미apply 환경 fallback
   let query = supabase
     .from("chat_messages")
-    .select("id, chat_room_id, sender_membership_id, content, message_type, created_at")
+    .select("id, chat_room_id, sender_membership_id, content, message_type, created_at, macro_context, undo_deadline_at, superseded_at, session_id")
     .eq("chat_room_id", input.chatRoomId)
     .eq("store_uuid", input.store_uuid)
     .is("deleted_at", null)
@@ -117,13 +123,26 @@ export async function getMessages(
 
   const enriched: EnrichedMessage[] = (messages ?? []).map((m: {
     id: string; chat_room_id: string; sender_membership_id: string;
-    content: string; message_type: string; created_at: string
+    content: string; message_type: string; created_at: string;
+    macro_context?: Record<string, unknown> | null;
+    undo_deadline_at?: string | null;
+    superseded_at?: string | null;
+    session_id?: string | null;
   }) => ({
-    ...m,
+    id: m.id,
+    chat_room_id: m.chat_room_id,
+    sender_membership_id: m.sender_membership_id,
+    content: m.content,
+    message_type: m.message_type,
+    created_at: m.created_at,
     sender_name: nameMap.get(m.sender_membership_id) || null,
     is_mine: m.sender_membership_id === input.membership_id,
     read_count: readCountMap.get(m.id) ?? 0,
     is_read_by_me: cursorCreatedAt ? m.created_at <= cursorCreatedAt : false,
+    macro_context: m.macro_context ?? null,
+    undo_deadline_at: m.undo_deadline_at ?? null,
+    superseded_at: m.superseded_at ?? null,
+    session_id: m.session_id ?? null,
   }))
 
   const latestMessageId = (messages && messages.length > 0) ? messages[0].id : null

@@ -20,6 +20,12 @@ type ChatMessage = {
   created_at: string
   /** R-mine-flag (2026-06-26): 서버가 계산한 본인 여부 — sender_name 부재로 본인 판단하던 버그 제거 */
   is_mine?: boolean
+  /** Sprint 3 (2026-07-29): 3-column UI · message_type 별 정렬 */
+  message_type?: string
+  macro_context?: Record<string, unknown> | null
+  undo_deadline_at?: string | null
+  superseded_at?: string | null
+  session_id?: string | null
 }
 
 export default function ChatRoomPage() {
@@ -186,21 +192,37 @@ export default function ChatRoomPage() {
         ) : undefined}
       />
 
+      {/* Sprint 3: 매장 초이스 상태 sticky bar · macro_choice 최신 (superseded 아님) */}
+      {(() => {
+        const latestChoice = messages
+          .filter((m) => m.message_type === "macro_choice" && !m.superseded_at)
+          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0]
+        return latestChoice ? <ChoiceStateSticky msg={latestChoice} /> : null
+      })()}
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 min-h-[200px]">
         {loading && <div className="text-center text-[12px] text-[#7A746A] py-6">불러오는 중...</div>}
         {!loading && messages.length === 0 && (
           <div className="text-center text-[12px] text-[#7A746A] py-10">아직 메시지가 없습니다</div>
         )}
         <div className="flex flex-col gap-2">
-          {messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              msg={m}
-              myMembershipId={me.data?.membership_id ?? null}
-              myStoreUuid={me.data?.store_uuid ?? null}
-              patternEnabled={patternEnabled}
-            />
-          ))}
+          {messages
+            .filter((m) => {
+              // Sprint 3: macro_choice 는 sticky bar 로 이동 · 리스트에서 제외
+              if (m.message_type === "macro_choice") return false
+              // superseded 된 매크로 도 제외
+              if (m.superseded_at) return false
+              return true
+            })
+            .map((m) => (
+              <MessageBubble
+                key={m.id}
+                msg={m}
+                myMembershipId={me.data?.membership_id ?? null}
+                myStoreUuid={me.data?.store_uuid ?? null}
+                patternEnabled={patternEnabled}
+              />
+            ))}
         </div>
       </div>
 
@@ -236,11 +258,53 @@ export default function ChatRoomPage() {
   )
 }
 
+/**
+ * Sprint 3 (2026-07-29): 3-column MessageBubble.
+ *   - 일반 (text/system) : 카톡 스타일 좌/우 (내/남)
+ *   - macro_maid · macro_end · macro_extend · macro_nfc : 우측 카드 (초록/회색)
+ *   - macro_choice : 중앙 sticky (매장 초이스 상태)
+ *   - macro_confirm : 중앙 강조 (pending 확인 요청)
+ *
+ *   추가:
+ *   - Undo 카운트다운 (매크로 5분 유예 · undo_deadline_at)
+ *   - 매크로 취소 버튼 (POST /api/chat/messages/[id]/undo)
+ */
 function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { msg: ChatMessage; myMembershipId: string | null; myStoreUuid: string | null; patternEnabled: boolean }) {
-  // R-mine-flag-fix (2026-06-26): 본인 판단을 sender_name 부재가 아닌 명시적 비교로.
-  //   이전: 다른 매장 sender 의 nameMap lookup 실패 시 sender_name=null → "본인" 으로 오판.
-  //   현재: 서버 is_mine flag 우선, 없으면 sender_membership_id 비교.
   const isMine = msg.is_mine === true || (myMembershipId != null && msg.sender_membership_id === myMembershipId)
+  const type = msg.message_type ?? "text"
+
+  // 매크로: 우측 카드 (초록/회색/오렌지)
+  if (type === "macro_maid" || type === "macro_extend" || type === "macro_nfc") {
+    return <MacroCard msg={msg} variant="live" />
+  }
+  if (type === "macro_end") {
+    return <MacroCard msg={msg} variant="end" />
+  }
+  if (type === "macro_confirm") {
+    return <MacroCard msg={msg} variant="confirm" />
+  }
+  // macro_choice 는 별도 · 상단 sticky · 리스트에서 필터되므로 여기 안 옴
+  // (safety) 만약 오더라도 중앙 배치
+  if (type === "macro_choice") {
+    return (
+      <div className="flex justify-center">
+        <div className="max-w-[92%] rounded-xl px-3 py-2 border-2 bg-[#FEF3C7] border-[#F59E0B] text-[#78350F] text-[12px] font-bold text-center">
+          {msg.content}
+        </div>
+      </div>
+    )
+  }
+  // system 은 중앙 · 작음 · 회색
+  if (type === "system") {
+    return (
+      <div className="flex justify-center">
+        <div className="max-w-[78%] rounded-lg px-3 py-1.5 bg-[#EDE7DA]/60 text-[#7A746A] text-[10px] font-bold whitespace-pre-line text-center">
+          {msg.content}
+        </div>
+      </div>
+    )
+  }
+  // 기본 text: 카톡 스타일 좌/우
   return (
     <div className={cn("flex", isMine ? "justify-end" : "justify-start")}>
       <div className="max-w-[78%]">
@@ -257,16 +321,112 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
         >
           {msg.content}
         </div>
-        {/* R-chat-pattern (2026-06-25): 메시지 자동 파싱 → 확인 버튼.
-            운영자가 토글한 채팅방 (pattern_enabled=true) 에서만 렌더. */}
         {patternEnabled && (
           <ChatPatternAction content={msg.content} chatMessageId={msg.id} myStoreUuid={myStoreUuid} />
         )}
-        {/* R-auto-ops-ui (2026-07-08): waiting_request 자동 등록 결과 배지. */}
         <ChatAutoActionBadge messageId={msg.id} />
         <div className={cn("text-[9px] text-[#7A746A] mt-0.5", isMine ? "text-right" : "text-left", "px-1")}>
           {fmtHM(msg.created_at)}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Sprint 3: 매크로 카드 (우측 정렬).
+ *   variant: live = 등록 · 초록 · undo 지원 / end = 종료 · 회색 / confirm = 확인 요청 · 중앙 오렌지
+ */
+function MacroCard({ msg, variant }: { msg: ChatMessage; variant: "live" | "end" | "confirm" }) {
+  const [undoing, setUndoing] = useState(false)
+  const [undone, setUndone] = useState(false)
+  const [remainingSec, setRemainingSec] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!msg.undo_deadline_at) { setRemainingSec(null); return }
+    const compute = () => {
+      const rem = Math.max(0, Math.floor((new Date(msg.undo_deadline_at!).getTime() - Date.now()) / 1000))
+      setRemainingSec(rem)
+    }
+    compute()
+    const id = setInterval(compute, 1000)
+    return () => clearInterval(id)
+  }, [msg.undo_deadline_at])
+
+  async function undo() {
+    if (undoing || undone) return
+    if (!confirm("이 매크로를 취소하시겠습니까? (세션도 archived 됩니다)")) return
+    setUndoing(true)
+    try {
+      const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msg.id)}/undo`, { method: "POST" })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+      setUndone(true)
+    } catch (e) {
+      alert(`취소 실패: ${(e as Error).message}`)
+    } finally {
+      setUndoing(false)
+    }
+  }
+
+  const align =
+    variant === "confirm" ? "justify-center" : "justify-end"
+
+  const cardCls =
+    variant === "live"
+      ? "bg-[#DCFCE7] border border-[#5FAB4E]/40 text-[#166534]"
+      : variant === "end"
+        ? "bg-[#F3F4F6] border border-[#D1D5DB] text-[#4B5563]"
+        : "bg-[#FEF3C7] border-2 border-[#F59E0B] text-[#78350F]"
+
+  const canUndo = variant === "live" && remainingSec !== null && remainingSec > 0 && !undone
+
+  return (
+    <div className={cn("flex", align)}>
+      <div className={cn("max-w-[80%] rounded-2xl px-3.5 py-2.5", cardCls, undone && "opacity-40 line-through")}>
+        <div className="text-[12px] font-bold whitespace-pre-line leading-tight">
+          {msg.content}
+        </div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="text-[9px] font-semibold opacity-70">{fmtHM(msg.created_at)}</span>
+          {canUndo && (
+            <>
+              <span className="text-[9px] font-black text-red-600">
+                취소가능 {Math.floor(remainingSec! / 60)}:{String(remainingSec! % 60).padStart(2, "0")}
+              </span>
+              <button
+                type="button"
+                onClick={undo}
+                disabled={undoing}
+                className="ml-auto rounded px-2 py-0.5 text-[10px] font-black bg-white/70 border border-red-400 text-red-700 disabled:opacity-40"
+              >
+                {undoing ? "..." : "✕ 취소"}
+              </button>
+            </>
+          )}
+          {undone && (
+            <span className="ml-auto text-[9px] font-black text-red-700">✕ 취소됨</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Sprint 3: 매장 초이스 상태 sticky bar (상단 고정).
+ *   messages 리스트에서 macro_choice · superseded_at=null 인 최근 것 표시.
+ *   실시간 업데이트 반영 (poll 결과 갱신 시 자동 refresh).
+ */
+function ChoiceStateSticky({ msg }: { msg: ChatMessage }) {
+  return (
+    <div
+      className="sticky top-0 z-20 px-3 py-2 bg-[#FEF3C7] border-y-2 border-[#F59E0B] shadow-sm"
+    >
+      <div className="flex items-center gap-2 text-[12px] font-black text-[#78350F]">
+        <span className="text-[14px]">🔥</span>
+        <span className="flex-1 truncate">{msg.content}</span>
+        <span className="text-[9px] font-semibold opacity-70 shrink-0">실시간</span>
       </div>
     </div>
   )
