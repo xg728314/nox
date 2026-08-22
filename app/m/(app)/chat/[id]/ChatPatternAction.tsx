@@ -385,6 +385,36 @@ export function ChatPatternAction({
     }
   }
 
+  // R-auto-fire (2026-08-23): 파싱 성공 시 자동으로 임시등록 트리거 (클릭 불필요).
+  //   배경: 바쁜 시간대 실장이 "임시 등록" 버튼 클릭 놓쳐 → 아가씨 누락 → 정산 사고.
+  //   방에 들어가는 아가씨는 채팅 파싱으로 놓치는 경우 없으니 자동 등록이 안전.
+  //   조건: 파싱 완료 + 첫 폴링 완료 (~1.5s 대기) + serverDispatches 비어있음 + 미제출.
+  //   idempotency: autoFiredRef 로 1회만 발화. serverDispatches 이미 있으면 skip.
+  const autoFiredRef = useRef(false)
+  const createPendingRef = useRef<() => Promise<void>>(async () => {})
+  createPendingRef.current = createPending
+  useEffect(() => {
+    if (autoFiredRef.current) return
+    if (resolvedEntries.length === 0) return
+    if (submitting) return
+    if (serverDispatches.length > 0) {
+      // 이미 서버에 dispatch 존재 · 다른 viewer 가 이미 발화했거나 이 발신자가 이전에 등록함
+      autoFiredRef.current = true
+      return
+    }
+    // 첫 폴링 완료 대기 (~1.5s) 후에도 여전히 비어있으면 자동 발화
+    const t = setTimeout(() => {
+      if (autoFiredRef.current) return
+      if (dispatchesRef.current.length > 0) {
+        autoFiredRef.current = true
+        return
+      }
+      autoFiredRef.current = true
+      void createPendingRef.current()
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [resolvedEntries.length, submitting, serverDispatches.length])
+
   // 카드는 store/cat/time 인식되면 항상 표시
   if (resolvedEntries.length === 0) return null
 
@@ -488,7 +518,7 @@ export function ChatPatternAction({
           onClick={createPending}
           className="w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
         >
-          {submitting ? "등록 중..." : `📝 임시 등록 (${resolvedEntries.filter((e) => !e.unmatched).length}건)`}
+          {submitting ? "등록 중..." : `📝 임시 등록 (${resolvedEntries.length}건 · 미매칭 자동 등록)`}
         </button>
       )}
       {isPending && approvedAll && (
