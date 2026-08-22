@@ -151,10 +151,22 @@ export function ChatPatternAction({
   }, [validEntries, buildingH.data, buildingS.data, myStoreUuid])
 
   // 3. 서버 임시 등록 상태 조회 (3초 polling — 채팅 polling 과 별도)
+  //   R-poll-hardening (2026-08-23): 400/404 응답 시 폴링 즉시 중단 · 헛돌기 방지
+  const pollFatalRef = useRef(false)
   const fetchDispatches = useCallback(async () => {
-    if (!chatMessageId) return // guard — 400 방지
+    if (!chatMessageId) return
+    if (typeof chatMessageId !== "string" || chatMessageId.length !== 36) {
+      // UUID 아님 · 폴링 자체가 무의미 · 즉시 중단 마킹
+      pollFatalRef.current = true
+      return
+    }
     try {
       const res = await apiFetch(`/api/chat/pattern-dispatch?chat_message_id=${encodeURIComponent(chatMessageId)}`)
+      if (res.status === 400 || res.status === 404 || res.status === 401) {
+        // 이 message 는 폴링 대상 아님 or 인증 문제 · 즉시 중단
+        pollFatalRef.current = true
+        return
+      }
       if (!res.ok) return
       const j = (await res.json()) as { dispatches?: ServerDispatch[] }
       setServerDispatches(j.dispatches ?? [])
@@ -176,10 +188,17 @@ export function ChatPatternAction({
     if (resolvedEntries.length === 0) return
     let attemptCount = 0
     let stopped = false
+    pollFatalRef.current = false
     fetchDispatches()
     attemptCount++
     const id = setInterval(() => {
       if (stopped) return
+      // R-poll-hardening (2026-08-23): fatal 응답 (400/401/404) 있었으면 즉시 중단
+      if (pollFatalRef.current) {
+        stopped = true
+        clearInterval(id)
+        return
+      }
       if (document.visibilityState !== "visible") return
       const cur = dispatchesRef.current
       const activeCount = cur.filter(
