@@ -409,6 +409,14 @@ export async function POST(request: Request) {
     invalidateCache("session_orders")
     invalidateCache("rooms")
 
+    // Sprint 2 (2026-07-29): 참여자 등록 후 매장 초이스 상태 refresh (fire-and-forget)
+    void (async () => {
+      try {
+        const { refreshStoreChoiceState } = await import("@/lib/chat/publishChoiceState")
+        await refreshStoreChoiceState(authContext.store_uuid)
+      } catch { /* silent */ }
+    })()
+
     return NextResponse.json(
       {
         participant_id: participant.id,

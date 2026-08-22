@@ -107,6 +107,14 @@ export async function POST(
       }
     })()
 
+    // Sprint 2 (2026-07-29): leave 후 매장 초이스 상태 refresh (fire-and-forget)
+    void (async () => {
+      try {
+        const { refreshStoreChoiceState } = await import("@/lib/chat/publishChoiceState")
+        await refreshStoreChoiceState(part.store_uuid)
+      } catch { /* silent */ }
+    })()
+
     return NextResponse.json({
       ok: true,
       participant_id,

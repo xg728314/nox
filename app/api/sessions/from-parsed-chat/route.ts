@@ -30,6 +30,8 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { parseChatWithConfidence, type ResolvedEntry } from "@/lib/session/parseChatWithConfidence"
+import { enqueueBroadcast } from "@/lib/chat/broadcastQueue"
+import { refreshStoreChoiceState } from "@/lib/chat/publishChoiceState"
 import { isValidUUID } from "@/lib/validation"
 
 export async function POST(request: Request) {
@@ -240,56 +242,46 @@ export async function POST(request: Request) {
       }
     }
 
-    // 매크로 발행은 broadcast_queue 로 (5분 유예 · Sprint 2 worker 가 발행)
-    // 지금은 즉시 message insert · undo_deadline_at 5분 후 · superseded_at null
+    // Sprint 2: 매크로 발행은 broadcast_queue 에 enqueue (rate limit + 배치)
     const roomChatRoomId = await ensureRoomSessionChat(sb, sessionId, targetStore, actorMembershipId)
+    let queueId: string | null = null
     if (roomChatRoomId) {
-      const undoDeadline = new Date(Date.now() + 5 * 60_000).toISOString()
       const macroContent = renderMaidMacro(result.entries)
-      const { data: msg } = await sb
-        .from("chat_messages")
-        .insert({
-          chat_room_id: roomChatRoomId,
-          store_uuid: targetStore,
-          sender_membership_id: actorMembershipId,
-          content: macroContent,
-          message_type: "macro_maid",
-          undo_deadline_at: undoDeadline,
-          session_id: sessionId,
-          macro_context: {
-            confidence: result.overall_confidence,
-            tier: result.tier,
-            entries: result.entries.map((e) => ({
-              name: e.hostess_name_confirmed,
-              hostess_membership_id: e.hostess_membership_id,
-              needs_provisioning: e.needs_provisioning,
-              category: e.category,
-              ticket: e.ticket_type,
-            })),
-          },
-          created_at: nowIso,
-        })
-        .select("id, undo_deadline_at")
-        .maybeSingle()
-      return NextResponse.json({
-        mode: "auto",
-        tier: result.tier,
-        confidence: result.overall_confidence,
+      const eq = await enqueueBroadcast({
+        chat_room_id: roomChatRoomId,
+        store_uuid: targetStore,
+        message_type: "macro_maid",
+        content: macroContent,
+        sender_membership_id: actorMembershipId,
         session_id: sessionId,
-        participants: insertedParticipants,
-        message_id: (msg as { id?: string } | null)?.id ?? null,
-        undo_deadline_at: undoDeadline,
-        resolved: result.entries,
+        macro_context: {
+          confidence: result.overall_confidence,
+          tier: result.tier,
+          entries: result.entries.map((e) => ({
+            name: e.hostess_name_confirmed,
+            hostess_membership_id: e.hostess_membership_id,
+            needs_provisioning: e.needs_provisioning,
+            category: e.category,
+            ticket: e.ticket_type,
+          })),
+        },
+        // 5분 유예 지원 위해 delay 30초 · worker 는 발행 시 undo_deadline_at 5분 세팅
+        delay_seconds: 30,
       })
+      if (eq.queued) queueId = eq.queue_id ?? null
     }
+
+    // Sprint 2: 참여자 등록 후 매장 초이스 상태 refresh (fire-and-forget)
+    void refreshStoreChoiceState(targetStore).catch(() => { /* silent */ })
+
     return NextResponse.json({
       mode: "auto",
       tier: result.tier,
       confidence: result.overall_confidence,
       session_id: sessionId,
       participants: insertedParticipants,
+      broadcast_queue_id: queueId,
       resolved: result.entries,
-      note: "매크로 발행 skip · chat_room 없음",
     })
   } catch (e) {
     if (e instanceof AuthError) {
