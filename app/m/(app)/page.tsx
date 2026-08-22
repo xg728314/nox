@@ -6,7 +6,7 @@ import { SosButton } from "../_components/SosButton"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo } from "../_lib/format"
-import { useMe, useHostesses, useAttendance, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useAttendance, useRooms, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { useToast } from "../_components/Toast"
@@ -62,6 +62,7 @@ export default function DispatchPage() {
   const me = useMe()
   const hostesses = useHostesses()
   const attendance = useAttendance()
+  const roomsQ = useRooms()  // R-home-dashboard (2026-08-23): 매장 실시간 매출 · 방수
   const { recent: autoClosedRecent } = useAutoCloseExpired()
   const toast = useToast()
 
@@ -434,6 +435,27 @@ export default function DispatchPage() {
         </Link>
       </div>
 
+      {/* R-home-dashboard (2026-08-23): 상단 4-cell 실시간 요약.
+          사장/실장이 홈 진입 시 한눈에: 매출 · 활성 방수 · 방중 아가씨 · 손님.
+          되돌리려면 이 커밋 revert. */}
+      {(() => {
+        const roomsData = roomsQ.data?.rooms ?? []
+        const activeRooms = roomsData.filter((r) => r.session)
+        const totalGross = activeRooms.reduce((s, r) => s + (r.session?.gross_total ?? 0), 0)
+        const totalParticipants = activeRooms.reduce((s, r) => s + (r.session?.participant_count ?? 0), 0)
+        const fmt = (n: number) => n >= 10000
+          ? `${Math.floor(n / 10000)}만${n % 10000 === 0 ? "" : (Math.floor((n % 10000) / 1000) + "천")}원`
+          : `${n.toLocaleString()}원`
+        return (
+          <div className="mx-4 mb-3 grid grid-cols-4 gap-1.5">
+            <DashCell label="오늘 매출" value={totalGross > 0 ? fmt(totalGross) : "0원"} tone="gold" dark={dark} />
+            <DashCell label="활성 방" value={`${activeRooms.length}방`} tone="green" dark={dark} />
+            <DashCell label="방중 아가씨" value={`${totalParticipants}명`} tone="blue" dark={dark} />
+            <DashCell label="출근" value={`${counts.all}명`} tone="neutral" dark={dark} />
+          </div>
+        )
+      })()}
+
       {/* 필터 chips (프로토타입 매칭) — 출근한 아가씨만 (결근 제외) */}
       <div className="mx-4 mb-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <FilterChip label="전체" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} dark={dark} />
@@ -652,6 +674,29 @@ export default function DispatchPage() {
 }
 
 /* ─────────────── 하위 컴포넌트 ─────────────── */
+
+/**
+ * R-home-dashboard (2026-08-23): 홈 top 4-cell 요약 셀.
+ *   실 사용자 (사장/실장) 이 홈 진입 즉시 매장 상태 한눈에.
+ *   되돌리려면 이 컴포넌트 사용부 (page 상단 dashboard block) 제거.
+ */
+function DashCell({ label, value, tone, dark }: {
+  label: string; value: string; tone: "gold" | "green" | "blue" | "neutral"; dark: boolean
+}) {
+  const toneCls = tone === "gold"
+    ? (dark ? "bg-[#3a2f1a] text-[#E0C89A] border-[#5a4a2a]" : "bg-[#FBF6EC] text-[#8C6A3A] border-[#C49B61]/40")
+    : tone === "green"
+      ? "bg-[#5FAB4E]/12 text-[#3E7A32] border-[#5FAB4E]/30"
+      : tone === "blue"
+        ? "bg-[#6B8AFD]/12 text-[#3E5EDB] border-[#6B8AFD]/30"
+        : (dark ? "bg-[#1a1712] text-[#8A8578] border-[#302a20]" : "bg-white text-[#7A746A] border-[#D8D2C8]")
+  return (
+    <div className={cn("rounded-xl border px-1.5 py-1.5 text-center", toneCls)}>
+      <div className="text-[9px] font-bold opacity-80">{label}</div>
+      <div className="text-[11px] font-black leading-tight mt-0.5 truncate">{value}</div>
+    </div>
+  )
+}
 
 function FilterChip({
   label,
