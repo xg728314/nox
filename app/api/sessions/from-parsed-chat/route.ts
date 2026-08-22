@@ -87,15 +87,75 @@ export async function POST(request: Request) {
     }
 
     if (result.tier === "pending") {
-      // Sprint 2 에서 pending queue UI 구현
-      // 지금은 응답에 pending 표시만
+      // Sprint 4 (2026-07-29): 매장 방실장 그룹 채팅방에 macro_confirm 발행
+      // 실장이 [예/아니오] 원탭으로 처리
+      const targetStore = result.entries.find((e) => e.origin_store_uuid)?.origin_store_uuid ?? actorStoreUuid
+      // 매장 global 채팅방 lookup (없으면 skip)
+      const { data: chatRoom } = await sb
+        .from("chat_rooms")
+        .select("id")
+        .eq("type", "global")
+        .eq("store_uuid", targetStore)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle()
+      const chatRoomId = (chatRoom as { id?: string } | null)?.id ?? null
+      let pendingId: string | null = null
+      if (chatRoomId) {
+        // 시스템 sender = 매장 첫 owner/manager
+        const { data: ownerMem } = await sb
+          .from("store_memberships")
+          .select("id")
+          .eq("store_uuid", targetStore)
+          .in("role", ["owner", "manager"])
+          .eq("status", "approved")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        const sysSender = (ownerMem as { id?: string } | null)?.id ?? actorMembershipId
+        const preview = result.entries
+          .map((e) => `${e.hostess_name_confirmed}${e.category ? " · " + e.category : ""}${e.ticket_type ? " · " + e.ticket_type : ""}${e.needs_provisioning ? " (미등록)" : ""}${e.issues.length > 0 ? " ⚠ " + e.issues.join(", ") : ""}`)
+          .join("\n  ")
+        const content = `🔍 확인 필요 (신뢰도 ${result.overall_confidence})\n원문: ${text}\n\n추정:\n  ${preview}\n\n[예 · 등록] [아니오 · 무시]`
+        const { data: msg } = await sb
+          .from("chat_messages")
+          .insert({
+            chat_room_id: chatRoomId,
+            store_uuid: targetStore,
+            sender_membership_id: sysSender,
+            content,
+            message_type: "macro_confirm",
+            macro_context: {
+              raw_text: text,
+              confidence: result.overall_confidence,
+              store_uuid: targetStore,
+              room_no: body.room_no ?? result.entries.find((e) => e.room_no)?.room_no ?? null,
+              resolved_entries: result.entries.map((e) => ({
+                name: e.hostess_name_confirmed,
+                from_text: e.raw.name,
+                hostess_membership_id: e.hostess_membership_id,
+                category: e.category,
+                ticket_type: e.ticket_type,
+                needs_provisioning: e.needs_provisioning,
+                issues: e.issues,
+              })),
+              tier: "pending",
+            },
+          })
+          .select("id")
+          .maybeSingle()
+        pendingId = (msg as { id?: string } | null)?.id ?? null
+      }
       return NextResponse.json({
         mode: "auto",
         tier: "pending",
         confidence: result.overall_confidence,
         resolved: result.entries,
         warnings: result.warnings,
-        message: "확인 대기 · Sprint 2 에서 매장 방실장 그룹 확인 UI 활성 예정",
+        pending_message_id: pendingId,
+        chat_room_id: chatRoomId,
+        message: "확인 대기 · 매장 방실장 그룹채팅에서 [예/아니오] 처리",
       })
     }
 

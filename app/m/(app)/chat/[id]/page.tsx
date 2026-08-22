@@ -334,12 +334,15 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
 }
 
 /**
- * Sprint 3: 매크로 카드 (우측 정렬).
- *   variant: live = 등록 · 초록 · undo 지원 / end = 종료 · 회색 / confirm = 확인 요청 · 중앙 오렌지
+ * Sprint 3+4: 매크로 카드.
+ *   variant:
+ *     live    = 등록 · 초록 · 우측 · undo 5분 유예
+ *     end     = 종료 · 회색 · 우측
+ *     confirm = 확인 요청 · 중앙 오렌지 · [예/아니오] 원탭 (Sprint 4)
  */
 function MacroCard({ msg, variant }: { msg: ChatMessage; variant: "live" | "end" | "confirm" }) {
-  const [undoing, setUndoing] = useState(false)
-  const [undone, setUndone] = useState(false)
+  const [busy, setBusy] = useState<"undo" | "confirm" | "reject" | null>(null)
+  const [done, setDone] = useState<"undone" | "confirmed" | "rejected" | null>(null)
   const [remainingSec, setRemainingSec] = useState<number | null>(null)
 
   useEffect(() => {
@@ -354,24 +357,62 @@ function MacroCard({ msg, variant }: { msg: ChatMessage; variant: "live" | "end"
   }, [msg.undo_deadline_at])
 
   async function undo() {
-    if (undoing || undone) return
+    if (busy || done) return
     if (!confirm("이 매크로를 취소하시겠습니까? (세션도 archived 됩니다)")) return
-    setUndoing(true)
+    setBusy("undo")
     try {
       const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msg.id)}/undo`, { method: "POST" })
       const j = await res.json().catch(() => ({}))
       if (!res.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
-      setUndone(true)
+      setDone("undone")
     } catch (e) {
       alert(`취소 실패: ${(e as Error).message}`)
     } finally {
-      setUndoing(false)
+      setBusy(null)
     }
   }
 
-  const align =
-    variant === "confirm" ? "justify-center" : "justify-end"
+  async function confirmMacro() {
+    if (busy || done) return
+    setBusy("confirm")
+    try {
+      const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msg.id)}/confirm-macro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+      setDone("confirmed")
+    } catch (e) {
+      alert(`등록 실패: ${(e as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
 
+  async function rejectMacro() {
+    if (busy || done) return
+    const reason = prompt("거부 사유 (선택 · 없으면 취소):", "")
+    if (reason === null) return
+    setBusy("reject")
+    try {
+      const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msg.id)}/reject-macro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+      setDone("rejected")
+    } catch (e) {
+      alert(`거부 실패: ${(e as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const align = variant === "confirm" ? "justify-center" : "justify-end"
   const cardCls =
     variant === "live"
       ? "bg-[#DCFCE7] border border-[#5FAB4E]/40 text-[#166534]"
@@ -379,15 +420,21 @@ function MacroCard({ msg, variant }: { msg: ChatMessage; variant: "live" | "end"
         ? "bg-[#F3F4F6] border border-[#D1D5DB] text-[#4B5563]"
         : "bg-[#FEF3C7] border-2 border-[#F59E0B] text-[#78350F]"
 
-  const canUndo = variant === "live" && remainingSec !== null && remainingSec > 0 && !undone
+  const canUndo = variant === "live" && remainingSec !== null && remainingSec > 0 && !done
+  const canConfirm = variant === "confirm" && !done
 
   return (
     <div className={cn("flex", align)}>
-      <div className={cn("max-w-[80%] rounded-2xl px-3.5 py-2.5", cardCls, undone && "opacity-40 line-through")}>
+      <div className={cn(
+        variant === "confirm" ? "max-w-[92%]" : "max-w-[80%]",
+        "rounded-2xl px-3.5 py-2.5",
+        cardCls,
+        done && "opacity-40 line-through",
+      )}>
         <div className="text-[12px] font-bold whitespace-pre-line leading-tight">
           {msg.content}
         </div>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className="text-[9px] font-semibold opacity-70">{fmtHM(msg.created_at)}</span>
           {canUndo && (
             <>
@@ -397,16 +444,36 @@ function MacroCard({ msg, variant }: { msg: ChatMessage; variant: "live" | "end"
               <button
                 type="button"
                 onClick={undo}
-                disabled={undoing}
+                disabled={busy !== null}
                 className="ml-auto rounded px-2 py-0.5 text-[10px] font-black bg-white/70 border border-red-400 text-red-700 disabled:opacity-40"
               >
-                {undoing ? "..." : "✕ 취소"}
+                {busy === "undo" ? "..." : "✕ 취소"}
               </button>
             </>
           )}
-          {undone && (
-            <span className="ml-auto text-[9px] font-black text-red-700">✕ 취소됨</span>
+          {canConfirm && (
+            <>
+              <button
+                type="button"
+                onClick={confirmMacro}
+                disabled={busy !== null}
+                className="ml-auto rounded-lg px-3 py-1 text-[11px] font-black bg-[#166534] text-white disabled:opacity-40"
+              >
+                {busy === "confirm" ? "..." : "✓ 예 · 등록"}
+              </button>
+              <button
+                type="button"
+                onClick={rejectMacro}
+                disabled={busy !== null}
+                className="rounded-lg px-3 py-1 text-[11px] font-black bg-white border-2 border-[#78350F] text-[#78350F] disabled:opacity-40"
+              >
+                {busy === "reject" ? "..." : "✕ 아니오"}
+              </button>
+            </>
           )}
+          {done === "undone" && <span className="ml-auto text-[9px] font-black text-red-700">✕ 취소됨</span>}
+          {done === "confirmed" && <span className="ml-auto text-[9px] font-black text-[#166534]">✓ 등록됨</span>}
+          {done === "rejected" && <span className="ml-auto text-[9px] font-black text-red-700">✕ 거부됨</span>}
         </div>
       </div>
     </div>
