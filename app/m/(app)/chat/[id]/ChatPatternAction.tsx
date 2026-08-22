@@ -118,6 +118,55 @@ export function ChatPatternAction({
     })()
   }, [parsed.entries, chatMessageId, myStoreUuid, toast, CHECKOUT_KEY])
 
+  // R-choice-request (2026-08-23): CHOICE_REQUEST event 감지 → 초이스 요청 저장.
+  //   "3인 하퍼 초이스" · "5인 셔츠 초이스 있어요" 채팅 시 파서가 event=CHOICE_REQUEST.
+  //   서버가 도배 방지 (30초 내 dedup · 재활성).
+  //   party_size 는 raw text 에서 정규식으로 추출 (`\d+\s*인`).
+  const CHOICE_KEY = `nox_choicereq_${chatMessageId}`
+  const choiceFiredRef = useRef<boolean>(
+    typeof window !== "undefined" && !!window.localStorage.getItem(CHOICE_KEY),
+  )
+  useEffect(() => {
+    if (choiceFiredRef.current) return
+    if (!chatMessageId) return
+    const hasChoiceEvent = parsed.entries.some((e) => e.event === "CHOICE_REQUEST")
+      || /초이스|초3|초2|초5/.test(content)
+    if (!hasChoiceEvent) return
+    // party_size 추출 (첫 매치)
+    const psMatch = content.match(/(\d+)\s*[인명빵]/)
+    const partySize = psMatch ? Number(psMatch[1]) : 0
+    // categories 추출 (parsed entries 의 category 유니크 or content 텍스트)
+    const catSet = new Set<string>()
+    for (const e of parsed.entries) if (e.category) catSet.add(e.category)
+    if (catSet.size === 0) {
+      if (/퍼블|퍼\s/.test(content)) catSet.add("퍼블릭")
+      if (/셔츠|셔\s/.test(content)) catSet.add("셔츠")
+      if (/하퍼|하\s/.test(content)) catSet.add("하퍼")
+    }
+    if (catSet.size === 0 && partySize === 0) return
+    choiceFiredRef.current = true
+    try { window.localStorage.setItem(CHOICE_KEY, "1") } catch { /* noop */ }
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/choice-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            store_uuid: myStoreUuid,
+            categories: Array.from(catSet),
+            party_size: partySize,
+            raw_text: content,
+            source_chat_message_id: chatMessageId,
+          }),
+        })
+        const j = await res.json().catch(() => ({}))
+        if (res.ok && !j.deduped && !j.migration_pending) {
+          toast(`✓ 초이스 요청 등록 · ${partySize}인 ${Array.from(catSet).join("/")}`, "success")
+        }
+      } catch { /* silent */ }
+    })()
+  }, [parsed.entries, chatMessageId, myStoreUuid, content, toast, CHOICE_KEY])
+
   // entries 중 (이름, category, ticket) 있는 것.
   //   R-home-fallback (2026-08-23): origin_store_name 이 null 이면 뷰어의 본 매장으로
   //   자동 fallback (아래 resolvedEntries 에서 myStoreUuid 적용). 사용자 실제 흐름:

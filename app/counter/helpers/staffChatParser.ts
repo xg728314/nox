@@ -97,13 +97,16 @@ const STATES: StateEntry[] = [
 // R-checkout-event (2026-08-23): 채팅 종료 표기 신호 추가.
 //   실 실장 흐름: "지연 팅" · "지연 나감" · "지연 종료" · "지연 끝" · "지연 아웃"
 //   → 자동 checkout 로 처리 (참여자 leave). 파서는 이벤트 flag 만 세팅 · 서버에서 처리.
-type EventType = "START" | "TIME_CHECK" | "CHECKOUT"
+type EventType = "START" | "TIME_CHECK" | "CHECKOUT" | "CHOICE_REQUEST"
 type EventEntry = { code: EventType; label: string; aliases: string[] }
 const EVENTS: EventEntry[] = [
   { code: "START",       label: "스타트",    aliases: ["스타트", "ㅅㅌㅌ"] },
   { code: "TIME_CHECK",  label: "시간체크",  aliases: ["시간체크", "ㅅㅊ"] },
   // R-checkout-event (2026-08-23): 다양한 종료 표기
   { code: "CHECKOUT",    label: "종료",      aliases: ["종료", "나감", "나갔", "끝", "아웃", "팅"] },
+  // R-choice-request (2026-08-23): 초이스 요청 표기 · 매장 대기 손님 있음 신호
+  //   "3인 초이스", "5인 초이스", "4명 있어요" 등
+  { code: "CHOICE_REQUEST", label: "초이스 요청", aliases: ["초이스", "초3", "초2", "초5"] },
 ]
 
 // ── Flattened alias lookup table ───────────────────────────────────
@@ -387,7 +390,7 @@ export type ParsedStaffEntry = {
    * R-event (2026-07-07): 세션 이벤트 신호. `ㅅㅌㅌ`/`스타트` → 'START',
    * `ㅅㅊ`/`시간체크` → 'TIME_CHECK'. null 이면 이벤트 없음.
    */
-  event: "START" | "TIME_CHECK" | "CHECKOUT" | null
+  event: "START" | "TIME_CHECK" | "CHECKOUT" | "CHOICE_REQUEST" | null
 }
 
 /**
@@ -537,7 +540,7 @@ export function parseStaffChat(
     const categoriesList: string[] = []
     // R-state / R-event (2026-07-07): 라인 별 상태/이벤트 신호.
     let lineState: "UNSEEN" | "SEEN" | null = null
-    let lineEvent: "START" | "TIME_CHECK" | "CHECKOUT" | null = null
+    let lineEvent: "START" | "TIME_CHECK" | "CHECKOUT" | "CHOICE_REQUEST" | null = null
 
     // 사전 등장 여부 검사 — 정규식이 아니라 부분 문자열 검색으로 간단히.
     //   자모 단독은 완성 한글 이름 안에서 매치되지 않으므로 안전.
