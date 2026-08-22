@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/apiFetch"
 import { useBuildingHostesses, useBuildingStores, useMe } from "../../../_hooks/useMobileData"
 import { invalidateApi } from "../../../_hooks/useApi"
 import { useToast, haptic } from "../../../_components/Toast"
+import { InlineRename } from "./InlineRename"
 
 /**
  * R-chat-pattern-mutual (2026-06-26): 채팅 메시지 자동 파싱 → 임시 등록 +
@@ -478,6 +479,15 @@ export function ChatPatternAction({
                   <span className="text-[#7A746A] font-bold">·</span>
                   <span>{e.hostess_name}</span>
                   {e.unmatched && <span className="text-red-700">({e.unmatched})</span>}
+                  {/* R-rename-ui (2026-08-23): membership 확정된 아가씨만 인라인 이름 수정 가능.
+                      unmatched 는 자동 provisioning 완료 (~1.5s 대기) 후 편집. */}
+                  {e.hostess_membership_id && !e.unmatched && (
+                    <InlineRename
+                      membershipId={e.hostess_membership_id}
+                      currentName={e.hostess_name}
+                      onSaved={() => { void invalidateApi("/api/building/hostesses") }}
+                    />
+                  )}
                 </div>
                 <div className="text-[9px] font-bold text-[#7A746A]">
                   {e.category} · {e.time_type === "기본" ? "완티" : e.time_type}
