@@ -3,10 +3,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "../_lib/cn"
 
+// R-tabbar-chat-first (2026-08-23): 실 흐름 = 카톡 위주 → 채팅 을 홈 (첫 탭) 으로.
+//   유흥업소 실장 표준 흐름: 카톡 열기 → 초이스/메이드 얘기 → 팅 → 정산.
+//   조판/외부조판 은 결과 화면 · 채팅이 primary interface.
+//   되돌리려면 이 커밋 revert (git revert <hash>).
 const TABS = [
+  { href: "/m/chat", label: "채팅", icon: "💬", match: (p: string) => p.startsWith("/m/chat") },
   { href: "/m", label: "조판", icon: "🏠", match: (p: string) => p === "/m" },
   { href: "/m/staff", label: "외부조판", icon: "🏢", match: (p: string) => p.startsWith("/m/staff") || p.startsWith("/m/attendance") },
-  { href: "/m/chat", label: "채팅", icon: "💬", match: (p: string) => p.startsWith("/m/chat") },
   { href: "/m/settle", label: "정산", icon: "📊", match: (p: string) => p.startsWith("/m/settle") },
   { href: "/m/me", label: "전체메뉴", icon: "☰", match: (p: string) => p.startsWith("/m/me") || p.startsWith("/m/store") },
 ] as const
