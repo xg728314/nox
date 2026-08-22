@@ -204,28 +204,72 @@ export function ChatPatternAction({
     }
   }, [fetchDispatches, resolvedEntries.length])
 
-  // 4. 발신자 — \"확인\" 클릭 → 임시 등록 생성
+  // 4. 발신자 — \"확인\" 클릭 → 임시 등록 생성 (미매칭 자동 provisioning 포함)
+  //   R-auto-provision (2026-08-23): 미매칭 아가씨 (hostess_membership_id null)
+  //   있으면 /api/hostesses/provisional 로 자동 등록 · 그 후 pattern-dispatch 진행.
+  //   초기 도입기 · 아가씨 미등록 상태에서도 채팅 파싱만으로 자동 운영 가능.
   async function createPending() {
     if (submitting || resolvedEntries.length === 0) return
-    const matched = resolvedEntries.filter((e) => e.hostess_membership_id)
-    if (matched.length === 0) {
-      toast("매칭된 식구 없음", "error")
-      return
-    }
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
+      // 1) 미매칭 → auto-provision
+      const unmatched = resolvedEntries.filter((e) => !e.hostess_membership_id && e.unmatched)
+      const provisioned = new Map<string, string>()  // key: unmatched name → membership_id
+      if (unmatched.length > 0) {
+        for (const u of unmatched) {
+          const key = `${u.target_store_uuid}::${u.unmatched}`
+          if (provisioned.has(key)) continue  // 이미 같은 요청 중복 방지
+          try {
+            const pv = await apiFetch("/api/hostesses/provisional", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: u.unmatched,
+                store_uuid: u.target_store_uuid,
+                external_name_alias: u.unmatched,  // alias 학습 · 다음번 자동 매칭
+              }),
+            })
+            const pj = await pv.json().catch(() => ({})) as { membership_id?: string; error?: string; message?: string }
+            if (pv.ok && pj.membership_id) {
+              provisioned.set(key, pj.membership_id)
+            }
+          } catch { /* silent · 아래 skip */ }
+        }
+        if (provisioned.size > 0) {
+          toast(`미등록 ${provisioned.size}명 임시 등록 완료`, "success")
+          // building hostesses 캐시 무효화 · 다음번 즉시 매칭
+          invalidateApi("/api/building/hostesses")
+        }
+      }
+
+      // 2) 최종 entries = 매칭된 것 + auto-provisioned 것
+      const finalEntries = resolvedEntries.map((e) => {
+        if (e.hostess_membership_id) return { entry: e, mid: e.hostess_membership_id }
+        if (e.unmatched) {
+          const key = `${e.target_store_uuid}::${e.unmatched}`
+          const mid = provisioned.get(key) ?? null
+          return { entry: e, mid }
+        }
+        return { entry: e, mid: null }
+      }).filter((x): x is { entry: typeof resolvedEntries[number]; mid: string } => !!x.mid)
+
+      if (finalEntries.length === 0) {
+        toast("등록할 식구 없음 (매장 미확정 or 이름 부재)", "error")
+        return
+      }
+
       const res = await apiFetch("/api/chat/pattern-dispatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_message_id: chatMessageId,
-          entries: matched.map((e) => ({
-            target_store_uuid: e.target_store_uuid,
-            hostess_membership_id: e.hostess_membership_id,
-            category: e.category,
-            time_type: e.time_type,
-            room_no: e.room_no,
+          entries: finalEntries.map(({ entry, mid }) => ({
+            target_store_uuid: entry.target_store_uuid,
+            hostess_membership_id: mid,
+            category: entry.category,
+            time_type: entry.time_type,
+            room_no: entry.room_no,
           })),
         }),
       })
@@ -239,7 +283,7 @@ export function ChatPatternAction({
       // R-auto-confirm (2026-06-26): super_admin / owner 발신 시 즉시 자동 confirm.
       // R-auto-confirm-manager (2026-06-28): manager 도 본인 매장에만 외부 식구
       //   부르는 경우 자동 confirm 허용 (모든 entries 의 target_store 가 본인 매장).
-      const targetsAllMine = matched.every((e) => e.target_store_uuid === me.data?.store_uuid)
+      const targetsAllMine = finalEntries.every(({ entry }) => entry.target_store_uuid === me.data?.store_uuid)
       const isAutoActor =
         me.data?.is_super_admin
         || me.data?.role === "owner"
