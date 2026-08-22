@@ -44,29 +44,61 @@ export async function getMessages(
   input: GetMessagesInput
 ): Promise<GetMessagesResult> {
   // Build query with cursor pagination
-  // Sprint 2 (2026-07-29): 신규 필드 select · migration 174 미apply 환경 fallback
-  let query = supabase
-    .from("chat_messages")
-    .select("id, chat_room_id, sender_membership_id, content, message_type, created_at, macro_context, undo_deadline_at, superseded_at, session_id")
-    .eq("chat_room_id", input.chatRoomId)
-    .eq("store_uuid", input.store_uuid)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(input.limit)
+  // Sprint 2 (2026-07-29): 신규 필드 select · migration 174 미apply 환경 fallback.
+  //   신규 컬럼 (macro_context, undo_deadline_at, superseded_at, session_id) 이
+  //   없으면 42703 에러 → 기본 컬럼만으로 재시도. 사용자 채팅 안 깨짐.
+  const buildQuery = (withNewCols: boolean) => {
+    const cols = withNewCols
+      ? "id, chat_room_id, sender_membership_id, content, message_type, created_at, macro_context, undo_deadline_at, superseded_at, session_id"
+      : "id, chat_room_id, sender_membership_id, content, message_type, created_at"
+    let q = supabase
+      .from("chat_messages")
+      .select(cols)
+      .eq("chat_room_id", input.chatRoomId)
+      .eq("store_uuid", input.store_uuid)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(input.limit)
+    return q
+  }
 
+  let cursorFilterCreatedAt: string | null = null
   if (input.cursor && isValidUUID(input.cursor)) {
     const { data: cursorMsg } = await supabase
       .from("chat_messages")
       .select("created_at")
       .eq("id", input.cursor)
       .maybeSingle()
-
-    if (cursorMsg) {
-      query = query.lt("created_at", cursorMsg.created_at)
-    }
+    if (cursorMsg) cursorFilterCreatedAt = (cursorMsg as { created_at: string }).created_at
   }
 
-  const { data: messages } = await query
+  type RawMsg = {
+    id: string
+    chat_room_id: string
+    sender_membership_id: string
+    content: string
+    message_type: string
+    created_at: string
+    macro_context?: Record<string, unknown> | null
+    undo_deadline_at?: string | null
+    superseded_at?: string | null
+    session_id?: string | null
+  }
+  let messages: RawMsg[] | null = null
+  {
+    let query = buildQuery(true)
+    if (cursorFilterCreatedAt) query = query.lt("created_at", cursorFilterCreatedAt)
+    const primaryRes = await query
+    if (primaryRes.error && (primaryRes.error as { code?: string }).code === "42703") {
+      // Migration 174 미apply · 기본 컬럼만으로 fallback
+      let fbQuery = buildQuery(false)
+      if (cursorFilterCreatedAt) fbQuery = fbQuery.lt("created_at", cursorFilterCreatedAt)
+      const fb = await fbQuery
+      messages = (fb.data ?? null) as unknown as RawMsg[] | null
+    } else {
+      messages = (primaryRes.data ?? null) as unknown as RawMsg[] | null
+    }
+  }
 
   const messageIds = (messages ?? []).map((m: { id: string }) => m.id)
   const senderIds = [...new Set((messages ?? []).map((m: { sender_membership_id: string }) => m.sender_membership_id))]
