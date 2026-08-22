@@ -1,4 +1,5 @@
 /* eslint-disable */
+// SW_VERSION: 2026-08-23-zombie-purge  (bump to force browsers to refetch this file)
 /**
  * NOX Service Worker — minimal install / activate only.
  *
