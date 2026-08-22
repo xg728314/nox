@@ -40,10 +40,16 @@ export function ChatAutoActionBadge({ messageId }: { messageId: string }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // R-guard (2026-08-23): messageId 가 undefined/빈문자열/UUID 아닐 때 fetch 스킵.
+    //   template literal 이 `?message_id=undefined` 문자열로 만들어 서버 400 spam 발생 이력.
+    if (!messageId || typeof messageId !== "string" || messageId.length !== 36) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
-        const r = await apiFetch(`/api/chat/auto-action-status?message_id=${messageId}`)
+        const r = await apiFetch(`/api/chat/auto-action-status?message_id=${encodeURIComponent(messageId)}`)
         if (cancelled) return
         if (r.ok) {
           const j = await r.json()
