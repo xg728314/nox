@@ -76,7 +76,13 @@ export const STORE_REGISTRY: readonly StoreRegistryEntry[] = [
   { code: "BALI",      label: "발리",   floor: 7, aliases: ["발", "발리", "팔"] },
   { code: "DUBAI",     label: "두바이", floor: 7, aliases: ["두", "두바이"] },
   // ── 8층 ───────────────────────────────────────────────
-  { code: "BLACK",     label: "블랙",   floor: 8, aliases: ["블", "블랙"] },
+  // R-8beonga-rename (2026-08-23): DB 는 이미 "8번가" 로 rename됨 (migration 170).
+  //   parser 매칭용 label 정합화 + aliases 재정의:
+  //     - "8" 은 룸번호(예: "8번방") 와 충돌 위험 → 제외
+  //     - "번가" 는 unique · 다른 매장/카테고리/티켓 어휘와 겹치지 않아 안전
+  //     - "8번가" 자체는 unit word("번방/번룸/호실") 안 붙어서 룸매치 정규식과 무관
+  //   code 는 내부 참조라 "BLACK" 유지 (호환성).
+  { code: "BLACK",     label: "8번가", floor: 8, aliases: ["8번가", "번가"] },
   { code: "SSUM",      label: "썸",     floor: 8, aliases: ["썸"] },
   { code: "PARTY",     label: "파티",   floor: 8, aliases: ["파", "파티"] },
 ] as const

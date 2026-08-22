@@ -38,6 +38,8 @@ export default function ChatRoomPage() {
   const [sending, setSending] = useState(false)
   const [patternEnabled, setPatternEnabled] = useState(false)
   const [patternBusy, setPatternBusy] = useState(false)
+  // R-help-modal (2026-08-23): 메이드톡 파서 인식 범위 설명
+  const [helpOpen, setHelpOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   const router = useRouter()
@@ -158,7 +160,15 @@ export default function ChatRoomPage() {
         body: JSON.stringify({ chat_room_id: roomId, content: text }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const sent = (await res.json()) as ChatMessage
+      // R-msg-id-normalize (2026-08-23): 서버 POST 응답 필드 = `message_id` (not `id`).
+      //   기존: `sent.id === undefined` → ChatPatternAction 이 발화 안 함
+      //   (auto-fire useEffect 의 chatMessageId guard 실패). 새 메시지 파싱 자동 등록
+      //   되던 흐름이 완전 stuck 이었음. 서버 스키마 변경 위험보다 client 정규화가 안전.
+      const raw = (await res.json()) as Partial<ChatMessage> & { message_id?: string }
+      const sent: ChatMessage = {
+        ...raw,
+        id: raw.id ?? raw.message_id ?? "",
+      } as ChatMessage
       setMessages((arr) => [...arr, sent])
       setInput("")
     } catch (e) {
@@ -174,23 +184,39 @@ export default function ChatRoomPage() {
         title="채팅방"
         subtitle={roomId.slice(0, 12)}
         backHref="/m/chat"
-        right={me.data?.is_super_admin ? (
-          <button
-            type="button"
-            onClick={togglePattern}
-            disabled={patternBusy}
-            className={cn(
-              "text-[10px] font-extrabold px-2.5 py-1 rounded-full border",
-              patternEnabled
-                ? "bg-[#C49B61]/15 text-[#A87D45] border-[#C49B61]/40"
-                : "bg-white text-[#7A746A] border-[#D8D2C8]",
+        right={
+          <div className="flex items-center gap-1.5">
+            {/* R-help-modal (2026-08-23): 메이드톡 인식 범위 설명서 */}
+            <button
+              type="button"
+              onClick={() => setHelpOpen(true)}
+              className="text-[10px] font-extrabold px-2 py-1 rounded-full border bg-white text-[#7A746A] border-[#D8D2C8]"
+              title="메이드톡 인식 범위 · 예시"
+            >
+              📖 설명서
+            </button>
+            {me.data?.is_super_admin && (
+              <button
+                type="button"
+                onClick={togglePattern}
+                disabled={patternBusy}
+                className={cn(
+                  "text-[10px] font-extrabold px-2.5 py-1 rounded-full border",
+                  patternEnabled
+                    ? "bg-[#C49B61]/15 text-[#A87D45] border-[#C49B61]/40"
+                    : "bg-white text-[#7A746A] border-[#D8D2C8]",
+                )}
+                title="운영자 — 메이드 패턴 자동 인식 토글"
+              >
+                🎯 자동인식 {patternEnabled ? "ON" : "OFF"}
+              </button>
             )}
-            title="운영자 — 메이드 패턴 자동 인식 토글"
-          >
-            🎯 자동인식 {patternEnabled ? "ON" : "OFF"}
-          </button>
-        ) : undefined}
+          </div>
+        }
       />
+
+      {/* R-help-modal (2026-08-23): 설명서 모달 · 파서 인식 범위 매뉴얼 */}
+      {helpOpen && <ChatHelpModal onClose={() => setHelpOpen(false)} />}
 
       {/* Sprint 3: 매장 초이스 상태 sticky bar · macro_choice 최신 (superseded 아님) */}
       {(() => {
@@ -495,6 +521,170 @@ function ChoiceStateSticky({ msg }: { msg: ChatMessage }) {
         <span className="flex-1 truncate">{msg.content}</span>
         <span className="text-[9px] font-semibold opacity-70 shrink-0">실시간</span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * R-help-modal (2026-08-23): 메이드톡 파서 인식 범위 매뉴얼.
+ *   실장 사용자가 어떤 표기가 자동 인식되는지 확인 · 학습.
+ *   실 파서 스펙 (staffChatParser.ts + storeRegistry.ts) 기반.
+ */
+function ChatHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[15px] font-extrabold text-[#2D2B26]">📖 메이드톡 인식 범위</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[16px] font-bold text-[#7A746A] px-2"
+          >✕</button>
+        </div>
+
+        <div className="text-[11px] font-bold text-[#7A746A] mb-3">
+          아래 표기 방식은 자동으로 인식되어 세션이 등록됩니다.<br/>
+          <span className="text-[#A87D45]">한 줄에 순서 자유</span> · 앞뒤 인사말 무시.
+        </div>
+
+        {/* 형식 */}
+        <Section title="✅ 기본 형식">
+          <Row label="본매장 방번호+이름+종목+티켓" ex="1번방 지수 셔 완메" />
+          <Row label="매장명 명시" ex="마 1번방 지수 셔 완메" />
+          <Row label="여러 명 · 같은 종목" ex="1번방 지수 은빈 효미 퍼 완메" />
+          <Row label="이름별 종목 구분" ex="1번방 지수 은빈 퍼 효리 셔 완메" />
+        </Section>
+
+        {/* 방번호 */}
+        <Section title="🚪 방번호 표기 (모두 인식)">
+          <Row label="번방/번룸/호실" ex="1번방 · 3번룸 · 2호실" />
+          <Row label="축약" ex="1t · 1T · 1티" />
+          <Row label="단독 번" ex="1번" />
+          <Row label="라인 어디에나" ex="마 지수 5번방 셔 완메" />
+        </Section>
+
+        {/* 매장 */}
+        <Section title="🏢 매장 표기">
+          <div className="grid grid-cols-4 gap-1 text-[10px] font-bold mb-1">
+            {[
+              ["라이브","라"],["마블","마"],["버닝","버"],["황진이","황"],
+              ["신세계","신"],["아우라","아우"],["아지트","아지"],["퍼스트","퍼스"],
+              ["두바이","두"],["발리","발/팔"],["상한가","상"],["토끼","토"],
+              ["8번가","8번가"],["썸","썸"],["파티","파"],
+            ].map(([full, ab]) => (
+              <div key={full} className="rounded bg-[#F3EEE3] px-1 py-1 text-center">
+                <div className="text-[10px] font-extrabold text-[#2D2B26]">{full}</div>
+                <div className="text-[9px] text-[#A87D45]">{ab}</div>
+              </div>
+            ))}
+          </div>
+          <div className="text-[10px] text-[#7A746A] font-bold">
+            💡 매장 생략 시 자기 매장으로 자동 등록.
+          </div>
+        </Section>
+
+        {/* 종목 */}
+        <Section title="🎯 종목 (카테고리)">
+          <Row label="퍼블릭" ex="퍼 · 퍼블릭" />
+          <Row label="셔츠" ex="셔 · 셔츠" />
+          <Row label="하퍼" ex="하 · 하퍼" />
+        </Section>
+
+        {/* 티켓 */}
+        <Section title="🎟 티켓 (시간)">
+          <Row label="완티 (기본)" ex="완메 · 완티 · 메이드 · 완 · ㅁㅇㄷ" />
+          <Row label="반티 (반)" ex="반티 · 반메 · 반" />
+          <Row label="차3 (짧게)" ex="차3 · 차" />
+          <Row label="반차3 (반+차3)" ex="반차3 · 반차 · 반3 · ㅂ3" />
+        </Section>
+
+        {/* 그룹핑 */}
+        <Section title="🔗 이름-종목 그룹핑">
+          <div className="text-[11px] font-bold text-[#2D2B26] mb-1">
+            <code className="bg-[#F3EEE3] px-1 rounded">1번방 지수 은빈 효미 <b className="text-blue-600">퍼</b> 효리 <b className="text-red-600">셔</b> 반차3 메이드</code>
+          </div>
+          <div className="text-[10px] text-[#7A746A] font-bold ml-1">
+            → 지수/은빈/효미 = <b className="text-blue-600">퍼블릭·반차3</b><br/>
+            → 효리 = <b className="text-red-600">셔츠·반차3</b>
+          </div>
+        </Section>
+
+        {/* 여러 매장 */}
+        <Section title="🏬 여러 매장 (Cross-store)">
+          <div className="text-[11px] font-bold text-[#2D2B26] mb-1">
+            <code className="bg-[#F3EEE3] px-1 rounded">1번방 마 지수 퍼 신 은빈 셔 완메</code>
+          </div>
+          <div className="text-[10px] text-[#7A746A] font-bold ml-1">
+            → 마블·지수·퍼블릭·완티<br/>
+            → 신세계·은빈·셔츠·완티
+          </div>
+        </Section>
+
+        {/* 자동 처리 */}
+        <Section title="⚡ 자동 처리">
+          <ul className="text-[11px] text-[#2D2B26] font-bold list-disc pl-4 space-y-1">
+            <li>미등록 아가씨 → <span className="text-[#A87D45]">자동 등록 (임시)</span></li>
+            <li>세션 자동 생성 + 참여자 배정</li>
+            <li>자동 <span className="text-[#5FAB4E]">출근 체크 · 방중 상태</span></li>
+            <li>정산 자동 반영 (실장별 세분화)</li>
+          </ul>
+        </Section>
+
+        {/* 인사말 / 노이즈 */}
+        <Section title="🧹 무시되는 문구 (안전)">
+          <div className="text-[10px] text-[#7A746A] font-bold">
+            아래는 자동으로 무시됩니다 (아가씨로 오등록 안 됨):
+          </div>
+          <ul className="text-[10px] text-[#7A746A] font-bold list-disc pl-4 mt-1 space-y-0.5">
+            <li>&quot;안녕하세요&quot; · &quot;감사합니다&quot; · &quot;부탁드립니다&quot;</li>
+            <li>티켓 이후 붙은 인사말: &quot;완메 잘부탁드려요&quot;</li>
+            <li>5글자 이상 한글 (실 이름 최대 4자 기준)</li>
+            <li>특수문자 · 이모지</li>
+          </ul>
+        </Section>
+
+        {/* 팁 */}
+        <Section title="💡 팁">
+          <ul className="text-[10px] text-[#7A746A] font-bold list-disc pl-4 space-y-1">
+            <li>이름 뒤 오탈자로 잘못 등록되면 → 조판에서 <b>중복 배지</b> 클릭해 병합</li>
+            <li>실장 대신 체크인 → 외부조판 세션에서 <b>실장 변경</b> 버튼</li>
+            <li>이름 수정 → 채팅 카드 ✏️ 클릭 or /m/hostess-manage</li>
+          </ul>
+        </Section>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full mt-3 rounded-lg py-2.5 text-[12px] font-extrabold bg-[#2D2B26] text-white"
+        >
+          닫기
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3 rounded-xl bg-[#FBF6EC]/50 border border-[#EDE7DA] p-2.5">
+      <div className="text-[12px] font-extrabold text-[#A87D45] mb-1.5">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function Row({ label, ex }: { label: string; ex: string }) {
+  return (
+    <div className="flex items-start gap-2 py-0.5">
+      <span className="text-[10px] font-bold text-[#7A746A] w-24 shrink-0">{label}</span>
+      <code className="text-[11px] font-extrabold text-[#2D2B26] bg-white/70 px-1 rounded flex-1">{ex}</code>
     </div>
   )
 }

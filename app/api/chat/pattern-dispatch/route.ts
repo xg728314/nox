@@ -30,7 +30,9 @@ type Entry = {
 }
 
 const CAT_SET = new Set(["퍼블릭", "셔츠", "하퍼"])
-const TIME_SET = new Set(["기본", "반티", "차3"])
+// R-halfcha3 (2026-08-23): "반차3" (반티+차3 = 30분 셔츠 + 차3) 도 유효 티켓.
+//   confirm route 는 이미 이 time_type 을 처리 가능. dispatch 만 검증에서 누락돼서 400.
+const TIME_SET = new Set(["기본", "반티", "차3", "반차3"])
 
 export async function POST(request: Request) {
   try {

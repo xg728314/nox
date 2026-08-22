@@ -1,6 +1,9 @@
 "use client"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { apiFetch } from "@/lib/apiFetch"
+import { useToast } from "../../_components/Toast"
+import { invalidateApi } from "../../_hooks/useApi"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
@@ -286,17 +289,19 @@ function RoomCard({
   onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
   if (room.session) {
-    return <LiveRoomCard room={room} currentMembershipId={currentMembershipId} onOpenExtend={onOpenExtend} />
+    return <LiveRoomCard room={room} storeUuid={storeUuid} currentMembershipId={currentMembershipId} onOpenExtend={onOpenExtend} />
   }
   return <EmptyRoomCard room={room} storeUuid={storeUuid} />
 }
 
 function LiveRoomCard({
   room,
+  storeUuid,
   currentMembershipId,
   onOpenExtend,
 }: {
   room: BuildingRoom
+  storeUuid: string
   currentMembershipId: string | null
   onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
@@ -338,19 +343,20 @@ function LiveRoomCard({
           진행 {formatElapsed(elapsedMin)}
         </span>
 
-        {/* 실장 pill */}
-        {(s.manager_name || isMine) && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 ml-auto rounded-md px-1.5 py-0.5 text-[10px] font-black border",
-              isMine
-                ? "bg-[#C49B61]/16 text-[#8C6A3A] border-[#C49B61]/40"
-                : "bg-[#DE3A7B]/10 text-[#B22563] border-[#DE3A7B]/30",
-            )}
-          >
-            {isMine ? "✓" : "실"} {s.manager_name || "?"}
-          </span>
-        )}
+        {/* R-manager-pill-always (2026-08-23): 접힌 상태에서도 담당 실장 항상 노출.
+              미지정 (null) 시 붉은 pill 로 인지 강화 · 세션 열지 않고도 바로 확인. */}
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5 ml-auto rounded-md px-1.5 py-0.5 text-[10px] font-black border shrink-0",
+            isMine
+              ? "bg-[#C49B61]/16 text-[#8C6A3A] border-[#C49B61]/40"
+              : s.manager_name
+                ? "bg-[#DE3A7B]/10 text-[#B22563] border-[#DE3A7B]/30"
+                : "bg-red-100 text-red-700 border-red-300",
+          )}
+        >
+          {isMine ? `✓ ${s.manager_name || "내"}` : s.manager_name ? `실 ${s.manager_name}` : "⚠ 실장 미지정"}
+        </span>
 
         {/* 인원 카운트 */}
         <span className="text-[10px] font-black text-[#7A746A] ml-1 shrink-0">
@@ -360,6 +366,13 @@ function LiveRoomCard({
 
       {open && (
         <div className="border-t border-[#EDE7DA] px-3 py-2 flex flex-col gap-1.5">
+          {/* R-session-manager-change (2026-08-23): 담당 실장 변경 · 대신 체크인 케이스 대응 */}
+          <SessionManagerChange
+            sessionId={s.session_id}
+            storeUuid={storeUuid}
+            currentManagerName={s.manager_name}
+            currentManagerId={s.manager_membership_id ?? null}
+          />
           {s.customer_name && (
             <div className="text-[10px] font-bold text-[#7A746A]">
               손님: {s.customer_name}
@@ -708,6 +721,10 @@ function ClosedStateChip({
 }
 
 function ClosedSessionRow({ entry, expanded }: { entry: ClosedSessionLogEntry; expanded: boolean }) {
+  // R-closed-row-expand (2026-08-23): 개별 클릭 시 개별 expand + 부모 "모두 펼치기" 상속.
+  //   토글 UX: 부모 모두 접기 → 클릭 → 이 row 만 펼침 · 다시 클릭 → 접힘.
+  const [localOpen, setLocalOpen] = useState(false)
+  const isOpen = expanded || localOpen
   const endTime = fmtHm(entry.ended_at)
   const stripeCls =
     entry.settlement_status === "edited" ? "border-l-[#DE8A3A]"
@@ -721,13 +738,23 @@ function ClosedSessionRow({ entry, expanded }: { entry: ClosedSessionLogEntry; e
         : null
   return (
     <div className={cn("rounded-xl border-l-4 border border-[#D8D2C8] bg-white overflow-hidden", stripeCls)}>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className="text-[11px]">▶</span>
+      <button
+        type="button"
+        onClick={() => setLocalOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className={cn("text-[11px] transition-transform", isOpen && "rotate-90")}>▶</span>
         <span className="text-[13px] font-extrabold text-[#2D2B26]">
           {entry.room_no}
           <span className="text-[10px] font-bold text-[#7A746A] ml-0.5">번방</span>
         </span>
         <span className="text-[10px] font-bold text-[#7A746A]">종료 {endTime}</span>
+        {/* R-closed-manager (2026-08-23): 담당 실장 표시 · 접힌 상태에서도 노출 */}
+        {entry.manager_name && (
+          <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black bg-[#C49B61]/20 text-[#8C6A3A]">
+            실 {entry.manager_name}
+          </span>
+        )}
         {badge && (
           <span className={cn("inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black", badge.cls)}>
             {badge.txt}
@@ -736,13 +763,57 @@ function ClosedSessionRow({ entry, expanded }: { entry: ClosedSessionLogEntry; e
         <span className="ml-auto text-[10px] font-black text-[#7A746A]">
           {entry.participant_count}/{entry.capacity_hint}
         </span>
-      </div>
-      {expanded && (
-        <div className="border-t border-[#EDE7DA] px-3 py-2 text-[10px] font-bold text-[#7A746A] flex flex-col gap-0.5">
-          <div>매장: {entry.store_name}</div>
-          {entry.manager_name && <div>실장: {entry.manager_name}</div>}
+      </button>
+      {isOpen && (() => {
+        // R-price-display (2026-08-23): 매장 옆에 아가씨 총금액 · 각 이름 옆에 개별 금액.
+        const totalPrice = (entry.participants || []).reduce((s, p) => s + (p.price_amount ?? 0), 0)
+        const fmt = (n: number) => n >= 10000
+          ? `${Math.floor(n / 10000)}만${n % 10000 === 0 ? "" : Math.floor((n % 10000) / 1000) + "천"}원`
+          : `${n.toLocaleString()}원`
+        return (
+        <div className="border-t border-[#EDE7DA] px-3 py-2 text-[10px] font-bold text-[#7A746A] flex flex-col gap-1">
+          <div className="flex gap-3 flex-wrap items-center">
+            <span>매장: <span className="text-[#2D2B26] font-extrabold">{entry.store_name}</span></span>
+            {totalPrice > 0 && (
+              <span className="inline-flex items-center rounded-md px-2 py-0.5 bg-[#C49B61]/18 text-[#8C6A3A] text-[10px] font-black">
+                총 {fmt(totalPrice)}
+              </span>
+            )}
+            {entry.manager_name && (
+              <span>실장: <span className="text-[#2D2B26] font-extrabold">{entry.manager_name}</span></span>
+            )}
+          </div>
+          {/* R-closed-participants (2026-08-23): 참여 아가씨 내역 · 개별 금액 */}
+          {entry.participants.length > 0 ? (
+            <div className="mt-1 flex flex-col gap-0.5">
+              <div className="text-[9px] text-[#A87D45] font-extrabold">참여자 {entry.participants.length}명</div>
+              {entry.participants.map((p) => {
+                const cat = p.category === "퍼블릭" ? "P" : p.category === "셔츠" ? "S" : p.category === "하퍼" ? "H" : ""
+                return (
+                  <div key={p.participant_id} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-4 h-4 inline-flex items-center justify-center rounded bg-[#EDE7DA] text-[8px] font-black text-[#7A746A]">
+                      {cat}
+                    </span>
+                    <span className="font-extrabold text-[#2D2B26]">{p.hostess_name}</span>
+                    {p.price_amount > 0 && (
+                      <span className="text-[10px] text-[#8C6A3A] font-black">{fmt(p.price_amount)}</span>
+                    )}
+                    {p.origin_store_name && p.origin_store_name !== entry.store_name && (
+                      <span className="text-red-700 font-bold">({p.origin_store_name})</span>
+                    )}
+                    <span className="ml-auto text-[10px] text-[#7A746A]">
+                      {p.time_minutes ? `${p.time_minutes}분` : "-"}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-[10px] text-[#7A746A]">참여자 없음</div>
+          )}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
@@ -773,4 +844,117 @@ function countMine(stores: BuildingRoomsStoreBlock[]): number {
   let n = 0
   for (const s of stores) for (const r of s.rooms) if (r.session?.is_mine) n++
   return n
+}
+
+/**
+ * R-session-manager-change (2026-08-23): 세션 담당 실장 변경 인라인 UI.
+ *
+ * 실장 A 가 실장 B 대신 체크인해줬을 때 → 담당이 A 로 잡힘 → 실제 담당 B 로 수정 필요.
+ * PATCH /api/sessions/{id} 로 manager_membership_id 갱신.
+ *
+ * 매장별 매니저 목록은 storeUuid 로 /api/store/staff?store_uuid=... 조회
+ * (본 매장이면 auto · 다른 매장이면 super_admin 만 조회 가능).
+ */
+function SessionManagerChange({
+  sessionId,
+  storeUuid,
+  currentManagerName,
+  currentManagerId,
+}: {
+  sessionId: string
+  storeUuid: string
+  currentManagerName: string | null
+  currentManagerId: string | null
+}) {
+  const [managers, setManagers] = useState<Array<{ id: string; name: string }>>([])
+  const [busy, setBusy] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const toast = useToast()
+
+  useEffect(() => {
+    (async () => {
+      try {
+        // 본 매장 매니저만 (다른 매장 노출 안 함 · privacy)
+        const r = await apiFetch("/api/store/staff")
+        const j = await r.json()
+        const list = (j.staff || [])
+          .filter((s: { role: string; store_uuid?: string }) => s.role === "manager" && (!s.store_uuid || s.store_uuid === storeUuid))
+          .map((s: { membership_id: string; full_name?: string; name?: string }) => ({
+            id: s.membership_id, name: s.full_name || s.name || "?",
+          }))
+        setManagers(list)
+      } catch { /* silent */ }
+    })()
+  }, [storeUuid])
+
+  const change = async (newManagerId: string) => {
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manager_membership_id: newManagerId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) return toast(`실장 변경 실패: ${j.message || j.error || res.status}`, "error")
+      const nm = managers.find((m) => m.id === newManagerId)?.name || "?"
+      toast(`✓ 담당 실장 변경: ${nm}`, "success")
+      invalidateApi("/api/building/rooms")
+    } catch (e) {
+      toast(`실장 변경 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setBusy(false)
+      setPickerOpen(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-[10px] font-bold text-[#7A746A]">
+      <span>담당 실장:</span>
+      <span className="text-[#2D2B26] font-extrabold">{currentManagerName || "미지정"}</span>
+      <button
+        type="button"
+        onClick={() => setPickerOpen((v) => !v)}
+        disabled={busy || managers.length === 0}
+        className="ml-auto rounded-md bg-[#C49B61]/20 text-[#8C6A3A] border border-[#C49B61]/40 px-2 py-0.5 text-[10px] font-black disabled:opacity-40"
+      >
+        {busy ? "..." : "✏️ 실장 변경"}
+      </button>
+      {pickerOpen && managers.length > 0 && (
+        <div
+          onClick={() => setPickerOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xs rounded-2xl bg-white p-3 shadow-2xl"
+          >
+            <div className="text-[12px] font-extrabold text-[#2D2B26] mb-2">담당 실장 선택</div>
+            <div className="flex flex-col gap-1">
+              {managers.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => change(m.id)}
+                  disabled={busy}
+                  className={cn(
+                    "w-full text-left rounded-lg py-2 px-3 text-[12px] font-extrabold border disabled:opacity-40",
+                    m.id === currentManagerId
+                      ? "bg-[#C49B61]/20 text-[#8C6A3A] border-[#C49B61]"
+                      : "bg-white text-[#2D2B26] border-[#D8D2C8] hover:bg-[#FBF6EC]",
+                  )}
+                >
+                  {m.id === currentManagerId && "✓ "}{m.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="w-full rounded-lg py-2 text-[11px] font-bold text-[#7A746A] bg-[#F3EEE3] mt-1"
+              >취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

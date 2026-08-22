@@ -82,9 +82,12 @@ export function ChatPatternAction({
     try { return parseStaffChat(content, null) } catch { return { entries: [], warnings: [] } }
   }, [content])
 
-  // entries 중 (이름, store, category, ticket) 모두 있는 것만
+  // entries 중 (이름, category, ticket) 있는 것.
+  //   R-home-fallback (2026-08-23): origin_store_name 이 null 이면 뷰어의 본 매장으로
+  //   자동 fallback (아래 resolvedEntries 에서 myStoreUuid 적용). 사용자 실제 흐름:
+  //   자기 매장 손님 받을 때는 매장명 생략 · "1번방 지연 셔 완메" 만 침.
   const validEntries = useMemo(
-    () => parsed.entries.filter((e) => e.name && e.origin_store_name && e.category && e.ticket_type),
+    () => parsed.entries.filter((e) => e.name && e.category && e.ticket_type),
     [parsed.entries],
   )
 
@@ -107,9 +110,13 @@ export function ChatPatternAction({
     const allStores = buildingS.data?.stores ?? []
     const out: ResolvedEntry[] = []
     for (const e of validEntries) {
-      // validEntries 필터에서 모두 non-null 보장됨
-      if (!e.origin_store_name || !e.category || !e.ticket_type || !e.name) continue
-      const store = allStores.find((s) => s.store_name === e.origin_store_name)
+      // validEntries 필터에서 name/cat/ticket 만 보장됨. store 는 null 가능.
+      if (!e.category || !e.ticket_type || !e.name) continue
+      // R-home-fallback (2026-08-23): origin_store_name null → viewer 본 매장으로.
+      //   ex) "1번방 지연 셔 완메" → 마블 실장이 침 → 마블의 1번방
+      let store = e.origin_store_name
+        ? allStores.find((s) => s.store_name === e.origin_store_name)
+        : allStores.find((s) => s.store_uuid === myStoreUuid)
       const cat = CAT_FROM_LABEL[e.category] as Cat | undefined
       const time = TIME_FROM_TICKET[e.ticket_type] as TimeKey | undefined
       if (!store || !cat || !time) continue
@@ -228,10 +235,14 @@ export function ChatPatternAction({
   //   R-auto-provision (2026-08-23): 미매칭 아가씨 (hostess_membership_id null)
   //   있으면 /api/hostesses/provisional 로 자동 등록 · 그 후 pattern-dispatch 진행.
   //   초기 도입기 · 아가씨 미등록 상태에서도 채팅 파싱만으로 자동 운영 가능.
-  async function createPending() {
+  async function createPending(opts?: { silent?: boolean }) {
     if (submitting || resolvedEntries.length === 0) return
+    const silent = !!opts?.silent
+    const notify = (msg: string, kind: "success" | "error" | "info") => {
+      if (!silent) toast(msg, kind)
+    }
     setSubmitting(true)
-    haptic([10, 30, 10])
+    if (!silent) haptic([10, 30, 10])
     try {
       // 1) 미매칭 → auto-provision
       const unmatched = resolvedEntries.filter((e) => !e.hostess_membership_id && e.unmatched)
@@ -257,7 +268,7 @@ export function ChatPatternAction({
           } catch { /* silent · 아래 skip */ }
         }
         if (provisioned.size > 0) {
-          toast(`미등록 ${provisioned.size}명 임시 등록 완료`, "success")
+          notify(`미등록 ${provisioned.size}명 임시 등록 완료`, "success")
           // building hostesses 캐시 무효화 · 다음번 즉시 매칭
           invalidateApi("/api/building/hostesses")
         }
@@ -275,7 +286,7 @@ export function ChatPatternAction({
       }).filter((x): x is { entry: typeof resolvedEntries[number]; mid: string } => !!x.mid)
 
       if (finalEntries.length === 0) {
-        toast("등록할 식구 없음 (매장 미확정 or 이름 부재)", "error")
+        notify("등록할 식구 없음 (매장 미확정 or 이름 부재)", "error")
         return
       }
 
@@ -309,7 +320,7 @@ export function ChatPatternAction({
         || me.data?.role === "owner"
         || (me.data?.role === "manager" && targetsAllMine)
       if (isAutoActor && created.length > 0) {
-        toast(`임시 등록 ${created.length}건 — 자동 확인 중...`, "info")
+        notify(`임시 등록 ${created.length}건 — 자동 확인 중...`, "info")
         // 순차 confirm (마지막 호출 시 cross-store dispatch 실제 실행됨)
         let executed = 0
         for (const d of created) {
@@ -319,7 +330,7 @@ export function ChatPatternAction({
             if (cf.ok) executed++
           } catch { /* 개별 실패 — 다음 진행 */ }
         }
-        toast(`✓ ${executed}건 cross-store 등록 완료`, "success")
+        notify(`✓ ${executed}건 cross-store 등록 완료`, "success")
         // 외부 식구 섹션 즉시 반영
         invalidateApi("/api/manager/incoming-staff")
         invalidateApi("/api/manager/hostesses")
@@ -332,10 +343,10 @@ export function ChatPatternAction({
           if (Array.isArray(jj?.dispatches)) setServerDispatches(jj.dispatches)
         } catch { /* swallow */ }
       } else {
-        toast(j.already ? "이미 등록됨" : `임시 등록 ${created.length}건 — 상대 매장 확인 대기`, "success")
+        notify(j.already ? "이미 등록됨" : `임시 등록 ${created.length}건 — 상대 매장 확인 대기`, "success")
       }
     } catch (e) {
-      toast(`등록 실패: ${(e as Error).message}`, "error")
+      notify(`등록 실패: ${(e as Error).message}`, "error")
     } finally {
       setSubmitting(false)
     }
@@ -390,9 +401,14 @@ export function ChatPatternAction({
   //   배경: 바쁜 시간대 실장이 "임시 등록" 버튼 클릭 놓쳐 → 아가씨 누락 → 정산 사고.
   //   방에 들어가는 아가씨는 채팅 파싱으로 놓치는 경우 없으니 자동 등록이 안전.
   //   조건: 파싱 완료 + 첫 폴링 완료 (~1.5s 대기) + serverDispatches 비어있음 + 미제출.
-  //   idempotency: autoFiredRef 로 1회만 발화. serverDispatches 이미 있으면 skip.
-  const autoFiredRef = useRef(false)
-  const createPendingRef = useRef<() => Promise<void>>(async () => {})
+  //   idempotency:
+  //     - autoFiredRef · 컴포넌트 내 1회만 발화
+  //     - localStorage · 메뉴 재진입 시 같은 message 재발화 방지 (R-persist-fire, 2026-08-23)
+  const AUTO_FIRE_KEY = `nox_autofire_${chatMessageId}`
+  const autoFiredRef = useRef<boolean>(
+    typeof window !== "undefined" && !!window.localStorage.getItem(AUTO_FIRE_KEY),
+  )
+  const createPendingRef = useRef<(opts?: { silent?: boolean }) => Promise<void>>(async () => {})
   createPendingRef.current = createPending
   useEffect(() => {
     if (autoFiredRef.current) return
@@ -401,6 +417,7 @@ export function ChatPatternAction({
     if (serverDispatches.length > 0) {
       // 이미 서버에 dispatch 존재 · 다른 viewer 가 이미 발화했거나 이 발신자가 이전에 등록함
       autoFiredRef.current = true
+      try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
       return
     }
     // 첫 폴링 완료 대기 (~1.5s) 후에도 여전히 비어있으면 자동 발화
@@ -408,13 +425,16 @@ export function ChatPatternAction({
       if (autoFiredRef.current) return
       if (dispatchesRef.current.length > 0) {
         autoFiredRef.current = true
+        try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
         return
       }
       autoFiredRef.current = true
-      void createPendingRef.current()
+      try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
+      // R-silent-auto (2026-08-23): auto-fire 는 무음 · 사용자 액션 아님 · 알림 여러번 방지
+      void createPendingRef.current({ silent: true })
     }, 1500)
     return () => clearTimeout(t)
-  }, [resolvedEntries.length, submitting, serverDispatches.length])
+  }, [resolvedEntries.length, submitting, serverDispatches.length, AUTO_FIRE_KEY])
 
   // 카드는 store/cat/time 인식되면 항상 표시
   if (resolvedEntries.length === 0) return null
@@ -525,7 +545,7 @@ export function ChatPatternAction({
         <button
           type="button"
           disabled={submitting}
-          onClick={createPending}
+          onClick={() => { void createPending() }}
           className="w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
         >
           {submitting ? "등록 중..." : `📝 임시 등록 (${resolvedEntries.length}건 · 미매칭 자동 등록)`}

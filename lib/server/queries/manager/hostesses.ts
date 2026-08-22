@@ -92,6 +92,9 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
       .eq("store_uuid", auth.store_uuid)
       .eq("role", "hostess")
       .eq("status", "approved")
+      // R-owner-soft-delete-filter (2026-08-23): 병합된 hostess 는 deleted_at 스탬프.
+      //   owner 경로 필터 누락으로 병합 후에도 목록에 잔존하던 버그 fix.
+      .is("deleted_at", null)
 
     if (allHostessesError) {
       console.error("[getManagerHostesses owner] store_memberships query failed:", allHostessesError)

@@ -55,6 +55,21 @@ export default function ChatRoomsPage() {
           </section>
         )}
 
+        {/* R-maid-chat (2026-08-23): 메이드톡 전용 채팅방 · 파싱 자동 인식 활성 */}
+        <Link
+          href="/m/chat/new-maid"
+          className="block rounded-2xl bg-gradient-to-r from-[#5FAB4E] to-[#3E7A32] text-white px-5 py-3 no-underline shadow-md"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-[18px]">🎯</span>
+            <div className="flex-1">
+              <div className="text-[13px] font-extrabold">메이드톡 채팅 만들기</div>
+              <div className="text-[10px] font-semibold opacity-80">매장 선택 → 자동 파싱 · 세션 자동 등록</div>
+            </div>
+            <span className="text-[16px]">→</span>
+          </div>
+        </Link>
+
         <Link
           href="/m/chat/new"
           className="block rounded-2xl bg-gradient-to-r from-[#C49B61] to-[#A87D45] text-white px-5 py-3 no-underline shadow-md"
@@ -63,7 +78,7 @@ export default function ChatRoomsPage() {
             <span className="text-[18px]">✏</span>
             <div className="flex-1">
               <div className="text-[13px] font-extrabold">새 그룹 채팅 만들기</div>
-              <div className="text-[10px] font-semibold opacity-80">실장 / 아가씨 검색 → 그룹 생성</div>
+              <div className="text-[10px] font-semibold opacity-80">실장 / 아가씨 검색 → 일반 채팅</div>
             </div>
             <span className="text-[16px]">→</span>
           </div>

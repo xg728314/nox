@@ -76,7 +76,8 @@ const CATEGORIES: DomainEntry[] = [
 const TICKETS: DomainEntry[] = [
   { code: "COMPLETE",  label: "완티",  aliases: ["완티", "완메", "메이드", "ㅁㅇㄷ", "완"], type: "TICKET" },
   { code: "HALF",      label: "반티",  aliases: ["반티", "반메", "반"], type: "TICKET" },
-  { code: "HALF_CHA3", label: "반차3", aliases: ["반차3", "반차2", "반차"], type: "TICKET" },
+  // R-halfcha3-aliases (2026-08-23): 실장 축약 "반3" · "ㅂ3" 추가
+  { code: "HALF_CHA3", label: "반차3", aliases: ["반차3", "반차2", "반차", "반3", "ㅂ3"], type: "TICKET" },
   { code: "CHA3",      label: "차3",   aliases: ["차3", "차"], type: "TICKET" },
 ]
 
@@ -93,11 +94,16 @@ const STATES: StateEntry[] = [
 
 // Event (2026-07-07 신규): 세션 시작/종료 신호. dispatch 실행 X, 상태 전이만.
 //   ㅅㅌㅌ = 스타트, ㅅㅊ = 시간체크 (세션 시작 확인).
-type EventType = "START" | "TIME_CHECK"
+// R-checkout-event (2026-08-23): 채팅 종료 표기 신호 추가.
+//   실 실장 흐름: "지연 팅" · "지연 나감" · "지연 종료" · "지연 끝" · "지연 아웃"
+//   → 자동 checkout 로 처리 (참여자 leave). 파서는 이벤트 flag 만 세팅 · 서버에서 처리.
+type EventType = "START" | "TIME_CHECK" | "CHECKOUT"
 type EventEntry = { code: EventType; label: string; aliases: string[] }
 const EVENTS: EventEntry[] = [
   { code: "START",       label: "스타트",    aliases: ["스타트", "ㅅㅌㅌ"] },
   { code: "TIME_CHECK",  label: "시간체크",  aliases: ["시간체크", "ㅅㅊ"] },
+  // R-checkout-event (2026-08-23): 다양한 종료 표기
+  { code: "CHECKOUT",    label: "종료",      aliases: ["종료", "나감", "나갔", "끝", "아웃", "팅"] },
 ]
 
 // ── Flattened alias lookup table ───────────────────────────────────
@@ -174,6 +180,28 @@ function splitNameSegment(raw: string): string[] {
 // Conservative initial set per spec — extend only after operator
 // validation. Do NOT treat "메" as a semantic token (no 메이드 revival).
 const TRAILING_NOISE: ReadonlySet<string> = new Set<string>(["메"])
+
+// R-domain-blacklist (2026-08-23): 실 실장이 자주 쓰는 도메인 용어 · 존칭.
+//   auto-provisioning 이 이 단어를 hostess 이름으로 오등록 방지.
+//   예: "1번방 김사장님 지연 셔 완메" → 김사장님 skip · 지연만 등록.
+//        "초이스 20명 봤어 지연 셔 완메" → 초이스/봤어 skip · 지연만 등록.
+//   완전 일치 (splitNameSegment 결과 기준) 또는 suffix 매치 (사장님/이사님 등).
+const NAME_BLACKLIST_EXACT: ReadonlySet<string> = new Set<string>([
+  "초이스", "초3", "초2",
+  "손님", "손", "응대", "오디션",
+  "봤어", "본", "봐요", "봅니다",
+  "왔어", "왔음", "옴",
+  "나감", "나갔", "종료", "끝", "아웃", "팅",
+  "잠깐", "잠시", "대기",
+  "총알", "특별", "픽업",
+  // R-unit-noise (2026-08-23): 측정 단위 · 숫자 뒤 흔한 접미
+  "명", "개", "등", "번", "층",
+])
+// 존칭 suffix 로 끝나면 이름 아님 (김사장님/박이사님/이대표님 등)
+const HONORIFIC_SUFFIXES: readonly string[] = [
+  "사장님", "이사님", "대표님", "실장님", "부장님", "과장님",
+  "선생님", "손님", "형님", "누나",
+]
 
 // ── Attached-shorthand tokenizer ───────────────────────────────────
 //
@@ -359,7 +387,7 @@ export type ParsedStaffEntry = {
    * R-event (2026-07-07): 세션 이벤트 신호. `ㅅㅌㅌ`/`스타트` → 'START',
    * `ㅅㅊ`/`시간체크` → 'TIME_CHECK'. null 이면 이벤트 없음.
    */
-  event: "START" | "TIME_CHECK" | null
+  event: "START" | "TIME_CHECK" | "CHECKOUT" | null
 }
 
 /**
@@ -471,16 +499,33 @@ export function parseStaffChat(
   const lines = text.split(/\r?\n/)
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
     let rawLine = lines[lineIdx]
-    // R-room-prefix (2026-06-28): "1번방" / "3번룸" / "R1" prefix 추출 후 라인에서 제거.
-    //   매치 패턴: 라인 시작 + 숫자 + (번|호|호실|번방|번룸|R 등) 또는 "R숫자".
+    // R-room-anywhere (2026-08-23): "1번방" / "3번룸" / "2호실" / "1T" / "1번" 등
+    //   방번호 표기가 라인 어디에 있어도 인식.
+    //   실 사용자 입력 예: "마 2번방 지연 수연 미연 셔 완메", "1T 지연 셔 완메".
+    //
+    //   매칭 unit words (우선순위 순):
+    //     1) 명확: 번방 / 번룸 / 번호실 / 호실
+    //     2) 짧은형: T (실장 캐주얼 표기 "1T")
+    //     3) 단독 "번" — 접미 다른 글자 없을 때만 (예 "1번 지연" OK, "1번방" 위 (1)에서 이미 매치)
+    //   "R1" 프리픽스는 라인 시작에서만 (기존 유지).
     //   추출된 room_no 는 이 라인 모든 entries 에 적용.
     let lineRoomNo: string | null = null
-    const roomMatch = rawLine.trim().match(/^(\d+)\s*(?:번방|번룸|번호실|번|호|호실|룸|R)\s*/i)
-      ?? rawLine.trim().match(/^R(\d+)\s*/i)
+    // 1) 명확 unit
+    let roomMatch = rawLine.match(/(\d+)\s*(?:번방|번룸|번호실|호실)/i)
+    // 2) 짧은 T 표기 — "1T" (영어) · "1티" (한글 축약) · 단독 토큰
+    if (!roomMatch) roomMatch = rawLine.match(/(?:^|\s)(\d+)T(?=\s|$)/i)
+    if (!roomMatch) roomMatch = rawLine.match(/(?:^|\s)(\d+)티(?=\s|$)/)
+    // 3) 단독 "번" — "1번" · 뒤에 방/룸/호실 안 붙었을 때 · 앞뒤 공백 확실
+    if (!roomMatch) roomMatch = rawLine.match(/(?:^|\s)(\d+)번(?![방룸호가])(?=\s|$)/)
+    // 4) R1 라인 시작 (호환)
+    if (!roomMatch) roomMatch = rawLine.trim().match(/^R(\d+)\s*/i)
     if (roomMatch) {
       lineRoomNo = roomMatch[1]
-      // prefix 제거 후 나머지 line 만 처리
-      rawLine = rawLine.trim().slice(roomMatch[0].length)
+      // 매치 부분만 제거 (라인 나머지는 원래 순서 유지)
+      const idx = rawLine.indexOf(roomMatch[0])
+      if (idx >= 0) {
+        rawLine = rawLine.slice(0, idx) + rawLine.slice(idx + roomMatch[0].length)
+      }
     }
     const parts = rawLine.trim().split(/\s+/).filter(Boolean)
     if (parts.length === 0) continue
@@ -492,7 +537,7 @@ export function parseStaffChat(
     const categoriesList: string[] = []
     // R-state / R-event (2026-07-07): 라인 별 상태/이벤트 신호.
     let lineState: "UNSEEN" | "SEEN" | null = null
-    let lineEvent: "START" | "TIME_CHECK" | null = null
+    let lineEvent: "START" | "TIME_CHECK" | "CHECKOUT" | null = null
 
     // 사전 등장 여부 검사 — 정규식이 아니라 부분 문자열 검색으로 간단히.
     //   자모 단독은 완성 한글 이름 안에서 매치되지 않으므로 안전.
@@ -510,17 +555,45 @@ export function parseStaffChat(
     }
     // Per-name store attribution — each emitted name snapshots the
     // `store` value that was active at the moment the name was produced.
-    // This enables mixed-store single-line inputs like
-    //   "마시은 버은지 라미미 황지연"
-    // to yield 4 entries with 4 different origin_store_names instead of
-    // collapsing to a single (last-parsed) store. Category / ticket_type
-    // remain line-wide (last-wins, per locked spec) because real operator
-    // usage rarely mixes those within one line.
-    const pending: Array<{ name: string; origin_store_name: string | null }> = []
+    //
+    // R-name-group (2026-08-23): per-name category/ticket 도 snapshot.
+    //   실사용자 흐름: "수영 화영 퍼 지연 셔 완메"
+    //     → 수영/화영 = 퍼블릭, 지연 = 셔츠 (각 이름 뒤에 오는 종목이 그 이름들에 적용)
+    //   그룹 규칙:
+    //     - CATEGORY 토큰: 아직 category 없는 pending names 에게 적용, 이후 새 그룹
+    //     - TICKET 토큰: category 확정된 · ticket 없는 pending names 에게 적용
+    //     - NAME 토큰: pending 에 category:null 로 append (다음 CATEGORY 대기)
+    //   결과적으로 category/ticket 은 (locked spec 의 last-wins 대신) 그룹별로 스냅샷됨.
+    const pending: Array<{
+      name: string;
+      origin_store_name: string | null;
+      category: string | null;
+      ticket_type: string | null;
+    }> = []
+    // 아직 category 배정 안 된 pending 인덱스들 (waiting for CATEGORY token)
+    const waitingCatIdx: number[] = []
     // Aggregated per-line ignored suffix-noise chars (dedup, order-preserving).
     const noiseSeen: string[] = []
 
     for (const part of parts) {
+      // R-standalone-noise (2026-08-23): "메" · "메이드" 등 standalone 완티 shorthand
+      //   가 part 로 홀로 등장하면 skip (name 오탈 방지).
+      //   기존 tokenizer 는 justMatched=true 일 때만 noise 로 처리 · standalone part 는
+      //   자체적으로 justMatched=false 로 시작해서 이름으로 오분류.
+      //   예: "수영 화영 퍼 완메 수영 셔 반차3 메" → 마지막 "메" 가 이름으로 됐던 버그.
+      if (TRAILING_NOISE.has(part)) {
+        if (!noiseSeen.includes(part)) noiseSeen.push(part)
+        continue
+      }
+      // R-greeting-noise (2026-08-23): 5글자 이상 한글 part 는 인사말 가능성 높음.
+      //   예: "안녕하세요" (5자) · "잘부탁드려요" (6자). 실 hostess 이름 최대 4자
+      //   기준. tokenizer 가 dictionary alias (하/셔/차 등) 만나면 split 하지만
+      //   그 앞뒤 gap 이 인사말 파편일 수 있음 → part 전체 노이즈 처리.
+      //   조건: 순수 한글 + 5+자 + line 에 이미 다른 유효 token 있거나 없거나 무관.
+      if (part.length >= 5 && /^[가-힣]+$/.test(part)) {
+        if (!noiseSeen.includes(part)) noiseSeen.push(part)
+        continue
+      }
       // Defense-in-depth: any unexpected failure in the tokenizer or
       // name splitter is swallowed to honor the additive-tolerant
       // invariant. A single bad part NEVER clears store/category/ticket
@@ -546,6 +619,16 @@ export function parseStaffChat(
               if (store === null || t.text.length > 1 || pending.length > 0) {
                 store = t.entry.label
               }
+              // R-multi-group-store (2026-08-23): 이미 이전 그룹이 ticket 까지 완결됐는데
+              //   새 STORE 나오면 = 새 그룹 시작. category/ticket 리셋해서 후속 이름들이
+              //   post-ticket-noise 로 오분류되지 않게 함.
+              //   예: "마 지수 퍼 완메 라 수영 셔 반티" → 라 등장 시 그룹 리셋 → 수영/셔/반티 새 그룹.
+              //   기존 "마 지연 라 미미 셔 완메" 케이스는 ticket_type 안 나왔으므로 리셋 안 됨 · 정상.
+              if (ticket_type !== null) {
+                category = null
+                ticket_type = null
+                waitingCatIdx.length = 0
+              }
             }
             else if (t.entry.type === "CATEGORY") {
               category = t.entry.label
@@ -553,13 +636,56 @@ export function parseStaffChat(
               if (!categoriesList.includes(t.entry.label)) {
                 categoriesList.push(t.entry.label)
               }
+              // R-name-group (2026-08-23): 대기 중인 이름들 · 이 카테고리로 확정.
+              for (const idx of waitingCatIdx) {
+                pending[idx].category = t.entry.label
+              }
+              waitingCatIdx.length = 0
             }
-            else if (t.entry.type === "TICKET") ticket_type = t.entry.label
+            else if (t.entry.type === "TICKET") {
+              ticket_type = t.entry.label
+              // R-name-group (2026-08-23): category 있는 · ticket 없는 pending 에 적용.
+              for (const p of pending) {
+                if (p.category && !p.ticket_type) p.ticket_type = t.entry.label
+              }
+            }
           } else if (t.kind === "noise") {
             if (!noiseSeen.includes(t.text)) noiseSeen.push(t.text)
           } else {
-            for (const name of splitNameSegment(t.text)) {
-              pending.push({ name, origin_store_name: store })
+            // R-post-ticket-noise (2026-08-23): 티켓 확정 후 미매치 토큰 = 노이즈
+            //   ("잘부탁드려요" · "!!!!" 등 뒤 인사말 사고 방지).
+            if (ticket_type !== null && waitingCatIdx.length === 0) {
+              if (!noiseSeen.includes(t.text)) noiseSeen.push(t.text)
+            } else {
+              // R-long-token-noise (2026-08-23): 원본 5글자+ 이 splitNameSegment 로
+              //   여러 조각 나뉘면 (예: "안녕하세요" → "안녕"/"세요") 인사말 가능성 높음.
+              //   한국 여자 이름 대부분 2-4자 · 4자 이하 원본은 이름 후보 유지.
+              //   ("홍길동 김철수" 같은 3자 이름 여러 개는 space 로 이미 분리돼서 각 part 3자).
+              const originalText = t.text
+              const segments = splitNameSegment(originalText)
+              const isProbablyGreeting = originalText.length >= 5 && segments.length > 1
+              // R-domain-blacklist (2026-08-23): 원본 gap 전체가 존칭 suffix 로 끝나면
+              //   splitNameSegment 하지 말고 통째로 skip.
+              //   예: "김사장님" (4자 · seg=["김사","장님"]) · "박이사님" 등.
+              const originalEndsHonorific = HONORIFIC_SUFFIXES.some((suf) => originalText.endsWith(suf))
+              const originalIsBlacklisted = NAME_BLACKLIST_EXACT.has(originalText)
+              if (isProbablyGreeting || originalEndsHonorific || originalIsBlacklisted) {
+                if (!noiseSeen.includes(originalText)) noiseSeen.push(originalText)
+              } else {
+                for (const name of segments) {
+                  // 개별 조각도 blacklist 체크 (splitNameSegment 후)
+                  if (NAME_BLACKLIST_EXACT.has(name)) {
+                    if (!noiseSeen.includes(name)) noiseSeen.push(name)
+                    continue
+                  }
+                  if (HONORIFIC_SUFFIXES.some((suf) => name.endsWith(suf))) {
+                    if (!noiseSeen.includes(name)) noiseSeen.push(name)
+                    continue
+                  }
+                  pending.push({ name, origin_store_name: store, category: null, ticket_type: null })
+                  waitingCatIdx.push(pending.length - 1)
+                }
+              }
             }
           }
         }
@@ -579,15 +705,16 @@ export function parseStaffChat(
       continue
     }
 
-    // Emit: each entry keeps its own snapshotted origin_store_name; the
-    // final category + ticket_type parsed on the line apply to all.
+    // Emit: each entry keeps its own snapshotted origin_store_name;
+    //   R-name-group (2026-08-23): category/ticket_type 도 per-entry 스냅샷 우선.
+    //   fallback: line-level 최종값 (기존 spec 호환).
     // R-multi-category / R-state / R-event (2026-07-07): 라인 메타를 각 entry 에 복사.
     for (const p of pending) {
       entries.push({
         name: p.name,
         origin_store_name: p.origin_store_name,
-        category,
-        ticket_type,
+        category: p.category ?? category,
+        ticket_type: p.ticket_type ?? ticket_type,
         extra: null,
         room_no: lineRoomNo,
         categories: categoriesList.length > 0 ? [...categoriesList] : (category ? [category] : []),

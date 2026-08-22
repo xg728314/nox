@@ -175,6 +175,17 @@ export type BuildingRoomsStoreBlock = {
   floor: number | null
   rooms: BuildingRoom[]
 }
+/** R-closed-participants (2026-08-23) */
+export type ClosedSessionParticipantSummary = {
+  participant_id: string
+  hostess_name: string
+  category: string | null
+  time_minutes: number | null
+  entered_at: string
+  origin_store_name: string | null
+  price_amount: number  // R-price-display (2026-08-23)
+}
+
 export type ClosedSessionLogEntry = {
   session_id: string
   store_uuid: string
@@ -183,9 +194,11 @@ export type ClosedSessionLogEntry = {
   room_no: string
   ended_at: string
   manager_name: string | null
+  manager_membership_id: string | null
   participant_count: number
   capacity_hint: number
   settlement_status: "unsettled" | "settled" | "edited"
+  participants: ClosedSessionParticipantSummary[]
 }
 export type BuildingRoomsResponse = {
   scope: "super_admin" | "own_store"

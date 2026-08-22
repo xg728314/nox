@@ -79,6 +79,17 @@ function deriveTicket(timeMinutes: number, category: string | null): string {
   return "기본"
 }
 
+/** R-closed-participants (2026-08-23): 종료 세션 확장 시 표시할 참여자 요약 */
+export type ClosedSessionParticipant = {
+  participant_id: string
+  hostess_name: string
+  category: string | null
+  time_minutes: number | null
+  entered_at: string
+  origin_store_name: string | null
+  price_amount: number  // R-price-display (2026-08-23)
+}
+
 export type ClosedSessionLog = {
   session_id: string
   store_uuid: string
@@ -87,10 +98,13 @@ export type ClosedSessionLog = {
   room_no: string
   ended_at: string
   manager_name: string | null
+  manager_membership_id: string | null
   participant_count: number
   capacity_hint: number
   /** 'unsettled' = 영수증 없음 · 'settled' = 정산완료 (receipts row 존재) · 'edited' = 정산 후 수정 (updated_at > finalized_at). */
   settlement_status: "unsettled" | "settled" | "edited"
+  /** R-closed-participants: 종료 세션 확장 뷰용 */
+  participants: ClosedSessionParticipant[]
 }
 
 export type BuildingRoomsResponse = {
@@ -297,14 +311,43 @@ export async function GET(request: Request) {
             .is("archived_at", null)
           participants = (pData as ParticipantRow[] | null) ?? []
         }
+        // R-closed-participants (2026-08-23): count 만 아닌 full 참여자 목록 로드
+        //   확장 뷰에서 아가씨 이름/카테고리/시간 표시.
+        const closedParticipantsBySession = new Map<string, Array<{
+          participant_id: string;
+          membership_id: string | null;
+          external_name: string | null;
+          category: string | null;
+          time_minutes: number | null;
+          entered_at: string;
+          origin_store_uuid: string | null;
+          price_amount: number;  // R-price-display (2026-08-23)
+        }>>()
         if (closedSessionIds.length > 0) {
           const { data: cpData } = await sb
             .from("session_participants")
-            .select("session_id")
+            .select("id, session_id, membership_id, external_name, category, time_minutes, entered_at, origin_store_uuid, price_amount")
             .in("session_id", closedSessionIds)
             .is("deleted_at", null)
-          for (const row of ((cpData as Array<{ session_id: string }> | null) ?? [])) {
+          type CPRow = {
+            id: string; session_id: string; membership_id: string | null; external_name: string | null;
+            category: string | null; time_minutes: number | null; entered_at: string; origin_store_uuid: string | null;
+            price_amount: number | null;
+          }
+          for (const row of ((cpData as CPRow[] | null) ?? [])) {
             closedParticipantCount.set(row.session_id, (closedParticipantCount.get(row.session_id) ?? 0) + 1)
+            const arr = closedParticipantsBySession.get(row.session_id) ?? []
+            arr.push({
+              participant_id: row.id,
+              membership_id: row.membership_id,
+              external_name: row.external_name,
+              category: row.category,
+              time_minutes: row.time_minutes,
+              entered_at: row.entered_at,
+              origin_store_uuid: row.origin_store_uuid,
+              price_amount: Number(row.price_amount ?? 0),
+            })
+            closedParticipantsBySession.set(row.session_id, arr)
           }
         }
         // 종료 세션 정산 상태 lookup (receipts)
@@ -325,8 +368,18 @@ export async function GET(request: Request) {
 
         // 4) 참여자 이름 해석 — membership_id → profiles.full_name
         //    external_name 우선 (별칭), 없으면 profiles.full_name.
+        //    R-closed-participants (2026-08-23): 종료 세션 참여자도 이름 lookup 필요.
+        const closedMemIds: string[] = []
+        for (const arr of closedParticipantsBySession.values()) {
+          for (const p of arr) {
+            if (p.membership_id) closedMemIds.push(p.membership_id)
+          }
+        }
         const memIds = Array.from(
-          new Set(participants.map((p) => p.membership_id).filter((x): x is string => !!x)),
+          new Set([
+            ...participants.map((p) => p.membership_id).filter((x): x is string => !!x),
+            ...closedMemIds,
+          ]),
         )
         const nameByMembership = new Map<string, string>()
         if (memIds.length > 0) {
@@ -509,6 +562,23 @@ export async function GET(request: Request) {
             else if (rec.status === "finalized" && rec.version > 1) settlement = "edited"
             else settlement = "unsettled" // draft 도 미정산 취급
           }
+          // R-closed-participants (2026-08-23): 참여자 요약 · 아가씨 이름/카테고리/시간
+          const parts = closedParticipantsBySession.get(cs.id) ?? []
+          const partsSummary: ClosedSessionParticipant[] = parts.map((p) => {
+            const nm = p.external_name?.trim()
+              || (p.membership_id ? nameByMembership.get(p.membership_id) : null)
+              || "?"
+            const originStoreName = p.origin_store_uuid ? (storeMap.get(p.origin_store_uuid)?.store_name ?? null) : null
+            return {
+              participant_id: p.participant_id,
+              hostess_name: nm,
+              category: p.category,
+              time_minutes: p.time_minutes,
+              entered_at: p.entered_at,
+              origin_store_name: originStoreName,
+              price_amount: p.price_amount,
+            }
+          })
           closedLog.push({
             session_id: cs.id,
             store_uuid: cs.store_uuid,
@@ -517,9 +587,11 @@ export async function GET(request: Request) {
             room_no: room.room_no,
             ended_at: cs.ended_at || cs.started_at,
             manager_name: cs.manager_name,
+            manager_membership_id: cs.manager_membership_id,
             participant_count: partCount,
             capacity_hint: Math.max(partCount, 3),
             settlement_status: settlement,
+            participants: partsSummary,
           })
         }
 

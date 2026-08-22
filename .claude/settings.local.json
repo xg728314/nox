@@ -29,7 +29,16 @@
       "Bash(rm -rf /c/ap/.next /c/ap/node_modules /c/ap/.git)",
       "Bash(rm -rf /c/ap/app /c/ap/lib /c/ap/database /c/ap/public)",
       "Bash(rm -f /c/ap/* /c/ap/.*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "WebSearch",
+      "WebFetch(domain:search.naver.com)",
+      "WebFetch(domain:bamiyagi.com)",
+      "WebFetch(domain:taxguide.im)",
+      "WebFetch(domain:bolta.io)",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)"
     ]
   },
   "enableAllProjectMcpServers": true

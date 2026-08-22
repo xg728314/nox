@@ -8,6 +8,9 @@ import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo } from "../_lib/format"
 import { useMe, useHostesses, useAttendance, type HostessPreview } from "../_hooks/useMobileData"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
+import { invalidateApi } from "../_hooks/useApi"
+import { useToast } from "../_components/Toast"
+import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../_lib/cn"
 
 /**
@@ -60,6 +63,43 @@ export default function DispatchPage() {
   const hostesses = useHostesses()
   const attendance = useAttendance()
   const { recent: autoClosedRecent } = useAutoCloseExpired()
+  const toast = useToast()
+
+  // R-drag-merge (2026-08-23): 다른 아가씨 카드 위에 드롭 → 병합 (from → into).
+  //   confirm 후 POST /api/hostesses/{from}/merge · 성공 시 hostesses 리스트 갱신.
+  const handleMergeDrop = async (
+    from: { mid: string; name: string; storeUuid: string },
+    into: { mid: string; name: string; storeUuid: string },
+  ) => {
+    if (from.mid === into.mid || from.storeUuid !== into.storeUuid) return
+    const ok = window.confirm(
+      `⚠️ 병합\n\n[${from.name}] → [${into.name}]\n\n` +
+      `${from.name} 의 모든 세션 이력 · 정산 참조가 ${into.name} 로 옮겨집니다.\n` +
+      `${from.name} 은(는) 삭제 마크됩니다.\n\n계속?`,
+    )
+    if (!ok) return
+    try {
+      const res = await apiFetch(`/api/hostesses/${from.mid}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ into_membership_id: into.mid, reason: "drag_merge_on_board" }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast(`병합 실패: ${j.message || j.error || res.status}`, "error")
+        return
+      }
+      const c = j.counts || {}
+      toast(
+        `✓ ${from.name} → ${into.name} 병합 · 참여자 ${c.reassigned_participants ?? 0} · alias ${c.reassigned_aliases ?? 0}`,
+        "success",
+      )
+      void invalidateApi("/api/building/hostesses")
+      void invalidateApi("/api/manager/hostesses")
+    } catch (e) {
+      toast(`병합 실패: ${(e as Error).message}`, "error")
+    }
+  }
 
   // UI 상태
   const [filter, setFilter] = useState<FilterKey>("all")
@@ -123,6 +163,95 @@ export default function DispatchPage() {
     }
     return m
   }, [attendance.data])
+
+  // R-duplicate-detect (2026-08-23): 같은 매장 내 같은 이름 여러 명 감지.
+  //   동명이인일 수 있고 · 채팅 오탈자로 별도 등록됐을 수도 있음.
+  //   조판에 붉은 "중복" 배지 · 클릭 시 rename / merge / cancel 액션.
+  //   Map<membership_id, dupSiblingsList>.
+  type Dup = { membership_id: string; hostess_name: string; origin_store_uuid: string | null; origin_store_name: string }
+  const duplicateMap = useMemo(() => {
+    const byKey = new Map<string, Dup[]>()
+    for (const h of all) {
+      const nm = (h.hostess_name ?? "").trim()
+      if (!nm) continue
+      const key = `${h.origin_store_uuid ?? ""}::${nm}`
+      const arr = byKey.get(key) ?? []
+      arr.push({
+        membership_id: h.membership_id,
+        hostess_name: nm,
+        origin_store_uuid: h.origin_store_uuid ?? null,
+        origin_store_name: (h as HostessPreview & { origin_store_name?: string }).origin_store_name ?? "",
+      })
+      byKey.set(key, arr)
+    }
+    const map = new Map<string, Dup[]>()
+    for (const [, arr] of byKey) {
+      if (arr.length < 2) continue
+      for (const d of arr) {
+        // 본인 제외한 sibling 리스트
+        map.set(d.membership_id, arr.filter((x) => x.membership_id !== d.membership_id))
+      }
+    }
+    return map
+  }, [all])
+
+  // R-custom-modal (2026-08-23): preview iframe 에서 window.prompt/confirm 이 blocked.
+  //   custom modal state 로 대체 · React 관리.
+  const [renameModal, setRenameModal] = useState<{ h: HostessPreview; value: string } | null>(null)
+  const [mergeModal, setMergeModal] = useState<{ from: HostessPreview; into: Dup } | null>(null)
+
+  const submitRename = async () => {
+    if (!renameModal) return
+    const { h, value } = renameModal
+    const nn = value.trim()
+    setRenameModal(null)
+    if (!nn || nn === h.hostess_name) return
+    try {
+      const res = await apiFetch(`/api/hostesses/${h.membership_id}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_name: nn, reason: "duplicate_quick_rename" }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) return toast(`이름 수정 실패: ${j.message || j.error || res.status}`, "error")
+      toast(`이름 수정: ${h.hostess_name} → ${nn}`, "success")
+      void invalidateApi("/api/manager/hostesses")
+    } catch (e) {
+      toast(`이름 수정 실패: ${(e as Error).message}`, "error")
+    }
+  }
+
+  const submitMerge = async () => {
+    if (!mergeModal) return
+    const { from, into } = mergeModal
+    setMergeModal(null)
+    try {
+      const res = await apiFetch(`/api/hostesses/${from.membership_id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ into_membership_id: into.membership_id, reason: "duplicate_quick_merge" }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) return toast(`병합 실패: ${j.message || j.error || res.status}`, "error")
+      const c = j.counts || {}
+      toast(
+        `✓ 병합 완료 · 참여자 ${c.reassigned_participants ?? 0} · alias ${c.reassigned_aliases ?? 0} · 24시간 내 분리 가능`,
+        "success",
+      )
+      void invalidateApi("/api/manager/hostesses")
+      void invalidateApi("/api/building/hostesses")
+    } catch (e) {
+      toast(`병합 실패: ${(e as Error).message}`, "error")
+    }
+  }
+
+  const handleQuickRename = (h: HostessPreview) => {
+    setRenameModal({ h, value: h.hostess_name })
+  }
+
+  const handleQuickMerge = (from: HostessPreview, into: Dup) => {
+    setMergeModal({ from, into })
+  }
 
   // 카운트 (프로토타입 4-state: live · done · wait · off)
   const counts = useMemo(() => {
@@ -358,6 +487,17 @@ export default function DispatchPage() {
                   setPendingNames([h.hostess_name])
                   setAssignOpen(true)
                 }}
+                onMergeDrop={(from) => handleMergeDrop(from, {
+                  mid: h.membership_id,
+                  name: h.hostess_name,
+                  storeUuid: h.origin_store_uuid ?? "",
+                })}
+                duplicateSiblings={duplicateMap.get(h.membership_id) ?? []}
+                onQuickRename={() => handleQuickRename(h)}
+                onQuickMergeInto={(siblingMid) => {
+                  const sib = (duplicateMap.get(h.membership_id) ?? []).find((x) => x.membership_id === siblingMid)
+                  if (sib) handleQuickMerge(h, sib)
+                }}
               />
             ))}
           </div>
@@ -431,6 +571,82 @@ export default function DispatchPage() {
           startedAt={extendTarget.working_entered_at ?? null}
         />
       )}
+
+      {/* R-custom-modal (2026-08-23): 이름 수정 modal · window.prompt 대체 */}
+      {renameModal && (
+        <div
+          onClick={() => setRenameModal(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"
+          >
+            <div className="text-[13px] font-extrabold text-[#2D2B26] mb-2">
+              ✏️ 이름 수정 · 현재: {renameModal.h.hostess_name}
+            </div>
+            <input
+              autoFocus
+              type="text"
+              value={renameModal.value}
+              onChange={(e) => setRenameModal((m) => (m ? { ...m, value: e.target.value } : m))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); void submitRename() }
+                else if (e.key === "Escape") setRenameModal(null)
+              }}
+              maxLength={40}
+              className="w-full rounded-lg border border-[#C49B61] px-3 py-2 text-[13px] font-extrabold text-[#2D2B26] mb-3"
+              placeholder="새 이름"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setRenameModal(null)}
+                className="flex-1 rounded-lg py-2 text-[12px] font-bold text-[#7A746A] bg-[#F3EEE3]"
+              >취소</button>
+              <button
+                type="button"
+                onClick={() => void submitRename()}
+                className="flex-1 rounded-lg py-2 text-[12px] font-extrabold bg-[#C49B61] text-white"
+              >저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R-custom-modal (2026-08-23): 병합 confirm modal · window.confirm 대체 */}
+      {mergeModal && (
+        <div
+          onClick={() => setMergeModal(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"
+          >
+            <div className="text-[13px] font-extrabold text-red-700 mb-2">⚠️ 병합 확인</div>
+            <div className="text-[12px] text-[#2D2B26] mb-3 leading-relaxed">
+              <b>[{mergeModal.from.hostess_name}]</b> → <b>[{mergeModal.into.hostess_name}]</b><br/>
+              {mergeModal.from.hostess_name} 세션/정산 이력이 {mergeModal.into.hostess_name} 로 옮겨집니다.<br/>
+              <span className="text-[10px] text-[#7A746A]">
+                착오 시 24시간 내 분리 가능 · 이후 자동 정리.
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMergeModal(null)}
+                className="flex-1 rounded-lg py-2 text-[12px] font-bold text-[#7A746A] bg-[#F3EEE3]"
+              >취소</button>
+              <button
+                type="button"
+                onClick={() => void submitMerge()}
+                className="flex-1 rounded-lg py-2 text-[12px] font-extrabold bg-red-600 text-white"
+              >병합 진행</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -484,6 +700,145 @@ function FilterChip({
   )
 }
 
+/**
+ * R-drag-merge (2026-08-23): 조판에서 아가씨 카드를 다른 아가씨 카드 위로 드래그하면
+ *   병합 (from → into). 오탈자로 별도 등록된 지언 을 지연 위에 drop 하면 병합.
+ *   같은 매장 내에서만 · 자기 자신 drop 은 무시. onDrop 콜백이 confirm + API 호출.
+ */
+function DragMergeWrapper({
+  children,
+  membershipId,
+  hostessName,
+  storeUuid,
+  onMergeDrop,
+  className,
+}: {
+  children: React.ReactNode
+  membershipId: string
+  hostessName: string
+  storeUuid: string
+  onMergeDrop: (from: { mid: string; name: string; storeUuid: string }) => void
+  className?: string
+}) {
+  const [over, setOver] = useState(false)
+  return (
+    <div
+      className={cn(className, over && "ring-2 ring-red-500 rounded-xl")}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move"
+        e.dataTransfer.setData(
+          "application/x-nox-hostess",
+          JSON.stringify({ mid: membershipId, name: hostessName, storeUuid }),
+        )
+      }}
+      onDragOver={(e) => {
+        // drop 대상은 preventDefault 로 허용 표시
+        if (e.dataTransfer.types.includes("application/x-nox-hostess")) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = "move"
+          if (!over) setOver(true)
+        }
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setOver(false)
+        try {
+          const raw = e.dataTransfer.getData("application/x-nox-hostess")
+          if (!raw) return
+          const from = JSON.parse(raw) as { mid: string; name: string; storeUuid: string }
+          if (from.mid === membershipId) return // 자기 자신
+          if (from.storeUuid !== storeUuid) return // 다른 매장
+          onMergeDrop(from)
+        } catch { /* noop */ }
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * R-duplicate-action (2026-08-23): 중복 이름 아가씨 인라인 액션 버튼.
+ *   조판 이름 옆 붉은 "⚠" 배지 · 클릭 시 popup:
+ *     - 이름 수정 (오탈자 정정)
+ *     - 다른 동명 아가씨와 병합 (siblings 리스트에서 선택)
+ *   siblings.length === 0 이면 표시 자체 안 함.
+ */
+function DuplicateActionButton({
+  hostess: h,
+  siblings,
+  onRename,
+  onMergeInto,
+}: {
+  hostess: HostessPreview
+  siblings: Array<{ membership_id: string; hostess_name: string; origin_store_name: string }>
+  onRename: () => void
+  onMergeInto: (siblingMembershipId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(true) }}
+        className="shrink-0 text-[9px] font-black bg-red-100 text-red-700 border border-red-300 px-1.5 py-0.5 rounded-full"
+        title={`중복 ${siblings.length + 1}명 · 클릭해서 정정`}
+      >
+        ⚠ 중복 {siblings.length + 1}
+      </button>
+      {open && (
+        <div
+          onClick={(e) => { e.stopPropagation(); setOpen(false) }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"
+          >
+            <div className="text-[13px] font-extrabold text-[#2D2B26] mb-1">
+              ⚠ 중복 이름 · {h.hostess_name}
+            </div>
+            <div className="text-[10px] text-[#7A746A] mb-3">
+              같은 매장에 <b>{h.hostess_name}</b> 이 {siblings.length + 1}명 · 동명이인일 수도 있고 오탈자일 수도 있음.
+            </div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onRename() }}
+                className="w-full rounded-lg py-2 text-[12px] font-extrabold bg-amber-50 text-amber-800 border border-amber-300"
+              >
+                ✏️ 이름 수정 (오탈자 정정)
+              </button>
+              <div className="text-[10px] font-bold text-[#7A746A] mt-2 mb-1">
+                병합 대상 선택 (선택한 아가씨로 세션/정산 이력 옮김):
+              </div>
+              {siblings.map((s) => (
+                <button
+                  key={s.membership_id}
+                  type="button"
+                  onClick={() => { setOpen(false); onMergeInto(s.membership_id) }}
+                  className="w-full rounded-lg py-2 text-[11px] font-extrabold bg-red-50 text-red-700 border border-red-300"
+                >
+                  🔀 → {s.hostess_name} 로 병합
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="w-full rounded-lg py-2 text-[11px] font-bold text-[#7A746A] bg-[#F3EEE3]"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function HostessDispatchRow({
   index,
   hostess: h,
@@ -495,6 +850,10 @@ function HostessDispatchRow({
   cols,
   onOpenExtend,
   onOpenAssign,
+  onMergeDrop,
+  duplicateSiblings,
+  onQuickRename,
+  onQuickMergeInto,
 }: {
   index: number
   hostess: HostessPreview
@@ -506,6 +865,10 @@ function HostessDispatchRow({
   cols: ColKey
   onOpenExtend: () => void
   onOpenAssign: () => void
+  onMergeDrop: (from: { mid: string; name: string; storeUuid: string }) => void
+  duplicateSiblings: Array<{ membership_id: string; hostess_name: string; origin_store_uuid: string | null; origin_store_name: string }>
+  onQuickRename: () => void
+  onQuickMergeInto: (siblingMembershipId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [leavingId, setLeavingId] = useState<string | null>(null)
@@ -574,6 +937,12 @@ function HostessDispatchRow({
   //   사용자 요청: "3열 아가씨가 어느 가게에 있는지 표시" (2026-07-25)
   if (cols === 3) {
     return (
+      <DragMergeWrapper
+        membershipId={h.membership_id}
+        hostessName={h.hostess_name}
+        storeUuid={h.origin_store_uuid ?? ""}
+        onMergeDrop={onMergeDrop}
+      >
       <button type="button" onClick={handleTap} className={cn(cardBase, "w-full text-left px-2 py-2 flex flex-col gap-1")}>
         <div className="flex items-center gap-1 min-w-0">
           <span className={cn("text-[10px] font-black", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>#{index}</span>
@@ -596,12 +965,19 @@ function HostessDispatchRow({
           )}
         </div>
       </button>
+      </DragMergeWrapper>
     )
   }
 
   // 2열 컴팩트
   if (cols === 2) {
     return (
+      <DragMergeWrapper
+        membershipId={h.membership_id}
+        hostessName={h.hostess_name}
+        storeUuid={h.origin_store_uuid ?? ""}
+        onMergeDrop={onMergeDrop}
+      >
       <button type="button" onClick={handleTap} className={cn(cardBase, "w-full text-left px-2.5 py-2 flex flex-col gap-1")}>
         <div className="flex items-center gap-1.5 min-w-0">
           <span className={cn("text-[10px] font-black shrink-0", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>#{index}</span>
@@ -626,6 +1002,7 @@ function HostessDispatchRow({
           <div className={cn("text-[10px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>대기중 · 배정 필요</div>
         )}
       </button>
+      </DragMergeWrapper>
     )
   }
 
@@ -633,6 +1010,12 @@ function HostessDispatchRow({
   //   슬롯 폭 고정 → 모든 row 정렬됨:
   //     [▶ 14px] [● 8px] [# 20px 우정렬] [name flex-1] [🔀 auto] [pill ml-auto] [warn? auto]
   return (
+    <DragMergeWrapper
+      membershipId={h.membership_id}
+      hostessName={h.hostess_name}
+      storeUuid={h.origin_store_uuid ?? ""}
+      onMergeDrop={onMergeDrop}
+    >
     <div className={cn(cardBase, "text-left")}>
       <button
         type="button"
@@ -674,6 +1057,15 @@ function HostessDispatchRow({
           <span className="text-[14px] font-extrabold truncate min-w-0">
             <span className="underline underline-offset-2 decoration-dotted">{h.hostess_name}</span>
           </span>
+          {/* R-duplicate-badge (2026-08-23): 같은 이름 다른 아가씨 있으면 중복 배지 · 클릭 시 액션 */}
+          {duplicateSiblings.length > 0 && (
+            <DuplicateActionButton
+              hostess={h}
+              siblings={duplicateSiblings}
+              onRename={onQuickRename}
+              onMergeInto={onQuickMergeInto}
+            />
+          )}
           <Link
             href={`/m/staff/${encodeURIComponent(h.membership_id)}`}
             onClick={(e) => e.stopPropagation()}
@@ -739,6 +1131,27 @@ function HostessDispatchRow({
       {/* ad-detail — chevron 클릭 시 오늘 세션 이력 (프로토타입 매칭) */}
       {expanded && todaySessions.length > 0 && (
         <div className={cn("border-t px-3 py-2 flex flex-col gap-1", dark ? "border-[#302a20] bg-[#0f0d0a]" : "border-[#EDE7DA] bg-[#FAF5EC]/40")}>
+          {(() => {
+            // R-extend-count (2026-08-23): 미리 연장 횟수 표시.
+            //   같은 방·같은 아가씨에 active 참여자 여러 개 = 미리 연장 (사전 예약).
+            //   실수 여부 판단용 · 정확 카운트 노출.
+            const activeCountByRoom = new Map<string, number>()
+            for (const s of todaySessions) {
+              if (s.status !== "active") continue
+              activeCountByRoom.set(s.room_no ?? "?", (activeCountByRoom.get(s.room_no ?? "?") ?? 0) + 1)
+            }
+            const extendBadges = Array.from(activeCountByRoom.entries()).filter(([, cnt]) => cnt >= 2)
+            if (extendBadges.length === 0) return null
+            return (
+              <div className="mb-1 flex flex-wrap gap-1">
+                {extendBadges.map(([room, cnt]) => (
+                  <span key={room} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black bg-[#DE8A3A]/18 text-[#8A5325] border border-[#DE8A3A]/40">
+                    ⏩ {room}번방 미리 연장 {cnt - 1}회 (총 {cnt}건)
+                  </span>
+                ))}
+              </div>
+            )
+          })()}
           {todaySessions.map((s) => {
             const roomLabel = `${s.store_name}${s.room_no ? s.room_no : ""}`
             const isActive = s.status === "active"
@@ -751,6 +1164,12 @@ function HostessDispatchRow({
             const remainingMin = isActive && s.entered_at && s.time_minutes
               ? Math.max(0, Math.round((new Date(s.entered_at).getTime() + s.time_minutes * 60_000 - nowTick) / 60_000))
               : null
+            // R-idle-after-end (2026-08-23): 진행 중이지만 예정 시간 지난 유휴 상태 계산.
+            //   remainingMin === 0 & 실 종료 시각 지남 → 오버 얼마나 됐는지.
+            const isOvertime = isActive && s.entered_at && s.time_minutes && remainingMin === 0
+            const overtimeMin = isOvertime
+              ? Math.max(0, Math.round((nowTick - (new Date(s.entered_at).getTime() + (s.time_minutes ?? 0) * 60_000)) / 60_000))
+              : 0
             return (
               <div key={s.participant_id} className={cn("flex items-center gap-2 text-[11px] py-0.5", isActive && "bg-[#5FAB4E]/8 -mx-3 px-3 rounded")}>
                 <span className={cn("font-mono font-bold shrink-0 w-10 text-right", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>{fmtHM(s.entered_at)}</span>
@@ -778,8 +1197,20 @@ function HostessDispatchRow({
                     >
                       {leavingId === s.participant_id ? "…" : "−"}
                     </button>
-                    <span className="ml-auto shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black bg-[#5FAB4E]/18 text-[#3E7A32]">
-                      {remainingMin !== null ? (remainingMin <= 10 ? `${remainingMin}m` : `진행 ${remainingMin}분`) : "진행중"}
+                    <span className={cn(
+                      "ml-auto shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black",
+                      isOvertime
+                        ? "bg-red-500/20 text-red-700 animate-pulse"
+                        : remainingMin !== null && remainingMin <= 10
+                          ? "bg-[#DE8A3A]/25 text-[#8A5325]"
+                          : "bg-[#5FAB4E]/18 text-[#3E7A32]"
+                    )}>
+                      {/* R-idle-after-end: 오버 시 유휴 시간 표시 */}
+                      {isOvertime
+                        ? (overtimeMin === 0 ? "⚠ 방금 종료" : `⚠ 유휴 ${overtimeMin}분`)
+                        : remainingMin !== null
+                          ? (remainingMin <= 10 ? `${remainingMin}m` : `진행 ${remainingMin}분`)
+                          : "진행중"}
                     </span>
                   </>
                 )}
@@ -831,5 +1262,6 @@ function HostessDispatchRow({
         </div>
       )}
     </div>
+    </DragMergeWrapper>
   )
 }

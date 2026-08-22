@@ -44,9 +44,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (r.status !== "pending") {
       return NextResponse.json({ error: "NOT_PENDING", status: r.status }, { status: 409 })
     }
-    // 권한 — target store 와 일치 또는 super_admin
+    // 권한 — target store 와 일치 또는 super_admin.
+    //   R-cross-store-confirm (2026-08-23): 같은 건물 5-8F 매장이면 owner/manager 도
+    //   auto-confirm 허용. 실 운영: 실장들이 서로 대신 등록. 채팅 파싱 자동화 흐름 필수.
     if (!auth.is_super_admin && r.target_store_uuid !== auth.store_uuid) {
-      return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+      const { data: targetStore } = await supabase
+        .from("stores")
+        .select("floor")
+        .eq("id", r.target_store_uuid)
+        .maybeSingle()
+      const floor = (targetStore as { floor: number } | null)?.floor ?? null
+      const isSameBuilding = floor !== null && floor >= 5 && floor <= 8
+      const isTrustedRole = auth.role === "owner" || auth.role === "manager"
+      if (!isSameBuilding || !isTrustedRole) {
+        return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
+      }
     }
 
     // 2. target_confirmed_by/at 채움
@@ -228,6 +240,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           transferRequestId = (trRow as { id: string } | null)?.id ?? null
         }
 
+        // R-double-book-guard (2026-08-23): 이 아가씨가 다른 방 active 세션에 이미
+        //   있으면 이전 방 자동 종료 (nowIso status="left"). 실 흐름: 지연이 2번방에서
+        //   진행 중인데 새로 1번방 등록됨 → 지연은 실제 1번방으로 이동. 이전 참여는
+        //   자동 종료 처리해서 데이터 정합성 유지 · 정산 시 이중 계산 방지.
+        try {
+          const { data: activeElsewhere } = await supabase
+            .from("session_participants")
+            .select("id, session_id")
+            .eq("membership_id", p.hostess_membership_id)
+            .eq("status", "active")
+            .is("deleted_at", null)
+            .neq("session_id", sessionId)
+          const activeList = (activeElsewhere ?? []) as Array<{ id: string; session_id: string }>
+          for (const prev of activeList) {
+            await supabase
+              .from("session_participants")
+              .update({
+                status: "left",
+                left_at: new Date().toISOString(),
+                memo: (prev.session_id === sessionId ? "" : "[auto-left · 새 방 등록으로 자동 종료]"),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", prev.id)
+          }
+        } catch { /* best-effort · 실패해도 신규 등록은 유효 */ }
+
         const hostessPayout = Math.max(0, stRow.price - (stRow.manager_deduction ?? 0))
         const { data: partRow, error: pErr } = await supabase
           .from("session_participants").insert({
@@ -258,6 +296,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           continue
         }
         const participantId = (partRow as { id: string }).id
+
+        // R-auto-checkin (2026-08-23): 세션 참여자 등록 시 해당 아가씨 attendance 자동 checkin.
+        //   실장이 채팅으로 이름 언급 = 그 아가씨 출근 확실. 별도 출근 체크 불필요.
+        //   staff_attendance 에 open row (status=available) upsert · 중복 시 무시.
+        try {
+          const { data: existAtt } = await supabase
+            .from("staff_attendance")
+            .select("id")
+            .eq("store_uuid", p.target_store_uuid)
+            .eq("business_day_id", businessDayId)
+            .eq("membership_id", p.hostess_membership_id)
+            .neq("status", "off_duty")
+            .maybeSingle()
+          if (!existAtt) {
+            await supabase.from("staff_attendance").insert({
+              store_uuid: p.target_store_uuid,
+              business_day_id: businessDayId,
+              membership_id: p.hostess_membership_id,
+              role: "hostess",
+              status: "in_room",  // 방에 들어감 = in_room · 참여자 등록 완료라 assigned 상태
+              notes: "auto: pattern-dispatch confirm",
+            })
+          }
+        } catch { /* best-effort · 실패해도 참여자 등록은 유효 */ }
 
         await supabase
           .from("chat_pattern_dispatches")

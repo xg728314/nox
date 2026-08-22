@@ -14,12 +14,14 @@
  *
  * R-merge-ui (2026-08-23)
  */
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useBuildingHostesses, useMe, type BuildingHostess } from "../../_hooks/useMobileData"
 import { invalidateApi } from "../../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
 import { useToast } from "../../_components/Toast"
 import Link from "next/link"
+
+type Manager = { membership_id: string; name: string; role: string }
 
 /** Levenshtein 거리 · 오탈자 detect 용 */
 function levenshtein(a: string, b: string): number {
@@ -68,6 +70,70 @@ export default function HostessManagePage() {
   const hostesses = data?.hostesses ?? []
   const role = me?.role
   const isSuper = me?.is_super_admin === true
+
+  // R-manager-assign (2026-08-23): 매장 매니저 목록 · 아가씨 실장 할당용
+  const [managers, setManagers] = useState<Manager[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkManagerId, setBulkManagerId] = useState<string>("")
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/store/staff")
+        const j = await r.json()
+        const list: Manager[] = (j.staff || [])
+          .filter((s: { role: string }) => s.role === "manager")
+          .map((s: { membership_id: string; full_name?: string; name?: string; role: string }) => ({
+            membership_id: s.membership_id,
+            name: s.full_name || s.name || "?",
+            role: s.role,
+          }))
+        setManagers(list)
+      } catch { /* silent */ }
+    })()
+  }, [])
+  const managerNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const mgr of managers) m.set(mgr.membership_id, mgr.name)
+    return m
+  }, [managers])
+
+  const assignManager = async (hostessMembershipId: string, managerMembershipId: string | null) => {
+    setBusy(hostessMembershipId)
+    try {
+      const res = await apiFetch(`/api/hostesses/${hostessMembershipId}/assign`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manager_membership_id: managerMembershipId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) return toast(`실장 지정 실패: ${j.message || j.error || res.status}`, "error")
+      const name = managerMembershipId ? (managerNameById.get(managerMembershipId) ?? "") : "미지정"
+      toast(`실장 지정: ${name}`, "success")
+      void invalidateApi("/api/manager/hostesses")
+      void invalidateApi("/api/building/hostesses")
+      void refresh()
+    } catch (e) {
+      toast(`실장 지정 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const bulkAssign = async () => {
+    if (selectedIds.size === 0 || !bulkManagerId) return
+    for (const hid of Array.from(selectedIds)) {
+      await assignManager(hid, bulkManagerId)
+    }
+    setSelectedIds(new Set())
+    setBulkManagerId("")
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
   const canMerge = role === "owner" || isSuper
   const canRename = role === "owner" || role === "manager" || isSuper
 
@@ -215,14 +281,59 @@ export default function HostessManagePage() {
           )}
         </section>
 
-        {/* 전체 목록 (이름 수정용) */}
+        {/* R-manager-assign (2026-08-23): 실장 일괄 할당 툴바 */}
+        {canRename && managers.length > 0 && selectedIds.size > 0 && (
+          <div className="mb-3 rounded-xl bg-[#FBF6EC] border border-[#C49B61] p-3 sticky top-2 z-10 shadow-md">
+            <div className="text-[11px] font-extrabold text-[#8C6A3A] mb-2">
+              📋 선택 {selectedIds.size}명 → 실장 지정
+            </div>
+            <div className="flex gap-2 items-center">
+              <select
+                value={bulkManagerId}
+                onChange={(e) => setBulkManagerId(e.target.value)}
+                className="flex-1 rounded-lg border border-[#C49B61] px-2 py-1.5 text-[12px] font-bold text-[#2D2B26]"
+              >
+                <option value="">실장 선택...</option>
+                {managers.map((m) => (
+                  <option key={m.membership_id} value={m.membership_id}>{m.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!bulkManagerId || busy !== null}
+                onClick={bulkAssign}
+                className="rounded-lg py-1.5 px-3 text-[11px] font-extrabold bg-[#C49B61] text-white disabled:opacity-40"
+              >
+                일괄 지정
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="rounded-lg py-1.5 px-2 text-[10px] font-bold text-[#7A746A] bg-white border border-[#D8D2C8]"
+              >
+                해제
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 전체 목록 (이름 수정용 + 실장 할당) */}
         <section>
           <h2 className="text-[13px] font-extrabold text-[#A87D45] mb-2">
             👥 전체 아가씨 · {hostesses.length}명
+            {canRename && <span className="text-[9px] text-[#7A746A] font-bold ml-2">체크 → 일괄 실장 지정 · 개별 dropdown 즉시 반영</span>}
           </h2>
           <div className="space-y-1">
             {hostesses.map((h) => (
               <div key={h.membership_id} className="rounded-lg bg-white border border-[#D8D2C8]/60 p-2 flex items-center justify-between gap-2">
+                {canRename && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(h.membership_id)}
+                    onChange={() => toggleSelect(h.membership_id)}
+                    className="shrink-0 w-4 h-4 accent-[#C49B61]"
+                  />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] font-extrabold text-[#2D2B26] truncate">
                     {h.hostess_name}
@@ -233,7 +344,27 @@ export default function HostessManagePage() {
                       )}
                     </span>
                   </div>
+                  {/* 담당 실장 표시 · 없으면 미지정 */}
+                  <div className="text-[9px] font-bold text-[#7A746A] mt-0.5">
+                    담당 실장: <span className={h.manager_membership_id ? "text-[#2D2B26] font-extrabold" : "text-red-500"}>
+                      {h.manager_name || "미지정"}
+                    </span>
+                  </div>
                 </div>
+                {canRename && managers.length > 0 && (
+                  <select
+                    value={h.manager_membership_id ?? ""}
+                    onChange={(e) => assignManager(h.membership_id, e.target.value || null)}
+                    disabled={busy !== null}
+                    className="shrink-0 rounded border border-[#D8D2C8] px-1 py-0.5 text-[10px] font-bold text-[#2D2B26] max-w-[80px] disabled:opacity-40"
+                    title="담당 실장 변경"
+                  >
+                    <option value="">미지정</option>
+                    {managers.map((m) => (
+                      <option key={m.membership_id} value={m.membership_id}>{m.name}</option>
+                    ))}
+                  </select>
+                )}
                 {canRename && (
                   <button
                     type="button"

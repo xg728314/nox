@@ -59,6 +59,8 @@ export async function POST(request: Request) {
       target_membership_id?: string
       name?: string
       member_ids?: string[]
+      /** R-maid-chat (2026-08-23): group type 에서 파싱 자동 인식 활성 · 메이드톡 */
+      pattern_enabled?: boolean
     }>(request)
     if (parsed.error) return parsed.error
     const body = parsed.body
@@ -272,16 +274,30 @@ export async function POST(request: Request) {
         validatedMembers = verifiedRows
       }
 
-      const { data: created, error: createErr } = await supabase
-        .from("chat_rooms")
-        .insert({
-          store_uuid: authContext.store_uuid, // 방의 'home' 매장 = 만든 사람 매장
-          type: "group",
-          name: groupName?.trim() || "그룹 채팅",
-          created_by: authContext.membership_id,
-        })
-        .select("id")
-        .single()
+      // R-maid-chat (2026-08-23): body.pattern_enabled=true 로 메이드톡 활성 그룹 생성.
+      //   기존 group 은 pattern_enabled=false · 일반 채팅. maid mode 는 true.
+      const patternEnabled = body.pattern_enabled === true
+      const roomInsert: Record<string, unknown> = {
+        store_uuid: authContext.store_uuid, // 방의 'home' 매장 = 만든 사람 매장
+        type: "group",
+        name: groupName?.trim() || (patternEnabled ? "메이드톡" : "그룹 채팅"),
+        created_by: authContext.membership_id,
+      }
+      if (patternEnabled) roomInsert.pattern_enabled = true
+      let created
+      let createErr
+      {
+        const r = await supabase.from("chat_rooms").insert(roomInsert).select("id").single()
+        created = r.data
+        createErr = r.error
+        // migration 114 미apply 환경 fallback (pattern_enabled 컬럼 없으면 재시도)
+        if (createErr && ((createErr as { code?: string }).code === "42703" || (createErr as { code?: string }).code === "PGRST204")) {
+          delete roomInsert.pattern_enabled
+          const r2 = await supabase.from("chat_rooms").insert(roomInsert).select("id").single()
+          created = r2.data
+          createErr = r2.error
+        }
+      }
 
       if (createErr || !created) {
         return NextResponse.json({ error: "CREATE_FAILED" }, { status: 500 })

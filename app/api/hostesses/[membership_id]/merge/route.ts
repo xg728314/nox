@@ -172,26 +172,35 @@ export async function POST(
     }
 
     // ── from soft-delete + pointer ──
+    //   R-fallback-soft-delete (2026-08-23): migration 175 미apply 환경에서는
+    //   merged_into_membership_id 컬럼이 없어서 UPDATE 통째로 실패 (42703).
+    //   기존 catch 로 삼켜서 deleted_at 마저 안 스탬프 됨 → 병합 후에도 hostess 잔존.
+    //   Fix: 42703 감지 시 pointer 컬럼 빼고 deleted_at 만 재시도.
     const nowIso = new Date().toISOString()
-    try {
-      await sb
-        .from("store_memberships")
-        .update({ deleted_at: nowIso, merged_into_membership_id: into_id, updated_at: nowIso })
-        .eq("id", from_id)
-    } catch { /* 무시 */ }
-    try {
-      await sb
-        .from("profiles")
-        .update({ deleted_at: nowIso, merged_into_membership_id: into_id, updated_at: nowIso })
-        .eq("id", from.profile_id)
-    } catch { /* 무시 */ }
+    const softDelete = async (
+      table: string,
+      idCol: string,
+      idVal: string,
+      extraColumn?: string,
+    ) => {
+      // migration 175 미apply 시 merged_into_membership_id 컬럼 없음 → PGRST204/42703.
+      //   fallback: 컬럼 빼고 재시도. 최후: updated_at 도 없는 경우 deleted_at 만.
+      const isMissingColErr = (r: { error: { code?: string } | null }) =>
+        !!r.error && ((r.error.code === "42703") || (r.error.code === "PGRST204"))
+      const full: Record<string, unknown> = { deleted_at: nowIso, updated_at: nowIso }
+      if (extraColumn) full["merged_into_membership_id"] = into_id
+      let r = await sb.from(table).update(full).eq(idCol, idVal)
+      if (isMissingColErr(r)) {
+        r = await sb.from(table).update({ deleted_at: nowIso, updated_at: nowIso }).eq(idCol, idVal)
+        if (isMissingColErr(r)) {
+          r = await sb.from(table).update({ deleted_at: nowIso }).eq(idCol, idVal)
+        }
+      }
+    }
+    try { await softDelete("store_memberships", "id", from_id, "merged_into_membership_id") } catch { /* noop */ }
+    try { await softDelete("profiles", "id", from.profile_id, "merged_into_membership_id") } catch { /* noop */ }
     if (fromHostessId) {
-      try {
-        await sb
-          .from("hostesses")
-          .update({ deleted_at: nowIso, merged_into_membership_id: into_id })
-          .eq("id", fromHostessId)
-      } catch { /* 무시 */ }
+      try { await softDelete("hostesses", "id", fromHostessId, "merged_into_membership_id") } catch { /* noop */ }
     }
 
     // ── 감사 로그 ──

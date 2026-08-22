@@ -18,6 +18,7 @@
  *     backfill_participant_ids?: string[]  // 소급 매핑할 external_name 세션 참여자
  *   }
  */
+import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
@@ -46,21 +47,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "store_uuid required" }, { status: 400 })
     }
 
-    // scope: super_admin OR same store
+    // scope: super_admin OR same store OR (owner/manager + 같은 건물 5-8F 매장)
+    //   R-cross-store-provision (2026-08-23): 채팅 파싱에서 다른 매장 언급 시
+    //   (예: 마블 owner 가 "신세계 지뮌 셔 완메" 입력) 자동 provisioning 이 필요.
+    //   실 운영: 실장들이 서로 대신 등록하는 케이스 많음. 같은 건물 (5-8F) 매장이면
+    //   owner/manager 도 provision 가능하게 허용. 완전 외부 매장은 여전히 차단.
     if (!auth.is_super_admin && storeUuid !== auth.store_uuid) {
-      return NextResponse.json({ error: "SCOPE_FORBIDDEN" }, { status: 403 })
+      // 같은 건물 5-8F 매장인지 확인
+      const sb2 = getServiceClient()
+      const { data: targetStore } = await sb2
+        .from("stores")
+        .select("floor")
+        .eq("id", storeUuid)
+        .maybeSingle()
+      const floor = (targetStore as { floor: number } | null)?.floor ?? null
+      const isSameBuilding = floor !== null && floor >= 5 && floor <= 8
+      const isTrustedRole = auth.role === "owner" || auth.role === "manager"
+      if (!isSameBuilding || !isTrustedRole) {
+        return NextResponse.json({ error: "SCOPE_FORBIDDEN" }, { status: 403 })
+      }
     }
 
     const sb = getServiceClient()
 
     // 1) profile 생성 (임시)
-    //    profiles 스키마: id (uuid) · full_name · phone · role · email (nullable check 스키마)
+    //    profiles 스키마 (002_actual_schema.sql): id UUID NOT NULL PRIMARY KEY (no default) ·
+    //      full_name · phone · nickname · is_active · timestamps · deleted_at.
+    //    role/email 컬럼 없음. id 는 명시 생성 필수 (auth trigger 안 거침).
+    //    R-provisional-fix (2026-08-23): 기존 코드가 role: "hostess" 삽입 → 무조건 실패했음.
     const { data: prof, error: profErr } = await sb
       .from("profiles")
       .insert({
+        id: crypto.randomUUID(),
         full_name: name,
-        role: "hostess",
-        // email 은 nullable · 임시 등록은 미입력
       })
       .select("id, full_name")
       .single()
