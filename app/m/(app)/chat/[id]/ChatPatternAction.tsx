@@ -82,6 +82,42 @@ export function ChatPatternAction({
     try { return parseStaffChat(content, null) } catch { return { entries: [], warnings: [] } }
   }, [content])
 
+  // R-chat-checkout-action (2026-08-23): CHECKOUT event 감지 → 자동 leave.
+  //   "지연 팅" · "지연 종료" · "지연 끝" · "지연 아웃" 채팅 시 파서가
+  //   event=CHECKOUT 세팅. 이 useEffect 가 감지해서 leave-by-name API 호출.
+  //   1회만 발화 (checkoutFiredRef · autofire 와 별개 · localStorage 마킹).
+  const CHECKOUT_KEY = `nox_checkout_${chatMessageId}`
+  const checkoutFiredRef = useRef<boolean>(
+    typeof window !== "undefined" && !!window.localStorage.getItem(CHECKOUT_KEY),
+  )
+  useEffect(() => {
+    if (checkoutFiredRef.current) return
+    if (!chatMessageId || typeof chatMessageId !== "string") return
+    const checkoutEntries = parsed.entries.filter((e) => e.event === "CHECKOUT" && e.name)
+    if (checkoutEntries.length === 0) return
+    checkoutFiredRef.current = true
+    try { window.localStorage.setItem(CHECKOUT_KEY, "1") } catch { /* noop */ }
+    void (async () => {
+      for (const e of checkoutEntries) {
+        try {
+          const res = await apiFetch("/api/sessions/participants/leave-by-name", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: e.name,
+              store_uuid: myStoreUuid,
+              room_no: e.room_no ?? undefined,
+            }),
+          })
+          const j = await res.json().catch(() => ({}))
+          if (res.ok && (j.count ?? 0) > 0) {
+            toast(`✓ ${e.name} 종료 처리 (${j.count}건)`, "success")
+          }
+        } catch { /* silent · 최선 노력 */ }
+      }
+    })()
+  }, [parsed.entries, chatMessageId, myStoreUuid, toast, CHECKOUT_KEY])
+
   // entries 중 (이름, category, ticket) 있는 것.
   //   R-home-fallback (2026-08-23): origin_store_name 이 null 이면 뷰어의 본 매장으로
   //   자동 fallback (아래 resolvedEntries 에서 myStoreUuid 적용). 사용자 실제 흐름:
