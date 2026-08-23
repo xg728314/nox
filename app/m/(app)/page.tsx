@@ -39,16 +39,22 @@ type HostessState = "live" | "done" | "wait" | "off"
 
 // R-dispatch-history (2026-07-24) — 프로토타입 3-state 매칭:
 //   live  : is_working=true (현재 방중)
-//   done  : 60분 내 세션 종료 + 여전히 출근 상태 (attended)
-//   wait  : 출근 · 방중 아님 · 최근 종료도 아님
-//   off   : 미출근 (조판에서 제외)
+//   done  : 60분 내 세션 종료 (오늘 근무 이력 or 출근 상태)
+//   wait  : 출근 상태 · 방중 아님 · 최근 종료도 아님
+//   off   : 출근 안 함 · 오늘 세션 이력도 없음 (조판 제외)
+// R-worked-today-inclusion (2026-08-23): today_session_count > 0 인 아가씨는
+//   attendance 등록 안 됐어도 조판에 표시 (사용자 리포트: 24명 누락 문제).
+//   퇴근·attendance 미등록이어도 오늘 참여했으면 done 으로.
 function classify(h: HostessPreview, attendedSet: Set<string>, nowTs: number): HostessState {
   if (h.is_working) return "live"
   const attended = attendedSet.has(h.membership_id)
-  if (!attended) return "off"
+  const workedToday = (h.today_session_count ?? 0) > 0
   const lastLeft = h.last_left_at ? new Date(h.last_left_at).getTime() : 0
-  if (lastLeft && nowTs - lastLeft <= 60 * 60_000) return "done"
-  return "wait"
+  const recentlyLeft = lastLeft && nowTs - lastLeft <= 60 * 60_000
+  if (recentlyLeft) return "done"       // 방금 (60분 내) 나감 → done
+  if (workedToday) return "done"        // attendance 없어도 오늘 세션 참여 → done
+  if (attended) return "wait"           // attendance 만 있고 세션 이력 없음 → 대기
+  return "off"
 }
 
 function fmtHM(iso: string | null | undefined): string {
@@ -150,10 +156,18 @@ export default function DispatchPage() {
   }, [nowTick])
 
   // R-onduty-only (2026-07-24): 조판은 "출근한 아가씨" 만 표시.
-  //   결근 (attended=false && !is_working) 은 완전 제외 — 사용자 요구.
+  //   결근 (attended=false && !is_working && 오늘 세션 없음) 은 완전 제외.
+  // R-worked-today-inclusion (2026-08-23): 오늘 세션 참여 이력이 있으면
+  //   attendance 없어도 조판에 포함 (사용자 리포트: 오늘 근무했는데 카드 안 뜸).
+  //   attendance 는 카운터 태블릿 출근체크로 등록되는데 · 실제 매장에서는
+  //   실장이 채팅으로 바로 방 잡아 attendance 우회하는 경우가 흔함.
   const all = useMemo(() => {
     const raw = hostesses.data?.hostesses ?? []
-    return raw.filter((h) => h.is_working || attendedSet.has(h.membership_id))
+    return raw.filter((h) =>
+      h.is_working
+      || attendedSet.has(h.membership_id)
+      || (h.today_session_count ?? 0) > 0,
+    )
   }, [hostesses.data, attendedSet])
 
   // 출근 시각 map (attendance.checked_in_at → 대기 duration 계산용)
@@ -263,7 +277,10 @@ export default function DispatchPage() {
       else if (s === "done") done++
       else if (s === "wait") wait++
     }
-    return { live, done, wait, all: live + done + wait, onduty: live + wait }
+    // R-worked-today-inclusion (2026-08-23): done 에 오늘 세션 참여자 (attendance 없어도) 포함됨.
+    //   "일중" = 오늘 뭐라도 한 사람 전체 = live + wait + done = all.
+    //   "대기중" = 방 안 잡은 사람 = wait + done 유지 (done 이 부풀림).
+    return { live, done, wait, all: live + done + wait, onduty: live + done + wait }
   }, [all, attendedSet, nowTick])
 
   // 필터 + 검색 + 정렬 (진행중 임박순 → 종료 → 대기)
