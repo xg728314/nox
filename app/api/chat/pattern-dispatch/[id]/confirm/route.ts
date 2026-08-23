@@ -122,17 +122,41 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: "target store 매니저 없음", updated_at: new Date().toISOString() }).eq("id", p.id)
           continue
         }
-        const { data: st } = await supabase
-          .from("store_service_types")
-          .select("time_minutes, price, manager_deduction, has_greeting_check")
-          .eq("store_uuid", p.target_store_uuid)
-          .eq("service_type", p.category).eq("time_type", p.time_type).maybeSingle()
-        if (!st) {
+        // R-halfcha-fallback (2026-08-23): 반차3/반차2 는 별도 service_type row 없이도
+        //   반티 + 차3 조합으로 자동 계산 fallback. 미리 연장 · 반티+차3 조합 지원.
+        type ST = { time_minutes: number; price: number; manager_deduction: number; has_greeting_check: boolean }
+        let stRow: ST | null = null
+        {
+          const { data: st } = await supabase
+            .from("store_service_types")
+            .select("time_minutes, price, manager_deduction, has_greeting_check")
+            .eq("store_uuid", p.target_store_uuid)
+            .eq("service_type", p.category).eq("time_type", p.time_type).maybeSingle()
+          if (st) stRow = st as ST
+        }
+        // 반차3/반차2 · 미등록 시 반티 + 차3 sum 으로 계산
+        if (!stRow && (p.time_type === "반차3" || p.time_type === "반차2")) {
+          const [{ data: banti }, { data: cha3 }] = await Promise.all([
+            supabase.from("store_service_types").select("time_minutes, price, manager_deduction, has_greeting_check")
+              .eq("store_uuid", p.target_store_uuid).eq("service_type", p.category).eq("time_type", "반티").maybeSingle(),
+            supabase.from("store_service_types").select("time_minutes, price, manager_deduction, has_greeting_check")
+              .eq("store_uuid", p.target_store_uuid).eq("service_type", p.category).eq("time_type", "차3").maybeSingle(),
+          ])
+          const b = banti as ST | null
+          const c = cha3 as ST | null
+          if (b && c) {
+            stRow = {
+              time_minutes: (b.time_minutes ?? 30) + (c.time_minutes ?? 15),
+              price: (b.price ?? 0) + (c.price ?? 0),
+              manager_deduction: (b.manager_deduction ?? 0) + (c.manager_deduction ?? 0),
+              has_greeting_check: b.has_greeting_check ?? false,
+            }
+          }
+        }
+        if (!stRow) {
           await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: "단가 미설정", updated_at: new Date().toISOString() }).eq("id", p.id)
           continue
         }
-        type ST = { time_minutes: number; price: number; manager_deduction: number; has_greeting_check: boolean }
-        const stRow = st as ST
         // 빈 룸
         const { data: rooms } = await supabase
           .from("rooms").select("id, room_no, room_name, is_active")
