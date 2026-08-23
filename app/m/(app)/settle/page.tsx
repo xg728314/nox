@@ -300,38 +300,18 @@ export default function SettlePage() {
           </div>
         </div>
 
-        {/* R-quick-jump (2026-08-23): 외부 매장 정산 섹션은 스크롤 아래에 있어
-           사용자가 놓치기 쉽다. 상단에 명시적 버튼 추가 · 클릭 시 해당 섹션
-           smooth scroll. 데이터 있으면 매장 수 · 줄돈 요약 · 색 강조 · 없으면
-           옅게. */}
-        <button
-          type="button"
-          onClick={() => {
-            const el = document.getElementById("incoming-staff-section")
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
-          }}
-          className={cn(
-            "w-full mb-3 flex items-center justify-between rounded-2xl px-4 py-3 border transition-colors",
-            (incoming.data?.groups?.length ?? 0) > 0
-              ? "bg-blue-50 border-blue-200 active:bg-blue-100"
-              : "bg-white border-[#D8D2C8]/60 active:bg-[#FAF5EC]",
-          )}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-blue-100 flex items-center justify-center text-[16px]">
-              🔄
-            </div>
-            <div className="text-left min-w-0">
-              <div className="text-[12px] font-extrabold text-[#2D2B26]">외부 매장 정산</div>
-              <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
-                {(incoming.data?.groups?.length ?? 0) > 0
-                  ? `${incoming.data?.groups?.length}개 매장 · 줄돈 ${fmtMoneyWon(incoming.data?.grand_total_hostess_payout ?? 0)}`
-                  : "우리 매장에 온 타매장 식구 · 오늘 없음"}
-              </div>
-            </div>
-          </div>
-          <span className="text-[14px] text-[#A87D45] shrink-0">↓</span>
-        </button>
+        {/* R-external-top (2026-08-23): 외부 매장 정산 섹션을 스태프별 위로 이동.
+         이전엔 페이지 최하단 → pill button 으로 scroll jump 했지만 · 페이지 남은
+         공간이 짧아서 스크롤 후 큰 공백 (사용자 리포트: "화면이 틀어진다").
+         근본 해결: 섹션 자체를 상단 (내 장부 아래 · 스태프별 위) 에 배치. */}
+        <div className="mb-4">
+          <IncomingStaffSection
+            groups={incoming.data?.groups ?? []}
+            isLoading={incoming.isLoading}
+            grandPrice={incoming.data?.grand_total_price ?? 0}
+            grandHostess={incoming.data?.grand_total_hostess_payout ?? 0}
+          />
+        </div>
 
         {/* 스태프별 */}
         <div className="flex items-center justify-between mb-2">
@@ -494,13 +474,7 @@ export default function SettlePage() {
           </div>
         )}
 
-        {/* 본 매장에서 일하는/일한 타매장 식구 — 줄돈/받을돈 검증 */}
-        <IncomingStaffSection
-          groups={incoming.data?.groups ?? []}
-          isLoading={incoming.isLoading}
-          grandPrice={incoming.data?.grand_total_price ?? 0}
-          grandHostess={incoming.data?.grand_total_hostess_payout ?? 0}
-        />
+        {/* R-external-top (2026-08-23): 위쪽으로 이동됨 · 이전 렌더 위치 제거. */}
       </div>
 
       <TabBar />
