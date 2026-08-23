@@ -384,7 +384,10 @@ export default function SettlePage() {
                       <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">
                         {fmtMoneyWon(gross)}
                       </div>
-                      {sameAmount && !hasJjing ? (
+                      {/* R-mask-zero (2026-08-23): owner 마스킹으로 payout/jjing 이
+                       0/0 이면 개별 값 노출 노이즈만 됨 (상단 header 에 매장 총액 있음).
+                       두 값 다 0 이면 이 라인 자체 렌더 X. */}
+                      {payout === 0 && jjing === 0 ? null : sameAmount && !hasJjing ? (
                         <div className="text-[9px] font-semibold text-[#7A746A]">찡값 X · 전액 지급</div>
                       ) : (
                         <>
