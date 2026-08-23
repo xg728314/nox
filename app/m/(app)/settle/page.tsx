@@ -625,7 +625,24 @@ function IncomingStaffSection({
       </div>
     )
   }
-  if (groups.length === 0) return null
+  // R-empty-state (2026-08-23): groups=0 이면 return null 이라 사용자가
+  //   "이 섹션 어디?" 오해. 최소 안내 카드 노출.
+  if (groups.length === 0) {
+    return (
+      <div className="mt-6 mb-2">
+        <div className="text-[13px] font-extrabold mb-2">🔄 우리 매장 들어온 타매장 식구</div>
+        <div className="rounded-2xl border border-dashed border-[#D8D2C8] bg-[#FAF5EC]/60 px-4 py-5 text-center">
+          <div className="text-[12px] font-bold text-[#7A746A]">
+            오늘 외부 매장 식구 없음
+          </div>
+          <div className="text-[10px] text-[#7A746A]/70 mt-1 leading-relaxed">
+            다른 매장 아가씨가 우리 매장에서 일하면
+            <br />여기에 매장별 · 실장별로 정산 금액이 뜹니다
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const allExpanded = groups.length > 0 && expanded.size === groups.length
 
