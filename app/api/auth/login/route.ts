@@ -182,6 +182,12 @@ export async function POST(request: Request) {
 
     const membership = memberships[0]
 
+    // R-skip-email-otp (2026-08-23): 개발/내부용 · env flag 로 신뢰 기기 확인 +
+    //   email OTP 절차 완전 우회. 아이디/비번만 맞으면 즉시 세션 발급.
+    //   활성: NOX_SKIP_EMAIL_OTP=true (Cloud Run env). 미설정/false 면 기존 로직.
+    //   ⚠ 프로덕션 배포 시엔 절대 활성화 금지 — 새 기기 인증 사라짐.
+    const skipEmailOtp = process.env.NOX_SKIP_EMAIL_OTP === "true"
+
     let deviceHash: string
     try {
       deviceHash = hashDevice(data.user.id, clientDeviceId)
@@ -193,13 +199,15 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: trustedDev, error: trustedErr } = await adminClient
-      .from("trusted_devices")
-      .select("id")
-      .eq("user_id", data.user.id)
-      .eq("device_hash", deviceHash)
-      .is("revoked_at", null)
-      .maybeSingle()
+    const { data: trustedDev, error: trustedErr } = skipEmailOtp
+      ? { data: { id: "skip" }, error: null }
+      : await adminClient
+          .from("trusted_devices")
+          .select("id")
+          .eq("user_id", data.user.id)
+          .eq("device_hash", deviceHash)
+          .is("revoked_at", null)
+          .maybeSingle()
 
     if (trustedErr) {
       console.error("[login] trusted lookup failed", trustedErr)
@@ -211,10 +219,13 @@ export async function POST(request: Request) {
     }
 
     if (trustedDev) {
-      await adminClient
-        .from("trusted_devices")
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq("id", (trustedDev as { id: string }).id)
+      // skip 모드에선 실제 trusted_devices row 가 없으니 last_seen update 도 skip.
+      if (!skipEmailOtp && (trustedDev as { id: string }).id !== "skip") {
+        await adminClient
+          .from("trusted_devices")
+          .update({ last_seen_at: new Date().toISOString() })
+          .eq("id", (trustedDev as { id: string }).id)
+      }
 
       const res = NextResponse.json({
         access_token: data.session.access_token,
