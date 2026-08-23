@@ -300,6 +300,39 @@ export default function SettlePage() {
           </div>
         </div>
 
+        {/* R-quick-jump (2026-08-23): 외부 매장 정산 섹션은 스크롤 아래에 있어
+           사용자가 놓치기 쉽다. 상단에 명시적 버튼 추가 · 클릭 시 해당 섹션
+           smooth scroll. 데이터 있으면 매장 수 · 줄돈 요약 · 색 강조 · 없으면
+           옅게. */}
+        <button
+          type="button"
+          onClick={() => {
+            const el = document.getElementById("incoming-staff-section")
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+          }}
+          className={cn(
+            "w-full mb-3 flex items-center justify-between rounded-2xl px-4 py-3 border transition-colors",
+            (incoming.data?.groups?.length ?? 0) > 0
+              ? "bg-blue-50 border-blue-200 active:bg-blue-100"
+              : "bg-white border-[#D8D2C8]/60 active:bg-[#FAF5EC]",
+          )}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 shrink-0 rounded-xl bg-blue-100 flex items-center justify-center text-[16px]">
+              🔄
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[12px] font-extrabold text-[#2D2B26]">외부 매장 정산</div>
+              <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                {(incoming.data?.groups?.length ?? 0) > 0
+                  ? `${incoming.data?.groups?.length}개 매장 · 줄돈 ${fmtMoneyWon(incoming.data?.grand_total_hostess_payout ?? 0)}`
+                  : "우리 매장에 온 타매장 식구 · 오늘 없음"}
+              </div>
+            </div>
+          </div>
+          <span className="text-[14px] text-[#A87D45] shrink-0">↓</span>
+        </button>
+
         {/* 스태프별 */}
         <div className="flex items-center justify-between mb-2">
           <div className="text-[13px] font-extrabold">스태프별</div>
@@ -622,7 +655,7 @@ function IncomingStaffSection({
 
   if (isLoading) {
     return (
-      <div className="mt-6 mb-2">
+      <div id="incoming-staff-section" className="mt-6 mb-2 scroll-mt-4">
         <div className="text-[13px] font-extrabold mb-2">🔄 우리 매장 들어온 타매장 식구</div>
         <div className="h-16 rounded-2xl bg-[#EFEBE3] animate-pulse" />
       </div>
@@ -632,7 +665,7 @@ function IncomingStaffSection({
   //   "이 섹션 어디?" 오해. 최소 안내 카드 노출.
   if (groups.length === 0) {
     return (
-      <div className="mt-6 mb-2">
+      <div id="incoming-staff-section" className="mt-6 mb-2 scroll-mt-4">
         <div className="text-[13px] font-extrabold mb-2">🔄 우리 매장 들어온 타매장 식구</div>
         <div className="rounded-2xl border border-dashed border-[#D8D2C8] bg-[#FAF5EC]/60 px-4 py-5 text-center">
           <div className="text-[12px] font-bold text-[#7A746A]">
@@ -650,7 +683,7 @@ function IncomingStaffSection({
   const allExpanded = groups.length > 0 && expanded.size === groups.length
 
   return (
-    <div className="mt-6 mb-2">
+    <div id="incoming-staff-section" className="mt-6 mb-2 scroll-mt-4">
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-[13px] font-extrabold">🔄 우리 매장 들어온 타매장 식구</div>
         <div className="text-[10px] font-bold text-[#A87D45]">
