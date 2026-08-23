@@ -53,35 +53,22 @@ export default function MePage() {
 
         {/* 커뮤니티 — LUNA(루나) 연동. 타일 클릭 시 SSO 자동로그인으로 이동.
             기존 NOX 내장 마켓(m/lounge·place·talk·jobs·live, /m/me/ads)은
-            2026-07-19 사용자 결정으로 메뉴에서 내리고 루나로 일원화. 코드는 보존. */}
+            2026-07-19 사용자 결정으로 메뉴에서 내리고 루나로 일원화. 코드는 보존.
+            R-hide-menus (2026-08-23): 사용자 요청으로 12개 항목 숨김.
+              - 커뮤니티: 실시간현황 제거.
+              - 운영 도구: 섹션 전체 제거 (실시간대기·손님관리·자동처리·방지도·
+                마감리포트·AI요약·채팅·재고·외상·영업일마감·종이장부).
+              라우트/코드는 보존 · 직접 URL 방문은 여전히 동작. 다시 노출하려면
+              git revert. */}
         <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
           커뮤니티
         </div>
         <div className="grid grid-cols-4 gap-2 mb-4">
-          <QuickAction href="/api/luna/sso?next=/" icon="📡" label="실시간현황" external />
           <QuickAction href="/api/luna/sso?next=/community" icon="🌸" label="라운지" external />
           <QuickAction href="/api/luna/sso?next=/places" icon="🎁" label="플레이스" external />
           <QuickAction href="/api/luna/sso?next=/talk" icon="💬" label="데일리톡" external />
           <QuickAction href="/api/luna/sso?next=/jobs" icon="💼" label="채용정보" external />
           <QuickAction href="/api/luna/sso?next=/menu" icon="📢" label="광고 문의" external />
-        </div>
-
-        {/* 빠른 실행 그리드 — 실장 운영 기능 */}
-        <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
-          운영 도구
-        </div>
-        <div className="grid grid-cols-4 gap-2 mb-4">
-          <QuickAction href="/m/waiting" icon="⏰" label="실시간 대기" />
-          <QuickAction href="/m/guests" icon="🧑‍💼" label="손님 관리" />
-          <QuickAction href="/m/ops/auto-actions" icon="🤖" label="자동 처리" />
-          <QuickAction href="/m/map" icon="🗺️" label="방 지도" />
-          <QuickAction href="/m/settle/print" icon="🖨️" label="마감 리포트" />
-          <QuickAction href="/m/settle" icon="🤖" label="AI 요약" />
-          <QuickAction href="/m/chat" icon="💬" label="채팅" />
-          <QuickAction href="/inventory" icon="📦" label="재고" />
-          <QuickAction href="/credits" icon="💳" label="외상" />
-          <QuickAction href="/operating-days" icon="🗓️" label="영업일 마감" />
-          <QuickAction href="/reconcile" icon="📸" label="종이 장부" />
         </div>
 
         {/* 내 정보 헤더 */}
