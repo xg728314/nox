@@ -38,6 +38,16 @@ export default function SettlePage() {
   const [payoutTarget, setPayoutTarget] = useState<{ id: string; name: string } | null>(null)
   // R-staff-detail (2026-07-19): 이름 클릭 → 세부 정산 (세션별, 종목별, 시간당 공제)
   const [detailTarget, setDetailTarget] = useState<{ id: string; name: string } | null>(null)
+  // R-inline-expand (2026-08-23): 스태프별 카드 이름 클릭 시 인라인 accordion
+  //   기존: setDetailTarget → 별도 시트 (한 화면 더). 사용자 요구 심플화.
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const toggleExpand = (id: string) => {
+    setExpandedRows((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
   // R-quick-payout (2026-06-26): row 우측 [✓완료] [📦보관] 빠른 액션
   //   - 누르면 즉시 PATCH 호출, 시트 안 띄움.
   //   - 로컬 state 로 처리 표시 (서버 응답 후 invalidate).
@@ -334,10 +344,10 @@ export default function SettlePage() {
                     isHeld && "bg-amber-50/60",
                   )}
                 >
-                  {/* 상단 영역 — 클릭 시 세부 정산 시트 (세션별 breakdown) */}
+                  {/* R-inline-expand (2026-08-23): 이름 클릭 → 인라인 세부 (심플화) */}
                   <button
                     type="button"
-                    onClick={() => setDetailTarget({ id: h.hostess_id, name: h.hostess_name })}
+                    onClick={() => toggleExpand(h.hostess_id)}
                     className="w-full flex items-center gap-3 text-left active:opacity-60 transition-opacity"
                   >
                     <div className="flex-1 min-w-0">
@@ -384,6 +394,14 @@ export default function SettlePage() {
                       )}
                     </div>
                   </button>
+                  {/* R-inline-expand (2026-08-23): 확장 시 세션별 상세 표시 */}
+                  {expandedRows.has(h.hostess_id) && (
+                    <InlineHostessDetail
+                      hostessId={h.hostess_id}
+                      businessDayId={settle.data?.business_day_id ?? null}
+                      breakdown={h.store_breakdown ?? []}
+                    />
+                  )}
                   {/* 빠른 액션 버튼 — 즉시 PATCH */}
                   <div className="flex items-center gap-1.5 mt-2">
                     <button
@@ -804,4 +822,109 @@ function formatClockTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+/**
+ * R-inline-expand (2026-08-23): 정산 페이지 스태프 카드 인라인 세부 · 심플 accordion.
+ *   이름 클릭 시 · 별도 시트 대신 · 그 자리에서 세션 리스트 표시.
+ *   1) breakdown (매장별 카운트) 즉시 표시
+ *   2) 실 세션 리스트 lazy fetch · /api/manager/hostesses/[id]/sessions?business_day_id=xxx
+ */
+function InlineHostessDetail({
+  hostessId,
+  businessDayId,
+  breakdown,
+}: {
+  hostessId: string
+  businessDayId: string | null
+  breakdown: Array<{ store_uuid: string; store_name: string; count: number }>
+}) {
+  type SessionRow = {
+    participant_id: string
+    session_id: string
+    store_name: string
+    room_no: string | null
+    category: string | null
+    time_minutes: number | null
+    price_amount: number
+    entered_at: string
+    left_at: string | null
+    status: string
+  }
+  const [sessions, setSessions] = useState<SessionRow[] | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const url = `/api/manager/hostesses/${encodeURIComponent(hostessId)}/sessions${businessDayId ? `?business_day_id=${encodeURIComponent(businessDayId)}` : ""}`
+        const r = await apiFetch(url)
+        if (!r.ok) throw new Error("fetch failed")
+        const j = await r.json() as { sessions?: SessionRow[] }
+        if (!cancelled) setSessions(j.sessions ?? [])
+      } catch {
+        if (!cancelled) setSessions([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [hostessId, businessDayId])
+
+  const fmtHm = (iso: string) => {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return "?"
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  }
+  const fmtWon = (n: number) => n >= 10000 ? `${Math.floor(n / 10000)}만원` : `${n.toLocaleString()}원`
+
+  return (
+    <div className="mt-2 border-t border-[#EDE7DA] pt-2 flex flex-col gap-1">
+      {/* 매장별 요약 */}
+      {breakdown.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-1">
+          {breakdown.map((b) => (
+            <span key={b.store_uuid} className="inline-flex items-center rounded-md bg-[#C49B61]/15 text-[#8C6A3A] px-2 py-0.5 text-[10px] font-black">
+              {b.store_name} · {b.count}타임
+            </span>
+          ))}
+        </div>
+      )}
+      {/* 세션 리스트 */}
+      {loading && <div className="text-[10px] text-[#7A746A] py-1">불러오는 중...</div>}
+      {!loading && sessions && sessions.length === 0 && (
+        <div className="text-[10px] text-[#7A746A] py-1">세션 이력 없음</div>
+      )}
+      {!loading && sessions && sessions.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {sessions.map((s) => {
+            const cat = s.category === "퍼블릭" ? "P" : s.category === "셔츠" ? "S" : s.category === "하퍼" ? "H" : "-"
+            const catCls = cat === "P" ? "bg-[#6B8AFD]/20 text-[#3E5EDB]"
+              : cat === "H" ? "bg-[#D97757]/20 text-[#A94B2A]"
+                : cat === "S" ? "bg-[#D9A557]/20 text-[#8C6A2A]"
+                  : "bg-[#EDE7DA] text-[#7A746A]"
+            return (
+              <div key={s.participant_id} className="flex items-center gap-2 text-[11px] bg-white/50 rounded px-2 py-1">
+                <span className="font-mono font-bold text-[#7A746A] w-10">{fmtHm(s.entered_at)}</span>
+                <span className={cn("inline-flex items-center justify-center min-w-[16px] h-4 rounded text-[9px] font-black shrink-0", catCls)}>
+                  {cat}
+                </span>
+                <span className="font-extrabold text-[#2D2B26] truncate">
+                  {s.store_name}{s.room_no ? ` ${s.room_no}번방` : ""}
+                </span>
+                <span className="text-[10px] font-bold text-[#7A746A] ml-auto">
+                  {s.time_minutes ? `${s.time_minutes}분` : "-"}
+                </span>
+                <span className="text-[10px] font-black text-[#8C6A3A]">
+                  {s.price_amount > 0 ? fmtWon(s.price_amount) : "-"}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
