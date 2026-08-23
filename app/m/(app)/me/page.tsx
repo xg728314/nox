@@ -51,20 +51,19 @@ export default function MePage() {
         {/* 이상 감지 배너 — 홈에서 이동 */}
         <AnomaliesBanner />
 
-        {/* 커뮤니티 · 마켓플레이스 (신규) */}
+        {/* 커뮤니티 — LUNA(루나) 연동. 타일 클릭 시 SSO 자동로그인으로 이동.
+            기존 NOX 내장 마켓(m/lounge·place·talk·jobs·live, /m/me/ads)은
+            2026-07-19 사용자 결정으로 메뉴에서 내리고 루나로 일원화. 코드는 보존. */}
         <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-wider px-1 mb-1.5 mt-1">
-          커뮤니티 & 마켓
+          커뮤니티
         </div>
         <div className="grid grid-cols-4 gap-2 mb-4">
-          <QuickAction href="/m/waiting" icon="⏰" label="실시간 대기" />
-          <QuickAction href="/m/guests" icon="🧑‍💼" label="손님 관리" />
-          <QuickAction href="/m/ops/auto-actions" icon="🤖" label="자동 처리" />
-          <QuickAction href="/m/live" icon="📡" label="실시간현황" />
-          <QuickAction href="/m/lounge" icon="🌸" label="라운지" />
-          <QuickAction href="/m/place" icon="🎁" label="플레이스" />
-          <QuickAction href="/m/talk" icon="💬" label="초이스톡" />
-          <QuickAction href="/m/jobs" icon="💼" label="채용정보" />
-          <QuickAction href="/m/me/ads" icon="📢" label="광고 관리" />
+          <QuickAction href="/api/luna/sso?next=/" icon="📡" label="실시간현황" external />
+          <QuickAction href="/api/luna/sso?next=/community" icon="🌸" label="라운지" external />
+          <QuickAction href="/api/luna/sso?next=/places" icon="🎁" label="플레이스" external />
+          <QuickAction href="/api/luna/sso?next=/talk" icon="💬" label="데일리톡" external />
+          <QuickAction href="/api/luna/sso?next=/jobs" icon="💼" label="채용정보" external />
+          <QuickAction href="/api/luna/sso?next=/menu" icon="📢" label="광고 문의" external />
         </div>
 
         {/* 빠른 실행 그리드 — 실장 운영 기능 */}
@@ -72,6 +71,9 @@ export default function MePage() {
           운영 도구
         </div>
         <div className="grid grid-cols-4 gap-2 mb-4">
+          <QuickAction href="/m/waiting" icon="⏰" label="실시간 대기" />
+          <QuickAction href="/m/guests" icon="🧑‍💼" label="손님 관리" />
+          <QuickAction href="/m/ops/auto-actions" icon="🤖" label="자동 처리" />
           <QuickAction href="/m/map" icon="🗺️" label="방 지도" />
           <QuickAction href="/m/settle/print" icon="🖨️" label="마감 리포트" />
           <QuickAction href="/m/settle" icon="🤖" label="AI 요약" />
@@ -156,20 +158,34 @@ function QuickAction({
   href,
   icon,
   label,
+  external,
 }: {
   href: string
   icon: string
   label: string
+  /** API 라우트 등 — Link prefetch 가 SSO 코드를 소모하지 않도록 <a> 로 렌더 */
+  external?: boolean
 }) {
-  return (
-    <Link
-      href={href}
-      className="bg-white rounded-2xl border border-[#D8D2C8]/60 aspect-square flex flex-col items-center justify-center gap-1 no-underline text-[#2D2B26] active:scale-95 active:bg-[#FAF5EC] transition-transform"
-    >
+  const className =
+    "bg-white rounded-2xl border border-[#D8D2C8]/60 aspect-square flex flex-col items-center justify-center gap-1 no-underline text-[#2D2B26] active:scale-95 active:bg-[#FAF5EC] transition-transform"
+  const inner = (
+    <>
       <span className="text-[22px] leading-none">{icon}</span>
       <span className="text-[9px] font-extrabold text-center px-1 leading-tight">
         {label}
       </span>
+    </>
+  )
+  if (external) {
+    return (
+      <a href={href} className={className}>
+        {inner}
+      </a>
+    )
+  }
+  return (
+    <Link href={href} className={className}>
+      {inner}
     </Link>
   )
 }
