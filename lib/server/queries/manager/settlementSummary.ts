@@ -33,6 +33,14 @@ export type ManagerSettlementSummaryResponse = {
   role: AuthContext["role"]
   business_day_id: string | null
   summary: SummaryRow[]
+  /** R-store-totals (2026-08-23): 매장 총액 · owner 마스킹 우회.
+   *  개별 hostess/manager amount 는 owner 응답에서 null 로 masked 되지만
+   *  매장 총액 (사장이 볼 수 있음 = 총매출·사장마진) 은 unmasked. */
+  store_totals?: {
+    total_gross: number
+    total_hostess_payout: number
+    total_manager_jjing: number
+  }
 }
 
 /**
@@ -402,10 +410,36 @@ export async function getManagerSettlementSummary(
     path: "ok",
   }))
 
+  // R-store-totals (2026-08-23): owner 마스킹으로 개별 hostess_amount 가 null 이어도
+  //   매장 총액은 표시 가능 (CLAUDE.md: 사장 볼 수 있음 = 총매출·사장마진).
+  //   dashboard "식구 지급" 이 개별 sum 하니 owner 에게 0 표시되던 문제 fix.
+  //   총액은 payout_status=paid+held 참여자 hostess_amount unmasked sum.
+  const storeTotals = {
+    total_gross: summary.reduce((a, r) => a + (r.gross_total ?? 0), 0),
+    total_hostess_payout: (() => {
+      // hostessParts 원본 (마스킹 전) 에서 payout paid/held 만 sum
+      let s = 0
+      for (const [hid, parts] of hostessParts) {
+        const ps = payoutMap.get(hid)?.status
+        if (ps !== "paid" && ps !== "held") continue
+        for (const p of parts) s += Number(p.hostess_payout_amount ?? 0)
+      }
+      return s
+    })(),
+    total_manager_jjing: (() => {
+      let s = 0
+      for (const parts of hostessParts.values()) {
+        for (const p of parts) s += Number(p.manager_payout_amount ?? 0)
+      }
+      return s
+    })(),
+  }
+
   return {
     store_uuid: auth.store_uuid,
     role: auth.role,
     business_day_id: businessDayId,
     summary,
+    store_totals: storeTotals,
   }
 }

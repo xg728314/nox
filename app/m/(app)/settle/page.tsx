@@ -110,17 +110,24 @@ export default function SettlePage() {
   //   사용자 의도: 매출 - 정산완료된 식구 지급액 = 실장 순수익.
   //   예: 매출 1650만 - 정산완료 식구 지급 1500만 = 150만 (실장 차익 / 미지급 보관 포함).
   //   정산완료 토글 누른 식구만 '식구 지급'에 합산 — 미지급 식구 금액은 실장 손에 있음.
-  const totalGross = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
-  // 정산완료(paid) + 보관(held) 된 식구의 hostess_amount 합 — 실제 처리한 식구 지급
-  const settledHostessPayout = isReset ? 0 : withSettlement
-    .filter((r) => r.payout_status === "paid" || r.payout_status === "held")
-    .reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+  // R-store-totals (2026-08-23): 서버 store_totals 우선 사용 (owner 마스킹 우회).
+  //   owner 응답에서 개별 hostess_amount 는 null 로 masked 되지만 · 매장 총액은
+  //   store_totals 로 unmasked 노출됨 → dashboard "식구 지급 —" 문제 해결.
+  //   store_totals 없으면 (구 API 응답) 기존 client sum 방식 fallback.
+  const storeTotals = settle.data?.store_totals
+  const totalGross = isReset
+    ? 0
+    : storeTotals?.total_gross ?? withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
+  const settledHostessPayout = isReset
+    ? 0
+    : storeTotals?.total_hostess_payout ?? withSettlement
+        .filter((r) => r.payout_status === "paid" || r.payout_status === "held")
+        .reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
   const totalHostessPayout = settledHostessPayout
-  // 실장 순수익 = 매출 - 처리된 식구 지급
   const myProfit = isReset ? 0 : Math.max(0, totalGross - settledHostessPayout)
-  // R-jjing (2026-07-20): 찡값 합계 — 종목당 실장이 뗀 금액 (manager_amount).
-  //   "매출-지급-찡값" 을 매출 = 아가씨 지급 + 찡값 + 매장몫 로 명확 분리.
-  const totalManagerJjing = isReset ? 0 : withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
+  const totalManagerJjing = isReset
+    ? 0
+    : storeTotals?.total_manager_jjing ?? withSettlement.reduce((a, r) => a + (r.manager_amount ?? 0), 0)
 
   // R-payout-hide-3h (2026-06-27): 정산완료 후 3시간 지난 row 는 목록에서 hide.
   //   사용자 요구: "하루 지났는데 목록에 뜨면 더 햇갈린다".

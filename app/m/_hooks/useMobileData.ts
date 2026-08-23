@@ -279,6 +279,12 @@ export type SettlementSummary = {
   role: string
   business_day_id: string | null
   summary: SettlementSummaryRow[]
+  /** R-store-totals (2026-08-23): 매장 총액 · owner 마스킹 우회 (개별은 masked · 총합은 노출) */
+  store_totals?: {
+    total_gross: number
+    total_hostess_payout: number
+    total_manager_jjing: number
+  }
 }
 export function useSettlement() {
   return useApi<SettlementSummary>("/api/manager/settlement/summary", { ttl: 10_000 })

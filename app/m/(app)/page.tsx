@@ -456,12 +456,14 @@ export default function DispatchPage() {
         )
       })()}
 
-      {/* 필터 chips (프로토타입 매칭) — 출근한 아가씨만 (결근 제외) */}
+      {/* 필터 chips (프로토타입 매칭) — 출근한 아가씨만 (결근 제외).
+          R-count-fix (2026-08-23): "일중" count 는 onduty (live+wait) 여야 함.
+          이전엔 counts.all (live+done+wait) 로 잘못 표시되어 사용자 인지 혼동. */}
       <div className="mx-4 mb-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <FilterChip label="전체" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} dark={dark} />
         <FilterChip label="진행중" count={counts.live} dot="live" active={filter === "live"} onClick={() => setFilter("live")} dark={dark} />
-        <FilterChip label="대기중" count={counts.wait} dot="wait" active={filter === "wait"} onClick={() => setFilter("wait")} dark={dark} />
-        <FilterChip label="일중" count={counts.all} dot="onduty" active={filter === "onduty"} onClick={() => setFilter("onduty")} dark={dark} />
+        <FilterChip label="대기중" count={counts.wait + counts.done} dot="wait" active={filter === "wait"} onClick={() => setFilter("wait")} dark={dark} />
+        <FilterChip label="일중" count={counts.onduty} dot="onduty" active={filter === "onduty"} onClick={() => setFilter("onduty")} dark={dark} />
       </div>
 
       {/* 리스트 */}
