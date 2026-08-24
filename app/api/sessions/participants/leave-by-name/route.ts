@@ -35,15 +35,11 @@ export async function POST(request: Request) {
     }
     const name = (body.name || "").trim()
     if (!name) return NextResponse.json({ error: "BAD_REQUEST", message: "name required" }, { status: 400 })
+    // R-scope-fix (2026-08-24): 이전엔 같은 건물 (5-8F) 이면 다른 매장 참여자
+    //   강제 종료 허용 → 매장 간 서로 nuke 가능. super_admin 만 다른 매장 허용.
     const targetStore = body.store_uuid || auth.store_uuid
     if (!auth.is_super_admin && targetStore !== auth.store_uuid) {
-      // 같은 건물 (5-8F) owner/manager 도 허용 (다른 매장 대신 종료)
-      const sb0 = getServiceClient()
-      const { data: st } = await sb0.from("stores").select("floor").eq("id", targetStore).maybeSingle()
-      const floor = (st as { floor: number } | null)?.floor ?? null
-      if (!(floor !== null && floor >= 5 && floor <= 8)) {
-        return NextResponse.json({ error: "SCOPE_FORBIDDEN" }, { status: 403 })
-      }
+      return NextResponse.json({ error: "SCOPE_FORBIDDEN" }, { status: 403 })
     }
 
     const sb = getServiceClient()
@@ -68,22 +64,45 @@ export async function POST(request: Request) {
     }
 
     // 2) active participants (같은 매장 · membership_id in ... OR external_name = name)
-    const filters: string[] = []
-    if (membershipIds.length > 0) filters.push(`membership_id.in.(${membershipIds.join(",")})`)
-    filters.push(`external_name.eq.${name}`)
-    const { data: parts } = await sb
-      .from("session_participants")
-      .select("id, session_id, membership_id, external_name, room_sessions!inner(room_uuid, store_uuid, status)")
-      .eq("store_uuid", targetStore)
-      .eq("status", "active")
-      .is("deleted_at", null)
-      .or(filters.join(","))
-
+    // R-injection-fix (2026-08-24): 이전엔 `external_name.eq.${name}` 로 name 을
+    //   raw 로 splice → PostgREST or() 절에 additional filter 인젝션 가능.
+    //   name 에 comma/dot/paren 있으면 절이 깨져 다른 매장 참여자에게 영향.
+    //   Fix: name 을 별도 쿼리 (external_name.eq) 로 실행 후 in-memory merge.
     type PartRow = {
       id: string; session_id: string; membership_id: string | null; external_name: string | null;
       room_sessions: { room_uuid: string; store_uuid: string; status: string }
     }
-    let candidates = ((parts ?? []) as unknown as PartRow[])
+    let byMembershipIds: PartRow[] = []
+    let byExternalName: PartRow[] = []
+    if (membershipIds.length > 0) {
+      const { data: p1 } = await sb
+        .from("session_participants")
+        .select("id, session_id, membership_id, external_name, room_sessions!inner(room_uuid, store_uuid, status)")
+        .eq("store_uuid", targetStore)
+        .eq("status", "active")
+        .is("deleted_at", null)
+        .in("membership_id", membershipIds)
+      byMembershipIds = ((p1 ?? []) as unknown as PartRow[])
+    }
+    {
+      const { data: p2 } = await sb
+        .from("session_participants")
+        .select("id, session_id, membership_id, external_name, room_sessions!inner(room_uuid, store_uuid, status)")
+        .eq("store_uuid", targetStore)
+        .eq("status", "active")
+        .is("deleted_at", null)
+        .eq("external_name", name)  // safe · exact match
+      byExternalName = ((p2 ?? []) as unknown as PartRow[])
+    }
+    const seen = new Set<string>()
+    const parts: PartRow[] = []
+    for (const r of [...byMembershipIds, ...byExternalName]) {
+      if (seen.has(r.id)) continue
+      seen.add(r.id)
+      parts.push(r)
+    }
+
+    let candidates = parts
       .filter(p => p.room_sessions?.status === "active")
 
     // room_no 필터 (선택)

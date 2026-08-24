@@ -67,15 +67,17 @@ export async function GET(request: Request) {
     const roomUuids = Array.from(new Set(sessionList.map((s) => s.room_uuid)))
 
     // 방 이름
+    // R-rooms-col-fix (2026-08-24): rooms 컬럼은 room_name · 이전엔 "name" 로 잘못 select
+    //   → PostgREST 42703 · silent null · 채팅방 이름 "?" 표시. Fix.
     const { data: rooms } = await supabase
       .from("rooms")
-      .select("id, name, room_no")
+      .select("id, room_name, room_no")
       .eq("store_uuid", auth.store_uuid)
       .in("id", roomUuids)
       .is("deleted_at", null)
     const roomMap = new Map<string, { name: string; room_no: string | null }>()
-    for (const r of (rooms ?? []) as { id: string; name: string; room_no: string | null }[]) {
-      roomMap.set(r.id, { name: r.name, room_no: r.room_no })
+    for (const r of (rooms ?? []) as { id: string; room_name: string; room_no: string | null }[]) {
+      roomMap.set(r.id, { name: r.room_name, room_no: r.room_no })
     }
 
     // active participants per 세션

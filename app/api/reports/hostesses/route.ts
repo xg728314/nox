@@ -30,13 +30,20 @@ function deriveState(paid: number, remaining: number): "confirmed" | "partial" |
   return "confirmed"
 }
 
+import { resolveOwnerVisibility } from "@/lib/settlement/services/ownerVisibility"
+
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
-    if (auth.role !== "owner") {
+    if (auth.role !== "owner" && !auth.is_super_admin) {
       return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 })
     }
     const supabase = supa()
+    // R-owner-mask (2026-08-24): show_hostess_profit_to_owner=false 인 매니저
+    //   담당 hostess 는 개별 금액 마스킹 (0). CLAUDE.md 정책 준수.
+    const vis = auth.is_super_admin
+      ? { showManager: true, showHostess: true }
+      : await resolveOwnerVisibility(supabase, auth.store_uuid)
 
     const { data: itemsRaw } = await supabase
       .from("settlement_items")
@@ -124,7 +131,15 @@ export async function GET(request: Request) {
       }
     }
 
-    const hostesses = Array.from(groups.values()).sort((a, b) => b.remaining_amount - a.remaining_amount)
+    let hostesses = Array.from(groups.values()).sort((a, b) => b.remaining_amount - a.remaining_amount)
+    if (!vis.showHostess) {
+      hostesses = hostesses.map((h) => ({
+        ...h,
+        total_amount: 0,
+        paid_amount: 0,
+        remaining_amount: 0,
+      }))
+    }
     return NextResponse.json({ hostesses })
   } catch (e) {
     if (e instanceof AuthError) {

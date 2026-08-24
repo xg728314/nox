@@ -36,7 +36,7 @@ import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { isValidUUID } from "@/lib/validation"
 
 type SessionRow = { id: string; room_uuid: string; status: string }
-type RoomRow = { id: string; name: string }
+type RoomRow = { id: string; room_name: string }
 type ReceiptRow = { session_id: string; status: string; version: number }
 type ParticipationRow = {
   id: string
@@ -170,9 +170,9 @@ export async function GET(
       if (roomUuids.length > 0) {
         const { data: rooms } = await supabase
           .from("rooms")
-          .select("id, name")
+          .select("id, room_name")
           .in("id", roomUuids)
-        for (const r of (rooms ?? []) as RoomRow[]) roomMap.set(r.id, r.name)
+        for (const r of (rooms ?? []) as RoomRow[]) roomMap.set(r.id, r.room_name)
       }
 
       // 매장 이름 (cross-store working store names)

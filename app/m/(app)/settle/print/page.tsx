@@ -25,8 +25,12 @@ export default function PrintReportPage() {
 
   const summary = settle.data?.summary ?? []
   const withSettlement = summary.filter((r) => r.has_settlement)
-  const totalGross = withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
-  const totalHostessPayout = withSettlement.reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
+  // R-owner-mask-fix (2026-08-24): owner 응답은 hostess_amount 개별 마스킹 (null)
+  //   → 이전엔 sum 0 → "실장 순수익=총매출" 잘못 인쇄. store_totals unmasked
+  //   총액 우선 사용 (같은 fix 를 /m/settle 은 이미 적용 · print 는 놓침).
+  const totals = settle.data?.store_totals
+  const totalGross = totals?.total_gross ?? withSettlement.reduce((a, r) => a + (r.gross_total ?? 0), 0)
+  const totalHostessPayout = totals?.total_hostess_payout ?? withSettlement.reduce((a, r) => a + (r.hostess_amount ?? 0), 0)
   const totalTc = withSettlement.reduce((a, r) => a + (r.tc_count ?? 0), 0)
   const settledCount = withSettlement.filter(
     (r) => r.payout_status === "paid" || r.payout_status === "held",

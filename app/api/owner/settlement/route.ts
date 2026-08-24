@@ -233,13 +233,13 @@ export async function GET(request: Request) {
     const { data: rooms } = roomUuids.length > 0
       ? await supabase
           .from("rooms")
-          .select("id, name")
+          .select("id, room_name")
           .eq("store_uuid", authContext.store_uuid)
           .in("id", roomUuids)
-      : { data: [] as Array<{ id: string; name: string }> }
+      : { data: [] as Array<{ id: string; room_name: string }> }
 
     const roomNameMap = new Map<string, string>()
-    for (const r of rooms ?? []) roomNameMap.set(r.id, r.name)
+    for (const r of rooms ?? []) roomNameMap.set(r.id, r.room_name)
 
     // 6. 세션별 요약 (개별 수익 제외)
     const sessionList = (roomSessions ?? []).map((s: { id: string; room_uuid: string; status: string }) => {

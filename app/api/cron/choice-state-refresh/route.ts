@@ -9,12 +9,21 @@
  *   상태 변경 감지된 것만 발행 (spam 방지).
  */
 import { NextResponse } from "next/server"
+import { timingSafeEqual } from "node:crypto"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { refreshStoreChoiceState } from "@/lib/chat/publishChoiceState"
 
+/** R-cron-auth-hardening (2026-08-24): header only · timing-safe · GET 제거. */
+function verifyCronSecret(header: string | null, secret: string | undefined): boolean {
+  if (!secret || !header) return false
+  const a = Buffer.from(header, "utf8")
+  const b = Buffer.from(secret, "utf8")
+  if (a.length !== b.length) return false
+  try { return timingSafeEqual(a, b) } catch { return false }
+}
+
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-cron-secret") ?? new URL(request.url).searchParams.get("secret")
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!verifyCronSecret(request.headers.get("x-cron-secret"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 })
   }
   try {
@@ -46,4 +55,4 @@ export async function POST(request: Request) {
   }
 }
 
-export const GET = POST
+// R-cron-auth-hardening (2026-08-24): GET = POST 제거 · POST 만 허용.

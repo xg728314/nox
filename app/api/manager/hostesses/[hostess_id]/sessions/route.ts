@@ -98,13 +98,13 @@ export async function GET(
     const roomUuids = [...new Set(sessions.map((s: { room_uuid: string }) => s.room_uuid))]
     const { data: rooms } = await supabase
       .from("rooms")
-      .select("id, name")
+      .select("id, room_name")
       .eq("store_uuid", authContext.store_uuid)
       .in("id", roomUuids)
 
     const roomNameMap = new Map<string, string>()
     for (const r of rooms ?? []) {
-      roomNameMap.set(r.id, r.name)
+      roomNameMap.set(r.id, r.room_name)
     }
 
     // 4. 영수증 상태 조회

@@ -1,8 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
+import { timingSafeEqual } from "node:crypto"
+
+/** R-cron-auth-hardening (2026-08-24): 이전엔 `!==` 비교 + CRON_SECRET 미설정 시
+ *  `"Bearer undefined"` 문자열 매칭으로 attacker 가 `Authorization: Bearer undefined`
+ *  헤더만 있으면 통과. Timing-safe 비교 + secret 필수. */
+function verifyCronBearer(authHeader: string | null, secret: string | undefined): boolean {
+  if (!secret) return false
+  if (!authHeader) return false
+  const prefix = "Bearer "
+  if (!authHeader.startsWith(prefix)) return false
+  const provided = authHeader.slice(prefix.length).trim()
+  if (!provided) return false
+  const a = Buffer.from(provided, "utf8")
+  const b = Buffer.from(secret, "utf8")
+  if (a.length !== b.length) return false
+  try { return timingSafeEqual(a, b) } catch { return false }
+}
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization")
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  const authHeader = req.headers.get("authorization")
+  if (!verifyCronBearer(authHeader, process.env.CRON_SECRET)) {
     return NextResponse.json({ ok: false }, { status: 401 })
   }
 

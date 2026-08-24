@@ -6,12 +6,10 @@ export async function GET(request: Request) {
   try {
     const authContext = await resolveAuthContext(request)
 
-    // owner/manager only
-    if (authContext.role === "hostess") {
-      return NextResponse.json(
-        { error: "ROLE_FORBIDDEN", message: "Hostess role is not permitted to view manager reports." },
-        { status: 403 }
-      )
+    // R-role-gate (2026-08-24): 이전엔 hostess 만 차단 · waiter/staff 도 통과.
+    //   owner/manager 만 허용 (super_admin 는 owner 처리).
+    if (!["owner", "manager"].includes(authContext.role) && !authContext.is_super_admin) {
+      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
 
     const url = new URL(request.url)

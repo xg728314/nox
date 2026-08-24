@@ -71,10 +71,10 @@ export async function GET(request: Request) {
       roomUuids.length > 0
         ? supabase
             .from("rooms")
-            .select("id, name")
+            .select("id, room_name")
             .eq("store_uuid", authContext.store_uuid)
             .in("id", roomUuids)
-        : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
+        : Promise.resolve({ data: [] as Array<{ id: string; room_name: string }> }),
       bizDayIds.length > 0
         ? supabase
             .from("store_operating_days")
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     ])
 
     const roomNameMap = new Map<string, string>()
-    for (const r of roomsRes.data ?? []) roomNameMap.set(r.id, r.name)
+    for (const r of roomsRes.data ?? []) roomNameMap.set(r.id, r.room_name)
 
     const bizDayMap = new Map<string, string>()
     for (const b of bizDaysRes.data ?? []) bizDayMap.set(b.id, b.business_date)

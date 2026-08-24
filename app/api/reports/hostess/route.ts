@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
+import { resolveOwnerVisibility } from "@/lib/settlement/services/ownerVisibility"
 
 export async function GET(request: Request) {
   try {
     const authContext = await resolveAuthContext(request)
+    // R-role-gate (2026-08-24): 이전엔 waiter/staff 도 통과. owner/manager/hostess 만.
+    if (!["owner", "manager", "hostess"].includes(authContext.role) && !authContext.is_super_admin) {
+      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
+    }
 
     const url = new URL(request.url)
     const businessDayId = url.searchParams.get("business_day_id")
@@ -151,10 +156,26 @@ export async function GET(request: Request) {
       entry.total_sessions += 1
     }
 
+    // R-owner-mask (2026-08-24): owner 에게 hostess 개별 payout 노출 금지 (CLAUDE.md).
+    //   show_hostess_profit_to_owner=false (기본) 이면 hostess_payout_amount 을 총합에서
+    //   마스킹. manager/hostess 는 unmasked.
+    const isOwner = authContext.role === "owner" && !authContext.is_super_admin
+    let hostessesOut = [...groupMap.values()]
+    if (isOwner) {
+      const vis = await resolveOwnerVisibility(supabase, authContext.store_uuid)
+      if (!vis.showHostess) {
+        hostessesOut = hostessesOut.map((h) => ({
+          ...h,
+          total_payout: 0,
+          sessions: h.sessions.map((s) => ({ ...s, hostess_payout_amount: 0 })),
+        }))
+      }
+    }
+
     return NextResponse.json({
       business_day_id: businessDayId,
       business_date: opDay.business_date,
-      hostesses: [...groupMap.values()],
+      hostesses: hostessesOut,
     })
 
   } catch (error) {

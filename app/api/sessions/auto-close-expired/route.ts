@@ -21,7 +21,7 @@
 import { NextResponse } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { timingSafeEqual } from "node:crypto"
-import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
+import { resolveAuthContext, AuthError, type AuthContext } from "@/lib/auth/resolveAuthContext"
 
 const MEMO_TAG = "AUTO_CLOSE_OVERDUE"
 const OVERDUE_MINUTES = 10
@@ -46,22 +46,32 @@ function supa(): SupabaseClient {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
-async function checkAuth(request: Request): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  // Cron secret 우선
+/** R-scope-fix (2026-08-24): 이전엔 hostess role 도 API 통과 · 매장 없이 nuke.
+ *  이제 (a) cron secret · 전 매장, 또는 (b) owner/manager/super_admin ·
+ *  자기 매장만. hostess/waiter/staff 는 즉시 403. */
+type AuthResult =
+  | { ok: true; scope: "cron" }
+  | { ok: true; scope: "store"; store_uuid: string }
+  | { ok: false; status: number; error: string }
+
+async function checkAuth(request: Request): Promise<AuthResult> {
   const cronSecret = process.env.CRON_SECRET ?? ""
   const authHeader = request.headers.get("authorization")
-  if (cronSecret && verifyBearer(authHeader, cronSecret)) return { ok: true }
-  // 일반 user auth
+  if (cronSecret && verifyBearer(authHeader, cronSecret)) return { ok: true, scope: "cron" }
   try {
-    await resolveAuthContext(request)
-    return { ok: true }
+    const auth: AuthContext = await resolveAuthContext(request)
+    if (auth.is_super_admin) return { ok: true, scope: "cron" }
+    if (auth.role !== "owner" && auth.role !== "manager") {
+      return { ok: false, status: 403, error: "ROLE_FORBIDDEN" }
+    }
+    return { ok: true, scope: "store", store_uuid: auth.store_uuid }
   } catch (e) {
     if (e instanceof AuthError) return { ok: false, status: e.status, error: e.type }
     return { ok: false, status: 401, error: "UNAUTHORIZED" }
   }
 }
 
-async function runAutoClose(supabase: SupabaseClient): Promise<{
+async function runAutoClose(supabase: SupabaseClient, scopeStoreUuid: string | null): Promise<{
   closed_now: Array<{ participant_id: string; membership_id: string; hostess_name: string; store_name: string; overdue_minutes: number; left_at: string }>
   closed_sessions: string[]
 }> {
@@ -71,7 +81,8 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
   // 1. active session_participants — 부모 session 도 active.
   //    expr (entered_at + time_minutes + 10) < now 조건은 클라이언트 필터.
   //    부모 session status 도 별도 쿼리 (FK 관계 없는 join 회피).
-  const { data: candidates, error: qErr } = await supabase
+  // R-scope-fix (2026-08-24): user role 은 자기 매장만 scope. cron/super_admin 은 전 매장.
+  let q = supabase
     .from("session_participants")
     .select("id, membership_id, session_id, store_uuid, category, time_minutes, entered_at")
     .eq("status", "active")
@@ -79,6 +90,8 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
     .not("time_minutes", "is", null)
     .not("entered_at", "is", null)
     .limit(1000)
+  if (scopeStoreUuid) q = q.eq("store_uuid", scopeStoreUuid)
+  const { data: candidates, error: qErr } = await q
 
   if (qErr) throw new Error(`auto-close candidates query: ${qErr.message}`)
 
@@ -191,8 +204,9 @@ async function runAutoClose(supabase: SupabaseClient): Promise<{
   return { closed_now, closed_sessions: closedSessions }
 }
 
-async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string) {
-  const { data } = await supabase
+async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string, scopeStoreUuid: string | null) {
+  // R-scope-fix (2026-08-24): 자기 매장 스코프 강제.
+  let q = supabase
     .from("session_participants")
     .select("id, membership_id, store_uuid, time_minutes, entered_at, left_at")
     .eq("memo", MEMO_TAG)
@@ -200,6 +214,8 @@ async function fetchRecentlyClosed(supabase: SupabaseClient, sinceIso: string) {
     .gte("left_at", sinceIso)
     .order("left_at", { ascending: false })
     .limit(50)
+  if (scopeStoreUuid) q = q.eq("store_uuid", scopeStoreUuid)
+  const { data } = await q
 
   type Row = {
     id: string
@@ -271,9 +287,10 @@ async function handle(request: Request) {
     return NextResponse.json({ ok: false, error: "SERVER_CONFIG_ERROR" }, { status: 500 })
   }
   try {
-    const { closed_now, closed_sessions } = await runAutoClose(supabase)
+    const scope = auth.scope === "store" ? auth.store_uuid : null
+    const { closed_now, closed_sessions } = await runAutoClose(supabase, scope)
     const sinceIso = new Date(Date.now() - RECENT_WINDOW_MIN * 60_000).toISOString()
-    const recently_closed = await fetchRecentlyClosed(supabase, sinceIso)
+    const recently_closed = await fetchRecentlyClosed(supabase, sinceIso, scope)
     return NextResponse.json({
       ok: true,
       closed_now,
