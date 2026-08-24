@@ -41,6 +41,7 @@ export default function ChatRoomPage() {
   // R-help-modal (2026-08-23): 메이드톡 파서 인식 범위 설명
   const [helpOpen, setHelpOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   const router = useRouter()
 
@@ -146,24 +147,23 @@ export default function ChatRoomPage() {
   const didInitialScrollRef = useRef(false)
   useLayoutEffect(() => {
     if (messages.length === 0) return
-    const el = scrollRef.current
-    if (!el) return
     const behavior: ScrollBehavior = didInitialScrollRef.current ? "smooth" : "auto"
-    const scrollBottom = () => {
-      if (!scrollRef.current) return
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior })
+    // scrollIntoView 는 nearest scroll container 를 브라우저가 자동 계산 · 여러
+    //   중첩 scroll container (phone frame + 내부 flex-1) 이 있어도 정확 안 함.
+    //   block:"end" 로 anchor 를 뷰포트 하단에 정렬.
+    const scrollToBottom = () => {
+      bottomAnchorRef.current?.scrollIntoView({ behavior, block: "end" })
+      // 폴백: scrollRef 도 함께 (일부 브라우저 scrollIntoView smooth 무시 대비)
+      const el = scrollRef.current
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior })
     }
-    // 1) 즉시 시도
-    scrollBottom()
-    // 2) 다음 paint (rAF) — 자식 컴포넌트 layout 반영
+    scrollToBottom()
     const raf1 = requestAnimationFrame(() => {
-      const raf2 = requestAnimationFrame(scrollBottom)
+      const raf2 = requestAnimationFrame(scrollToBottom)
       ;(raf1 as unknown as { raf2?: number }).raf2 = raf2
     })
-    // 3) 100ms — 대부분의 async 컴포넌트 완료
-    const t1 = window.setTimeout(scrollBottom, 100)
-    // 4) 500ms — 이미지 lazy load 등 · 최종 안전망
-    const t2 = window.setTimeout(scrollBottom, 500)
+    const t1 = window.setTimeout(scrollToBottom, 100)
+    const t2 = window.setTimeout(scrollToBottom, 500)
     didInitialScrollRef.current = true
     return () => {
       cancelAnimationFrame(raf1)
@@ -274,6 +274,10 @@ export default function ChatRoomPage() {
                 patternEnabled={patternEnabled}
               />
             ))}
+          {/* R-scroll-anchor (2026-08-25): scrollIntoView 대상 · 리스트 최하단.
+             부모 flex-1 overflow-auto 스크롤이 자식 layout 확정 전엔 scrollHeight
+             계산 부정확한 문제 · 명시적 anchor 로 브라우저에게 "여기까지 보이게" 위임. */}
+          <div ref={bottomAnchorRef} />
         </div>
       </div>
 
