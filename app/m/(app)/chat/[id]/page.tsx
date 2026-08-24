@@ -278,6 +278,11 @@ export default function ChatRoomPage() {
              부모 flex-1 overflow-auto 스크롤이 자식 layout 확정 전엔 scrollHeight
              계산 부정확한 문제 · 명시적 anchor 로 브라우저에게 "여기까지 보이게" 위임. */}
           <div ref={bottomAnchorRef} />
+          {/* R-input-overlap-spacer (2026-08-25): 사용자 리포트 "메시지 입력칸 뒤로
+             채팅글이 보인다". sticky bottom input 이 scroll container 안이라 마지막
+             메시지가 스크롤 시 input 뒤로 살짝 겹침. 명시적 spacer 로 input 높이만큼
+             (input area ~56px + safe-area) 여백 확보 · 마지막 메시지가 input 위에 온전히 표시. */}
+          <div className="shrink-0" style={{ height: "calc(56px + env(safe-area-inset-bottom))" }} />
         </div>
       </div>
 
