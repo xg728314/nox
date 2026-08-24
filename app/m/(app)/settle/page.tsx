@@ -142,6 +142,28 @@ export default function SettlePage() {
     })
   }, [byHostess])
 
+  // R-manager-group (2026-08-25): 사용자 요구 "실장별로 분류 · 내 아가씨 · 내 정산".
+  //   visibleByHostess 를 담당 실장 (manager_membership_id) 별로 그룹핑.
+  //   Owner 는 실장 여러 그룹 · manager 는 서버가 이미 자기 담당만 반환.
+  //   미배정 (manager 없는 hostess) 는 마지막 그룹 "미배정" 로 표시.
+  const groupedByManager = useMemo(() => {
+    type Group = { managerName: string; rows: typeof visibleByHostess }
+    const map = new Map<string, Group>()
+    for (const h of visibleByHostess) {
+      const key = h.manager_membership_id ?? "__unassigned__"
+      const managerName = h.manager_name ?? "미배정"
+      if (!map.has(key)) map.set(key, { managerName, rows: [] })
+      map.get(key)!.rows.push(h)
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === "__unassigned__") return 1
+      if (b[0] === "__unassigned__") return -1
+      // rows 많은 실장이 위 (활동 많은 순)
+      if (b[1].rows.length !== a[1].rows.length) return b[1].rows.length - a[1].rows.length
+      return a[1].managerName.localeCompare(b[1].managerName, "ko")
+    })
+  }, [visibleByHostess])
+
   async function verifyAndReset() {
     const pw = password.trim()
     if (!pw || verifying) return
@@ -295,9 +317,26 @@ export default function SettlePage() {
         {!settle.isLoading && byHostess.length === 0 && (
           <div className="text-[12px] text-[#7A746A] text-center font-semibold py-8">정산할 메이드 기록이 없습니다</div>
         )}
-        {byHostess.length > 0 && (
+        {byHostess.length > 0 && groupedByManager.map(([groupKey, group]) => {
+          // R-manager-group (2026-08-25): 각 실장 그룹 header + 소속 아가씨 카드 리스트.
+          //   Owner 는 매장 전체 실장 다 볼 수 있고 · manager 는 자기 담당만 (서버 필터).
+          const groupGross = group.rows.reduce((a, r) => a + (r.gross_total ?? 0), 0)
+          const groupCount = group.rows.length
+          return (
+          <div key={groupKey} className="mb-3">
+            <div className="flex items-baseline justify-between mb-1.5 px-1">
+              <div className="text-[12px] font-extrabold text-[#2D2B26]">
+                {group.managerName}
+                <span className="ml-1.5 text-[10px] font-bold text-[#7A746A]">
+                  · 아가씨 {groupCount}명
+                </span>
+              </div>
+              <div className="text-[11px] font-extrabold text-[#A87D45]">
+                {fmtMoneyWon(groupGross)}
+              </div>
+            </div>
           <div className="bg-white rounded-2xl overflow-hidden border border-[#D8D2C8]/60">
-            {visibleByHostess.map((h, i) => {
+            {group.rows.map((h, i) => {
               const breakdown = h.store_breakdown ?? []
               const breakdownText = breakdown
                 .map((b) => `${b.store_name} ${b.count}`)
@@ -428,11 +467,15 @@ export default function SettlePage() {
                 </div>
               )
             })}
-            <div className="px-4 py-3 bg-[#FAF5EC] border-t-2 border-[#C49B61]/30 flex items-center justify-between">
-              <div className="text-[11px] font-extrabold text-[#2D2B26]">총 지급해야 할 금액</div>
-              <div className="text-[15px] font-extrabold text-[#A87D45]">
-                {fmtMoneyWon(totalHostessPayout)}
-              </div>
+          </div>
+          </div>
+          )
+        })}
+        {byHostess.length > 0 && (
+          <div className="bg-[#FAF5EC] border-2 border-[#C49B61]/30 rounded-2xl px-4 py-3 mt-2 flex items-center justify-between">
+            <div className="text-[11px] font-extrabold text-[#2D2B26]">총 지급해야 할 금액</div>
+            <div className="text-[15px] font-extrabold text-[#A87D45]">
+              {fmtMoneyWon(totalHostessPayout)}
             </div>
           </div>
         )}

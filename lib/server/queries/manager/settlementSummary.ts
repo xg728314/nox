@@ -26,6 +26,10 @@ export type SummaryRow = {
   payout_status?: "pending" | "paid" | "held" | null
   payout_paid_at?: string | null
   payout_method?: "cash" | "account" | null
+  /** R-manager-group (2026-08-25): 담당 실장 (본 매장 hostesses.manager_membership_id).
+   *  owner 는 실장별 그룹 뷰 · manager 는 자동 필터. 미배정이면 null. */
+  manager_membership_id?: string | null
+  manager_name?: string | null
 }
 
 export type ManagerSettlementSummaryResponse = {
@@ -350,6 +354,60 @@ export async function getManagerSettlementSummary(
     }
   }
 
+  // R-manager-group (2026-08-25): 각 hostess 의 담당 실장 (본 매장 hostesses.
+  //   manager_membership_id) 조회 → 실장 profile.full_name 매핑. 클라 UI 에서
+  //   실장별 그룹 렌더 · 사용자 "내 아가씨 · 내 정산 금액 분류" 요청 대응.
+  const hostessManagerMap = new Map<string, string | null>()  // hostessId → manager_membership_id
+  {
+    const hRes = await chunkedFetch<{ membership_id: string; manager_membership_id: string | null }>(async (ids) => {
+      const { data, error } = await supabase
+        .from("hostesses")
+        .select("membership_id, manager_membership_id")
+        .eq("store_uuid", auth.store_uuid)
+        .in("membership_id", ids)
+      return { data, error }
+    })
+    for (const h of hRes.data) {
+      hostessManagerMap.set(h.membership_id, h.manager_membership_id ?? null)
+    }
+  }
+  const managerIdSet = new Set<string>()
+  for (const mid of hostessManagerMap.values()) if (mid) managerIdSet.add(mid)
+  const managerNameMap = new Map<string, string>()
+  if (managerIdSet.size > 0) {
+    const managerIds = Array.from(managerIdSet)
+    // store_memberships → profile_id, then profiles.full_name (2 hops)
+    const memRes = await chunkedFetch<{ id: string; profile_id: string }>(async (ids) => {
+      const { data, error } = await supabase
+        .from("store_memberships")
+        .select("id, profile_id")
+        .in("id", ids)
+      return { data: data as { id: string; profile_id: string }[] | null, error }
+    })
+    const memToProfile = new Map<string, string>()
+    const pidSet = new Set<string>()
+    for (const m of memRes.data) {
+      memToProfile.set(m.id, m.profile_id)
+      pidSet.add(m.profile_id)
+    }
+    const pidArr = Array.from(pidSet)
+    if (pidArr.length > 0) {
+      const pRes = await chunkedFetch<{ id: string; full_name: string | null }>(async (ids) => {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", ids)
+        return { data: data as { id: string; full_name: string | null }[] | null, error }
+      })
+      const profNameMap = new Map<string, string>()
+      for (const p of pRes.data) profNameMap.set(p.id, p.full_name ?? "")
+      for (const [memId, pid] of memToProfile) {
+        const name = profNameMap.get(pid)
+        if (name) managerNameMap.set(memId, name)
+      }
+    }
+  }
+
   // R-per-participant-agg: 본 매장 세션 0 이어도 cross-store 참여가 있을 수
   //   있음 → empty_sessions early return 제거.
 
@@ -369,6 +427,8 @@ export async function getManagerSettlementSummary(
     const parts = hostessParts.get(hostessId) ?? []
 
     const payoutState = payoutMap.get(hostessId)
+    const mgrMid = hostessManagerMap.get(hostessId) ?? null
+    const mgrName = mgrMid ? (managerNameMap.get(mgrMid) ?? null) : null
     if (parts.length === 0) {
       return {
         hostess_id: hostessId,
@@ -385,6 +445,8 @@ export async function getManagerSettlementSummary(
         payout_status: payoutState?.status ?? null,
         payout_paid_at: payoutState?.paid_at ?? null,
         payout_method: payoutState?.paid_method ?? null,
+        manager_membership_id: mgrMid,
+        manager_name: mgrName,
       }
     }
 
@@ -436,6 +498,8 @@ export async function getManagerSettlementSummary(
       payout_status: payoutState?.status ?? null,
       payout_paid_at: payoutState?.paid_at ?? null,
       payout_method: payoutState?.paid_method ?? null,
+      manager_membership_id: mgrMid,
+      manager_name: mgrName,
     }
   })
 

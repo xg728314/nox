@@ -273,6 +273,9 @@ export type SettlementSummaryRow = {
   payout_status?: "pending" | "paid" | "held" | null
   payout_paid_at?: string | null
   payout_method?: "cash" | "account" | null
+  /** R-manager-group (2026-08-25): 담당 실장 정보 · UI 실장별 그룹핑용 */
+  manager_membership_id?: string | null
+  manager_name?: string | null
 }
 export type SettlementSummary = {
   store_uuid: string
