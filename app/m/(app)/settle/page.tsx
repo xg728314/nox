@@ -133,13 +133,28 @@ export default function SettlePage() {
   //   사용자 요구: "하루 지났는데 목록에 뜨면 더 햇갈린다".
   //   paid_at + 3h < now 면 filter out. held / pending 은 그대로 표시.
   const visibleByHostess = useMemo(() => {
-    const cutoff = Date.now() - 3 * 60 * 60 * 1000  // 3시간 전
+    // R-pending-split (2026-08-25): 사용자 요구 "미정산은 별도 메뉴 · 오늘만 정산 페이지".
+    //   payout_status=paid/held 만 노출 · 미처리 (null/pending) 는 pending 페이지에서.
+    //   기존 3h auto-hide (paid) 는 유지 · held 는 항상 표시.
+    const cutoff = Date.now() - 3 * 60 * 60 * 1000
     return byHostess.filter((r) => {
-      if (r.payout_status !== "paid" || !r.payout_paid_at) return true
-      const paidMs = new Date(r.payout_paid_at).getTime()
-      if (Number.isNaN(paidMs)) return true
-      return paidMs > cutoff  // 3시간 미만이면 표시
+      if (r.payout_status !== "paid" && r.payout_status !== "held") return false
+      if (r.payout_status === "paid" && r.payout_paid_at) {
+        const paidMs = new Date(r.payout_paid_at).getTime()
+        if (Number.isNaN(paidMs)) return true
+        return paidMs > cutoff
+      }
+      return true
     })
+  }, [byHostess])
+  // R-pending-count (2026-08-25): 미정산 (unpaid) hostess 수 · pending 페이지 링크에 표시.
+  const pendingHostessCount = useMemo(() => {
+    return byHostess.filter((r) => r.payout_status !== "paid" && r.payout_status !== "held").length
+  }, [byHostess])
+  const pendingHostessAmount = useMemo(() => {
+    return byHostess
+      .filter((r) => r.payout_status !== "paid" && r.payout_status !== "held")
+      .reduce((a, r) => a + (r.gross_total ?? 0), 0)
   }, [byHostess])
 
   // R-manager-group (2026-08-25): 사용자 요구 "실장별로 분류 · 내 아가씨 · 내 정산".
@@ -297,6 +312,28 @@ export default function SettlePage() {
             grandHostess={incoming.data?.grand_total_hostess_payout ?? 0}
           />
         </div>
+
+        {/* R-pending-split (2026-08-25): 미정산 이월 링크 카드 · 별도 페이지로 이동.
+           사용자 요청 "이건 하루전꺼다 · 미정산은 따로 메뉴에 넣어서 · 오늘은 오늘". */}
+        {pendingHostessCount > 0 && (
+          <Link
+            href="/m/settle/pending"
+            className="mb-3 flex items-center justify-between rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 no-underline active:bg-amber-100"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 shrink-0 rounded-xl bg-amber-100 flex items-center justify-center text-[16px]">
+                📦
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-[12px] font-extrabold text-[#2D2B26]">미정산 이월</div>
+                <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                  {pendingHostessCount}명 · 총 {fmtMoneyWon(pendingHostessAmount)}
+                </div>
+              </div>
+            </div>
+            <span className="text-[14px] text-[#A87D45] shrink-0">→</span>
+          </Link>
+        )}
 
         {/* 스태프별 */}
         <div className="flex items-center justify-between mb-2">
