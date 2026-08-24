@@ -75,7 +75,8 @@ export async function PATCH(
             .select("id")
             .eq("id", body.manager_membership_id!)
             .eq("store_uuid", authContext.store_uuid)
-            .eq("role", "manager")
+            // R-owner-as-manager (2026-08-25): owner 도 방 매니저 역할 대행 허용.
+            .in("role", ["manager", "owner"])
             .eq("status", "approved")
             .is("deleted_at", null)
             .maybeSingle()

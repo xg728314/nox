@@ -69,7 +69,11 @@ export async function POST(request: Request) {
             .select("id, role, status, deleted_at, store_uuid")
             .eq("id", managerMembershipId)
             .eq("store_uuid", authContext.store_uuid)
-            .eq("role", "manager")
+            // R-owner-as-manager (2026-08-25): 이전엔 role=manager 만 accept →
+            //   owner 가 AssignFlowSheet 로 자기 membership_id 를 manager 로 지정
+            //   시 403 MANAGER_INVALID. 실무상 owner 도 방 매니저 역할 대행.
+            //   role in [manager, owner] 로 확장.
+            .in("role", ["manager", "owner"])
             .eq("status", "approved")
             .is("deleted_at", null)
             .maybeSingle()
