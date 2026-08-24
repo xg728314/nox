@@ -506,6 +506,10 @@ export function ChatPatternAction({
       return
     }
     // 첫 폴링 완료 대기 (~1.5s) 후에도 여전히 비어있으면 자동 발화
+    // R-auto-fire-retry (2026-08-24): 사용자 리포트 "자동등록이 안된다".
+    //   이전엔 flag 을 createPending 호출 이전에 세팅 → 서버 실패 시에도 flag
+    //   유지되어 재발화 안 됨. 이제 flag 는 성공 시에만 세팅. 실패 시 사용자
+    //   재진입 or 수동 버튼 클릭 가능.
     const t = setTimeout(() => {
       if (autoFiredRef.current) return
       if (dispatchesRef.current.length > 0) {
@@ -513,10 +517,18 @@ export function ChatPatternAction({
         try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
         return
       }
-      autoFiredRef.current = true
-      try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
       // R-silent-auto (2026-08-23): auto-fire 는 무음 · 사용자 액션 아님 · 알림 여러번 방지
-      void createPendingRef.current({ silent: true })
+      void (async () => {
+        try {
+          await createPendingRef.current({ silent: true })
+          // 성공 시에만 flag 세팅
+          autoFiredRef.current = true
+          try { window.localStorage.setItem(AUTO_FIRE_KEY, "1") } catch { /* noop */ }
+        } catch {
+          // 실패 시 flag 안 세팅 → 다음 mount 에서 재시도 가능
+          // 사용자에게 수동 버튼도 여전히 표시됨
+        }
+      })()
     }, 1500)
     return () => clearTimeout(t)
   }, [resolvedEntries.length, submitting, serverDispatches.length, AUTO_FIRE_KEY])
