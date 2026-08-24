@@ -107,21 +107,29 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     // 2026-06-12: origin_store_uuid 컬럼이 production 일부 환경에 없을 수 있어
     //   42703 (column does not exist) 시 그 컬럼 빼고 재시도.
     if (hostessIds.length > 0) {
+      // R-chunked-in (2026-08-25): hostessIds 대량 시 URL 초과 방지.
+      const { chunkedInFetch } = await import("@/lib/supabase/chunkedIn")
       let hRows: unknown[] | null = null
-      const full = await supabase
-        .from("hostesses")
-        .select("membership_id, manager_membership_id, origin_store_uuid")
-        .eq("store_uuid", auth.store_uuid)
-        .in("membership_id", hostessIds)
-      if (full.error && (full.error as { code?: string }).code === "42703") {
-        const base = await supabase
+      const full = await chunkedInFetch<unknown>(hostessIds, async (ids) => {
+        const { data, error } = await supabase
           .from("hostesses")
-          .select("membership_id, manager_membership_id")
+          .select("membership_id, manager_membership_id, origin_store_uuid")
           .eq("store_uuid", auth.store_uuid)
-          .in("membership_id", hostessIds)
-        hRows = base.data ?? []
+          .in("membership_id", ids)
+        return { data, error }
+      })
+      if (full.error && (full.error as { code?: string }).code === "42703") {
+        const base = await chunkedInFetch<unknown>(hostessIds, async (ids) => {
+          const { data, error } = await supabase
+            .from("hostesses")
+            .select("membership_id, manager_membership_id")
+            .eq("store_uuid", auth.store_uuid)
+            .in("membership_id", ids)
+          return { data, error }
+        })
+        hRows = base.data
       } else {
-        hRows = full.data ?? []
+        hRows = full.data
       }
       for (const row of hRows) {
         const r = row as {
@@ -182,17 +190,22 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
     }
   }
 
-  const { data: hostesses, error: hostessesError } = await supabase
-    .from("store_memberships")
-    .select("id, profile_id, role, status, profiles!store_memberships_profile_id_fkey(full_name)")
-    .eq("store_uuid", auth.store_uuid)
-    .eq("role", "hostess")
-    .in("id", hostessIds)
-
-  if (hostessesError) {
-    console.error("[getManagerHostesses] store_memberships details query failed:", hostessesError)
-    throw new Error(`hostess details query failed: ${hostessesError.message}`)
+  // R-chunked-in (2026-08-25): hostessIds 대량 시 URL 초과 방지.
+  const { chunkedInFetch } = await import("@/lib/supabase/chunkedIn")
+  const hostessesRes = await chunkedInFetch<unknown>(hostessIds, async (ids) => {
+    const { data, error } = await supabase
+      .from("store_memberships")
+      .select("id, profile_id, role, status, profiles!store_memberships_profile_id_fkey(full_name)")
+      .eq("store_uuid", auth.store_uuid)
+      .eq("role", "hostess")
+      .in("id", ids)
+    return { data, error }
+  })
+  if (hostessesRes.error) {
+    console.error("[getManagerHostesses] store_memberships details query failed:", hostessesRes.error)
+    throw new Error(`hostess details query failed: ${String(hostessesRes.error)}`)
   }
+  const hostesses = hostessesRes.data
 
   // R-cross-store-working: 현재 active session 참여 중 hostess 추출.
   //   session_participants (status='active') JOIN room_sessions (status='active')
@@ -218,12 +231,17 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
   // R-room-no-display (2026-07-24): 방번호 lookup.
   const roomNoMap = new Map<string, string>()
   {
-    const { data: parts } = await supabase
-      .from("session_participants")
-      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status, room_uuid)")
-      .in("membership_id", hostessIds)
-      .eq("status", "active")
-      .is("deleted_at", null)
+    // R-chunked-in (2026-08-25): hostessIds 대량 시 URL 초과 방지.
+    const partsRes = await chunkedInFetch<unknown>(hostessIds, async (ids) => {
+      const { data, error } = await supabase
+        .from("session_participants")
+        .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, room_sessions!inner(status, room_uuid)")
+        .in("membership_id", ids)
+        .eq("status", "active")
+        .is("deleted_at", null)
+      return { data, error }
+    })
+    const parts = partsRes.data
     type PartRow = {
       id: string
       session_id: string
@@ -294,13 +312,18 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
   }>()
   if (hostessIds.length > 0) {
     const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const { data: historyParts } = await supabase
-      .from("session_participants")
-      .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, left_at, status, room_sessions!inner(room_uuid)")
-      .in("membership_id", hostessIds)
-      .gte("entered_at", dayAgoIso)
-      .is("deleted_at", null)
-      .order("entered_at", { ascending: true })
+    // R-chunked-in (2026-08-25)
+    const historyRes = await chunkedInFetch<unknown>(hostessIds, async (ids) => {
+      const { data, error } = await supabase
+        .from("session_participants")
+        .select("id, session_id, membership_id, store_uuid, category, time_minutes, entered_at, left_at, status, room_sessions!inner(room_uuid)")
+        .in("membership_id", ids)
+        .gte("entered_at", dayAgoIso)
+        .is("deleted_at", null)
+        .order("entered_at", { ascending: true })
+      return { data, error }
+    })
+    const historyParts = historyRes.data
     type HistoryRow = {
       id: string
       session_id: string
@@ -404,7 +427,7 @@ export async function getManagerHostesses(auth: AuthContext): Promise<ManagerHos
   return {
     store_uuid: auth.store_uuid,
     role: auth.role,
-    hostesses: (hostesses ?? []).map((h: Row) => {
+    hostesses: (hostesses as Row[]).map((h) => {
       const extras = hostessExtras.get(h.id) ?? { manager_membership_id: null, origin_store_uuid: null }
       const workInfo = workingMap.get(h.id) ?? null
       const history = historyMap.get(h.id)
