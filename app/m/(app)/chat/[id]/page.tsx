@@ -133,20 +133,45 @@ export default function ChatRoomPage() {
     }
   }, [roomId, toast])
 
-  // R-chat-scroll-bottom (2026-06-27): 채팅방 진입 시 스크롤 즉시 최하단 (최신 메시지)
-  //   으로. 사용자 보고: "스크롤이 최상단으로 올라가는걸 최하단에 맞게".
+  // R-chat-scroll-bottom (2026-06-27): 채팅방 진입 시 스크롤 즉시 최하단 (최신 메시지) 으로.
+  //   R-scroll-hardening (2026-08-25): 사용자 리포트 "다른 메뉴에 있다가 채팅 메뉴를
+  //   누르면 최근 채팅이 아닌 이전 채팅 상단이 뜬다". 원인: 첫 render 시 setMessages
+  //   반영 → useLayoutEffect trigger → el.scrollHeight 계산 시점에 MessageBubble
+  //   내부 (이미지 · sticky UI · ChatPatternAction 카드) 아직 layout 확정 전 →
+  //   scroll bottom 실행되지만 그 시점 scrollHeight 가 최종보다 작음 → 실제로는
+  //   중간~상단에 멈춤.
   //
-  //   - useLayoutEffect: DOM 렌더 직후 paint 전에 scroll → 사용자 깜빡임 X.
-  //   - 첫 로드는 instant, 새 메시지 도착은 smooth.
-  //   - messages.length 0 일 땐 skip.
+  //   Fix: 4-tier retry (immediate + rAF×2 + 100ms + 500ms) · 모든 async 요소가
+  //   확정된 후 재확인. 첫 mount 는 instant · 이후 새 메시지는 smooth.
   const didInitialScrollRef = useRef(false)
   useLayoutEffect(() => {
     if (messages.length === 0) return
     const el = scrollRef.current
     if (!el) return
     const behavior: ScrollBehavior = didInitialScrollRef.current ? "smooth" : "auto"
-    el.scrollTo({ top: el.scrollHeight, behavior })
+    const scrollBottom = () => {
+      if (!scrollRef.current) return
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior })
+    }
+    // 1) 즉시 시도
+    scrollBottom()
+    // 2) 다음 paint (rAF) — 자식 컴포넌트 layout 반영
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(scrollBottom)
+      ;(raf1 as unknown as { raf2?: number }).raf2 = raf2
+    })
+    // 3) 100ms — 대부분의 async 컴포넌트 완료
+    const t1 = window.setTimeout(scrollBottom, 100)
+    // 4) 500ms — 이미지 lazy load 등 · 최종 안전망
+    const t2 = window.setTimeout(scrollBottom, 500)
     didInitialScrollRef.current = true
+    return () => {
+      cancelAnimationFrame(raf1)
+      const raf2 = (raf1 as unknown as { raf2?: number }).raf2
+      if (raf2) cancelAnimationFrame(raf2)
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
   }, [messages])
 
   async function send() {
