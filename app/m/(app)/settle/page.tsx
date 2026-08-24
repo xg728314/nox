@@ -237,46 +237,9 @@ export default function SettlePage() {
           </div>
         )}
 
-        {/* 기간 탭 (오늘 / 이번 주만) */}
-        <div className="flex bg-[#EFEBE3] rounded-2xl p-1 mb-4">
-          {(["today", "week"] as Period[]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPeriod(p)}
-              className={cn(
-                "flex-1 py-2.5 text-[12px] font-extrabold rounded-xl transition-colors",
-                period === p ? "bg-white text-[#2D2B26] shadow-sm" : "text-[#7A746A]",
-              )}
-            >
-              {p === "today" ? "오늘" : "이번 주"}
-            </button>
-          ))}
-        </div>
-
-        {/* 총액 카드 */}
-        <div className="bg-gradient-to-br from-white/95 to-[#F0E8D8] rounded-3xl p-6 mb-4 shadow-md relative overflow-hidden">
-          <div className="text-[10px] font-bold text-[#C49B61] uppercase tracking-widest">
-            {period === "today" ? "오늘 스태프 매출" : "이번 주 스태프 매출"}
-          </div>
-          <div className="flex items-baseline gap-1 mt-1.5">
-            <span className="text-[42px] font-extrabold leading-none tracking-tighter bg-gradient-to-br from-[#2D2B26] to-[#A87D45] bg-clip-text text-transparent">
-              {fmtMoney(total, { unit: false })}
-            </span>
-            <span className="text-[16px] font-bold text-[#7A746A]">만원</span>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5 mt-4 pt-3 border-t border-[#D8D2C8]/50">
-            <Stat v={count} l="메이드" />
-            <Stat v={byHostess.length} l="스태프" />
-            <Stat v={me.data?.store_floor ?? "—"} l="층" />
-          </div>
-        </div>
-
-        {/* AI 요약 + 매출 트렌드 (14일) */}
-        <div className="mb-3">
-          <AiSummaryButton />
-        </div>
-        <TrendChart days={14} />
+        {/* R-hide-summary (2026-08-25): 사용자 요청 · 상단 4개 섹션 숨김.
+           오늘/이번주 탭 · 오늘 스태프 매출 총액 카드 · AI 요약 버튼 · 매출 트렌드
+           14일 chart 모두 렌더 X. 아래 "내 장부" 부터 시작. 코드는 필요 시 revert. */}
 
         {/* 내 장부 — 오늘 실데이터 (manager_amount 합계) */}
         <div className="bg-gradient-to-br from-[#2D2B26] to-[#1a1813] rounded-3xl p-5 mb-4 text-white shadow-lg relative overflow-hidden">
