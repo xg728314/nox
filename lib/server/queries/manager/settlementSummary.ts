@@ -218,26 +218,46 @@ export async function getManagerSettlementSummary(
   // ── Phase 3: 2 parallel reads (depend on Phase 2 ids) ───────
   const tPhase3 = Date.now()
 
-  const hstsP = supabase
-    .from("hostesses")
-    .select("membership_id, name")
-    .eq("store_uuid", auth.store_uuid)
-    .in("membership_id", hostessIds)
+  // R-chunked-in (2026-08-24): hostessIds 가 수백 명 넘으면 `.in()` URL 길이
+  //   초과 (~15KB) 로 fetch 실패 · 조용히 empty result 반환 → 정산 화면 값
+  //   0 으로 표시되는 심각 버그. UUID 36자 × N + comma → 100개 청크 안전
+  //   (~3.7KB per chunk). 각 청크 병렬 fetch 후 concat.
+  const IN_CHUNK = 100
+  function chunk<T>(arr: T[], n: number): T[][] {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+    return out
+  }
+  const idChunks = chunk(hostessIds, IN_CHUNK)
 
-  // R-settle-breakdown (2026-06-26): 식구별 default_manager_deduction 매핑.
-  const membershipsP = supabase
-    .from("store_memberships")
-    .select("id, default_manager_deduction")
-    .in("id", hostessIds)
+  async function chunkedFetch<Row>(build: (ids: string[]) => Promise<{ data: Row[] | null; error: unknown }>): Promise<{ data: Row[]; error: unknown | null }> {
+    const results = await Promise.all(idChunks.map((c) => build(c)))
+    const rows: Row[] = []
+    let firstErr: unknown | null = null
+    for (const r of results) {
+      if (r.error && !firstErr) firstErr = r.error
+      if (r.data) rows.push(...r.data)
+    }
+    return { data: rows, error: firstErr }
+  }
 
-  // R-cross-store-settlement (2026-06-25): 본 매장 세션 + 본 매장 식구가
-  //   타 매장에서 일한 cross-store 참여 둘 다 합산.
-  //   CLAUDE.md "정산은 무조건 origin_store_uuid 기준" — 식구가 어디서 일하든
-  //   본 매장이 origin 이면 정산 책임.
-  //   대안 1 (단순): store_uuid 필터 제거 — membership_id IN hostessIds 만으로
-  //     모든 참여 잡음. session_uuid 필터도 제거 (cross-store 세션 ID 는
-  //     sessionIds 에 없음). 일별 필터는 entered_at >= business_day 시작 이상
-  //     로 대신 — 영업일 자정 인근만 약간 부정확. 일단 단순화.
+  const hstsP = chunkedFetch<{ membership_id: string; name: string }>(async (ids) => {
+    const { data, error } = await supabase
+      .from("hostesses")
+      .select("membership_id, name")
+      .eq("store_uuid", auth.store_uuid)
+      .in("membership_id", ids)
+    return { data, error }
+  })
+
+  const membershipsP = chunkedFetch<{ id: string; default_manager_deduction: number | null }>(async (ids) => {
+    const { data, error } = await supabase
+      .from("store_memberships")
+      .select("id, default_manager_deduction")
+      .in("id", ids)
+    return { data, error }
+  })
+
   type ParticipantAgg = {
     membership_id: string
     session_id: string
@@ -248,20 +268,31 @@ export async function getManagerSettlementSummary(
     origin_store_uuid: string | null
     status: string
   }
-  const participationsP = supabase
-    .from("session_participants")
-    .select("membership_id, session_id, price_amount, manager_payout_amount, hostess_payout_amount, store_uuid, origin_store_uuid, status")
-    .in("membership_id", hostessIds)
-    .is("deleted_at", null)
+  const participationsP = chunkedFetch<ParticipantAgg>(async (ids) => {
+    const { data, error } = await supabase
+      .from("session_participants")
+      .select("membership_id, session_id, price_amount, manager_payout_amount, hostess_payout_amount, store_uuid, origin_store_uuid, status")
+      .in("membership_id", ids)
+      .is("deleted_at", null)
+    return { data: data as ParticipantAgg[] | null, error }
+  })
 
-  // R-payout-state (2026-06-27): staff_payout_states 조회 — 정산완료 시각 / 보관 상태.
-  const payoutStatesP = supabase
-    .from("staff_payout_states")
-    .select("hostess_membership_id, status, paid_at, paid_method")
-    .eq("store_uuid", auth.store_uuid)
-    .eq("business_day_id", businessDayId)
-    .in("hostess_membership_id", hostessIds)
-    .is("deleted_at", null)
+  type PayoutStateRowFetch = {
+    hostess_membership_id: string
+    status: "pending" | "paid" | "held" | null
+    paid_at: string | null
+    paid_method: "cash" | "account" | null
+  }
+  const payoutStatesP = chunkedFetch<PayoutStateRowFetch>(async (ids) => {
+    const { data, error } = await supabase
+      .from("staff_payout_states")
+      .select("hostess_membership_id, status, paid_at, paid_method")
+      .eq("store_uuid", auth.store_uuid)
+      .eq("business_day_id", businessDayId)
+      .in("hostess_membership_id", ids)
+      .is("deleted_at", null)
+    return { data, error }
+  })
 
   const [hstsRes, participationsRes, membershipsRes, payoutStatesRes] = await Promise.all([
     hstsP,
@@ -272,6 +303,10 @@ export async function getManagerSettlementSummary(
   console.log(JSON.stringify({
     tag: "perf.settlement.summary.phase.derive",
     ms: Date.now() - tPhase3,
+    hostessIds_len: hostessIds.length,
+    chunks: idChunks.length,
+    participations_len: participationsRes.data.length,
+    participations_err: participationsRes.error ? String(participationsRes.error) : null,
   }))
 
   const nameMap = new Map<string, string>()
