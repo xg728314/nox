@@ -81,24 +81,52 @@ export async function GET(request: Request) {
       const profileIds = Array.from(new Set(memRows.map((m) => m.profile_id)))
       const memIds = memRows.map((m) => m.id)
 
+      // R-chunked-in (2026-08-24): 5-8F 매장 전체 hostess 는 수백 명. `.in()` URL
+      //   초과로 `fetch failed` silent · 이전엔 500 PROFILES_QUERY_FAILED · 채팅
+      //   auto-fire 매칭 완전 실패 (사용자 리포트 "자동등록 안된다").
+      //   Chunked helper (100개씩) 로 병렬 fetch + concat.
+      const IN_CHUNK = 100
+      function chunk<T>(arr: T[], n: number): T[][] {
+        const out: T[][] = []
+        for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+        return out
+      }
+      async function chunkedIn<Row>(build: (ids: string[]) => Promise<{ data: Row[] | null; error: unknown }>, ids: string[]): Promise<{ data: Row[]; error: unknown | null }> {
+        const chunks = chunk(ids, IN_CHUNK)
+        const results = await Promise.all(chunks.map((c) => build(c)))
+        const rows: Row[] = []
+        let firstErr: unknown | null = null
+        for (const r of results) {
+          if (r.error && !firstErr) firstErr = r.error
+          if (r.data) rows.push(...r.data)
+        }
+        return { data: rows, error: firstErr }
+      }
+
       // 3) Hostess 프로파일 + 4) hostesses 부가행 (manager_membership_id / origin)
       const [profilesRes, hostessRes] = await Promise.all([
-        sb
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", profileIds),
-        sb
-          .from("hostesses")
-          .select("membership_id, manager_membership_id, origin_store_uuid")
-          .in("membership_id", memIds),
+        chunkedIn<ProfileRow>(async (ids) => {
+          const { data, error } = await sb
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", ids)
+          return { data: data as ProfileRow[] | null, error }
+        }, profileIds),
+        chunkedIn<HostessRow>(async (ids) => {
+          const { data, error } = await sb
+            .from("hostesses")
+            .select("membership_id, manager_membership_id, origin_store_uuid")
+            .in("membership_id", ids)
+          return { data: data as HostessRow[] | null, error }
+        }, memIds),
       ])
-      if (profilesRes.error) throw new Error("PROFILES_QUERY_FAILED")
+      if (profilesRes.error) throw new Error(`PROFILES_QUERY_FAILED: ${String(profilesRes.error)}`)
       const nameMap = new Map<string, string>()
-      for (const p of (profilesRes.data as ProfileRow[] | null) ?? []) {
+      for (const p of profilesRes.data) {
         nameMap.set(p.id, p.full_name ?? "")
       }
       const hostessMap = new Map<string, HostessRow>()
-      for (const h of (hostessRes.data as HostessRow[] | null) ?? []) {
+      for (const h of hostessRes.data) {
         hostessMap.set(h.membership_id, h)
       }
 
