@@ -4,40 +4,54 @@ import { useRouter } from "next/navigation"
 import { Sheet } from "./Sheet"
 import { useToast, haptic } from "./Toast"
 import {
-  useBuildingStores,
   useServiceTypes,
   useRooms,
   useMe,
-  type ServiceType,
 } from "../_hooks/useMobileData"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../_lib/cn"
 
 /**
- * 스태프 배정 흐름 시트 — /m 에서 식구 카드 → 즉시 배정 4-step wizard.
+ * 스태프 배정 flow — NOX 원칙 "최소 클릭 · 빠른 설정 · 정확성".
  *
- *   1. 층 (5/6/7/8) — 큰 아이콘
- *   2. 매장 (해당 층의 상호 목록) — 카드 grid
- *   3. 종목 (퍼블릭 / 하퍼 / 셔츠) — 색 구분 아이콘
- *   4. 시간 (기본 / 반티 / 차3)  + 확인
+ * R-quick-assign (2026-08-30): 이전 4-step wizard (층→매장→종목→시간) 폐기.
+ *   본 매장 · 담당=현재 사용자 (자동) · default = 하퍼/기본 (하드코딩).
+ *   사용자는 (1) 방 pick, 필요 시 (2) 종목/시간 변경 만 하면 됨.
+ *   localStorage 로 마지막 종목/시간 기억 → 다음 열림 때 재사용.
  *
- *   ─ 본인 매장: room 자동 첫 빈룸 사용 + checkin → participants
- *   ─ 타 매장: 다음 라운드 (cross_store_work_records POST 미구현)
+ * 흐름:
+ *   1. 빈 방 grid (본 매장 8방) → 클릭 = 방 pick.
+ *   2. 종목/시간 pill (default 하퍼/기본 · 최근 사용값 재사용).
+ *   3. [배정 완료] → checkin (담당=me) + hostess N명 participants POST.
+ *
+ * 총 클릭: 3 (방 + 완료 + 필요시 종목/시간 조정).
  */
 
-type Step = "floor" | "store" | "service" | "time"
 type Cat = "퍼블릭" | "하퍼" | "셔츠"
 type TimeKey = "기본" | "반티" | "차3"
 
-const FLOORS = [5, 6, 7, 8] as const
-
-const CAT_META: Record<Cat, { icon: string; from: string; to: string; sub: string }> = {
-  퍼블릭: { icon: "P", from: "#EFEBE3", to: "#DDD5C5", sub: "90분/45분/15분" },
-  하퍼: { icon: "H", from: "#FEE2E2", to: "#FECACA", sub: "60분/30분/15분" },
-  셔츠: { icon: "S", from: "#DBEAFE", to: "#BFDBFE", sub: "60분/30분/15분 (인사확인)" },
-}
+const CATS: Cat[] = ["퍼블릭", "하퍼", "셔츠"]
 const TIMES: TimeKey[] = ["기본", "반티", "차3"]
+const DEFAULT_CAT: Cat = "하퍼"
+const DEFAULT_TIME: TimeKey = "기본"
+const LS_CAT_KEY = "nox_assign_last_cat"
+const LS_TIME_KEY = "nox_assign_last_time"
+
+const CAT_COLOR: Record<Cat, { bg: string; text: string }> = {
+  퍼블릭: { bg: "#EFEBE3", text: "#2D2B26" },
+  하퍼: { bg: "#FECACA", text: "#7F1D1D" },
+  셔츠: { bg: "#BFDBFE", text: "#1E3A8A" },
+}
+
+function readLast<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  if (typeof window === "undefined") return fallback
+  try {
+    const v = window.localStorage.getItem(key)
+    if (v && (allowed as readonly string[]).includes(v)) return v as T
+  } catch { /* noop */ }
+  return fallback
+}
 
 export function AssignFlowSheet({
   open,
@@ -52,154 +66,108 @@ export function AssignFlowSheet({
 }) {
   const router = useRouter()
   const me = useMe()
-  const buildingS = useBuildingStores()
   const types = useServiceTypes()
   const rooms = useRooms()
   const toast = useToast()
 
-  const [step, setStep] = useState<Step>("floor")
-  const [floor, setFloor] = useState<number | null>(null)
-  const [storeUuid, setStoreUuid] = useState<string | null>(null)
-  const [cat, setCat] = useState<Cat | null>(null)
-  const [time, setTime] = useState<TimeKey | null>(null)
+  const [roomUuid, setRoomUuid] = useState<string | null>(null)
+  const [cat, setCat] = useState<Cat>(DEFAULT_CAT)
+  const [time, setTime] = useState<TimeKey>(DEFAULT_TIME)
   const [submitting, setSubmitting] = useState(false)
 
-  // 시트 열릴 때마다 리셋 (선택은 살리고 step 초기화)
+  // Sheet 열릴 때 방 pick 초기화 + last used cat/time 복원
   useEffect(() => {
     if (open) {
-      setStep("floor")
-      setFloor(null)
-      setStoreUuid(null)
-      setCat(null)
-      setTime(null)
+      setRoomUuid(null)
+      setCat(readLast(LS_CAT_KEY, CATS, DEFAULT_CAT))
+      setTime(readLast(LS_TIME_KEY, TIMES, DEFAULT_TIME))
     }
   }, [open])
 
-  const floorStores = useMemo(() => {
-    const all = buildingS.data?.stores ?? []
-    if (floor == null) return []
-    return all.filter((s) => s.floor === floor).sort((a, b) => a.store_name.localeCompare(b.store_name))
-  }, [buildingS.data, floor])
+  // 빈 방 자동 pick (첫 빈 방) — 사용자 즉시 완료 가능
+  useEffect(() => {
+    if (!open || roomUuid) return
+    const rs = rooms.data?.rooms ?? []
+    const empty = rs.find((r) => !r.session && r.is_active !== false)
+    if (empty) setRoomUuid(empty.id)
+  }, [open, roomUuid, rooms.data])
 
-  const selectedStore = useMemo(
-    () => floorStores.find((s) => s.store_uuid === storeUuid) ?? null,
-    [floorStores, storeUuid],
-  )
-  const isMyStore = !!(me.data?.store_uuid && storeUuid === me.data.store_uuid)
+  const roomList = useMemo(() => (rooms.data?.rooms ?? []).filter((r) => r.is_active !== false), [rooms.data])
+  const selectedRoom = useMemo(() => roomList.find((r) => r.id === roomUuid) ?? null, [roomList, roomUuid])
 
-  const matchingTypes = useMemo(() => {
-    if (!cat) return []
-    return (types.data?.service_types ?? []).filter((t) => t.service_type === cat)
-  }, [cat, types.data])
+  const selectedType = useMemo(() => {
+    return (types.data?.service_types ?? []).find(
+      (t) => t.service_type === cat && t.time_type === time,
+    ) ?? null
+  }, [types.data, cat, time])
 
-  const selectedType: ServiceType | null = useMemo(() => {
-    if (!cat || !time) return null
-    return matchingTypes.find((t) => t.time_type === time) ?? null
-  }, [matchingTypes, cat, time])
+  const ready = Boolean(roomUuid && selectedType && hostessIds.length > 0 && me.data?.membership_id && !submitting)
 
   async function submit() {
-    if (!cat || !time || !selectedType || hostessIds.length === 0 || submitting) return
-    if (!storeUuid) return
+    if (!ready || !roomUuid || !selectedType) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
-      if (isMyStore) {
-        // 본인 매장 — 첫 빈 룸 자동 선택, 없으면 첫 룸의 active session 재사용
-        const rs = rooms.data?.rooms ?? []
-        const emptyRoom = rs.find((r) => !r.session && r.is_active !== false)
-        const fallbackRoom = rs.find((r) => r.is_active !== false)
-        const targetRoom = emptyRoom ?? fallbackRoom
-        if (!targetRoom) throw new Error("사용 가능한 룸 없음")
-
-        let sessionId: string | null = null
-        if (targetRoom.session) {
-          sessionId = targetRoom.session.id
-        } else {
-          const res = await apiFetch("/api/sessions/checkin", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              room_uuid: targetRoom.id,
-              manager_membership_id: me.data?.membership_id,
-              manager_name: me.data?.full_name ?? "",
-            }),
-          })
-          if (!res.ok) {
-            if (res.status === 409) {
-              invalidateApi("/api/rooms")
-              await rooms.refresh()
-              const again = (rooms.data?.rooms ?? []).find((r) => r.id === targetRoom.id)?.session
-              if (again) sessionId = again.id
-              else throw new Error("세션 확보 실패 (race)")
-            } else {
-              throw new Error(`체크인 실패 HTTP ${res.status}`)
-            }
-          } else {
-            const j = await res.json()
-            sessionId = j.session_id
-          }
-        }
-        if (!sessionId) throw new Error("session_id 없음")
-
-        for (const mid of hostessIds) {
-          await apiFetch("/api/sessions/participants", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: sessionId,
-              membership_id: mid,
-              role: "hostess",
-              category: cat,
-              time_minutes: selectedType.time_minutes,
-              time_type: time,
-              manager_deduction: selectedType.manager_deduction,
-              greeting_confirmed: cat === "셔츠" ? true : undefined,
-            }),
-          })
-        }
-        toast(`${hostessIds.length}명 배정 완료 — ${targetRoom.room_name || `룸 ${targetRoom.room_no}`}`, "success")
-      } else {
-        // 타 매장 — cross-store dispatch endpoint 호출 (서버가 세션 + 참여자 일괄 처리)
-        const res = await apiFetch("/api/cross-store/dispatch", {
+      let sessionId: string | null = selectedRoom?.session?.id ?? null
+      if (!sessionId) {
+        // 체크인 (담당 = 현재 사용자)
+        const res = await apiFetch("/api/sessions/checkin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            target_store_uuid: storeUuid,
-            hostess_membership_ids: hostessIds,
-            category: cat,
-            time_type: time,
+            room_uuid: roomUuid,
+            manager_membership_id: me.data?.membership_id,
+            manager_name: me.data?.full_name ?? "",
           }),
         })
-        const j = (await res.json().catch(() => ({}))) as {
-          ok?: boolean
-          message?: string
-          error?: string
-          participants_created?: number
-          room?: { room_no?: string; room_name?: string | null }
-          target_store?: { name?: string }
-          errors?: string[]
-        }
-        if (!res.ok || !j.ok) {
-          throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
-        }
-        const roomLabel = j.room?.room_name || (j.room?.room_no ? `룸 ${j.room.room_no}` : "")
-        const created = j.participants_created ?? 0
-        if (created === 0) {
-          // 세션은 만들어졌지만 참여자 등록 모두 실패 — 사용자에게 알림
-          throw new Error(j.errors?.[0] ?? "참여자 등록 실패 (이유 불명)")
-        }
-        toast(`${created}명 → ${j.target_store?.name ?? "타매장"} ${roomLabel} 배정 완료`, "success")
-        if (j.errors && j.errors.length > 0) {
-          // 일부 실패 — 추가 정보
-          toast(`일부 실패: ${j.errors[0]}`, "info")
+        const j = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          if (res.status === 409) {
+            invalidateApi("/api/rooms")
+            await rooms.refresh()
+            const again = (rooms.data?.rooms ?? []).find((r) => r.id === roomUuid)?.session
+            if (again) sessionId = again.id
+            else throw new Error("세션 확보 실패 · 방 새로고침")
+          } else {
+            throw new Error(j?.message ?? `체크인 실패 HTTP ${res.status}`)
+          }
+        } else {
+          sessionId = j.session_id
         }
       }
-      // 2026-06-24 R-invalidate-hostesses: 배정 후 is_working 표시 갱신을 위해
-      //   hostesses cache 도 무효화. 누락 시 stale 데이터로 \"대기중\" 잔존.
+      if (!sessionId) throw new Error("session_id 없음")
+
+      // 참여자 등록
+      for (const mid of hostessIds) {
+        await apiFetch("/api/sessions/participants", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            membership_id: mid,
+            role: "hostess",
+            category: cat,
+            time_minutes: selectedType.time_minutes,
+            time_type: time,
+            manager_deduction: selectedType.manager_deduction,
+            greeting_confirmed: cat === "셔츠" ? true : undefined,
+          }),
+        })
+      }
+
+      // 마지막 값 기억
+      try {
+        window.localStorage.setItem(LS_CAT_KEY, cat)
+        window.localStorage.setItem(LS_TIME_KEY, time)
+      } catch { /* noop */ }
+
+      toast(
+        `${hostessIds.length}명 배정 완료 · ${selectedRoom?.room_name || `${selectedRoom?.room_no}번방`}`,
+        "success",
+      )
       invalidateApi("/api/rooms")
-      invalidateApi("/api/manager/settlement/summary")
       invalidateApi("/api/manager/hostesses")
-      invalidateApi("/api/building/hostesses")
+      invalidateApi("/api/manager/settlement/summary")
       onClose()
       router.push("/m")
     } catch (e) {
@@ -209,197 +177,128 @@ export function AssignFlowSheet({
     }
   }
 
-  const stepIndex = (["floor", "store", "service", "time"] as Step[]).indexOf(step) + 1
-
   return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title={`${hostessIds.length === 1 ? hostessNames[0] : `${hostessIds.length}명`} 배정 (${stepIndex}/4)`}
-      desc={crumbs(floor, selectedStore?.store_name, cat, time)}
-      footer={
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              if (step === "floor") onClose()
-              else if (step === "store") setStep("floor")
-              else if (step === "service") setStep("store")
-              else if (step === "time") setStep("service")
-            }}
-            className="flex-1 bg-[#EFEBE3] text-[#2D2B26] rounded-xl py-3 text-[13px] font-extrabold"
-          >
-            {step === "floor" ? "취소" : "← 이전"}
-          </button>
-          {step === "time" && (
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!time || submitting}
-              className="flex-[2] bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white rounded-xl py-3 text-[13px] font-extrabold disabled:opacity-40"
-            >
-              {submitting ? "배정 중..." : "✓ 배정 완료"}
-            </button>
-          )}
-        </>
-      }
-    >
-      {/* Step 1 — Floor */}
-      {step === "floor" && (
-        <div className="grid grid-cols-2 gap-3">
-          {FLOORS.map((f) => {
-            const cnt = (buildingS.data?.stores ?? []).filter((s) => s.floor === f).length
-            return (
-              <button
-                key={f}
-                type="button"
-                onClick={() => {
-                  setFloor(f)
-                  setStep("store")
-                  haptic(8)
-                }}
-                className="aspect-[1.2/1] rounded-2xl bg-gradient-to-br from-[#FFFCF6] to-[#F0E8D8] border-2 border-[#D8D2C8]/60 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform shadow-sm"
-              >
-                <div className="text-[34px] font-extrabold tracking-tighter bg-gradient-to-br from-[#2D2B26] to-[#A87D45] bg-clip-text text-transparent">
-                  {f}F
-                </div>
-                <div className="text-[10px] font-bold text-[#7A746A]">{cnt}개 매장</div>
-              </button>
-            )
-          })}
+    <Sheet open={open} onClose={onClose}>
+      <div className="px-5 pb-4 pt-2">
+        {/* 상단 요약 */}
+        <div className="mb-3 rounded-2xl bg-[#FAF5EC] border border-[#D8D2C8] px-4 py-3">
+          <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-widest">
+            빠른 배정
+          </div>
+          <div className="mt-1 text-[13px] font-extrabold text-[#2D2B26]">
+            {hostessNames.length > 0
+              ? `${hostessNames.slice(0, 3).join(", ")}${hostessNames.length > 3 ? ` 외 ${hostessNames.length - 3}` : ""} · ${hostessIds.length}명`
+              : "스태프 선택 필요"}
+          </div>
+          <div className="mt-0.5 text-[11px] font-bold text-[#7A746A]">
+            담당: {me.data?.full_name ?? "?"} · {me.data?.store_name ?? ""}
+          </div>
         </div>
-      )}
 
-      {/* Step 2 — Store */}
-      {step === "store" && (
-        <div className="grid grid-cols-2 gap-2">
-          {floorStores.length === 0 && (
-            <div className="col-span-2 text-center text-[12px] text-[#7A746A] font-semibold py-8">
-              {floor}F 매장 없음
-            </div>
-          )}
-          {floorStores.map((s) => {
-            const mine = s.store_uuid === me.data?.store_uuid
-            return (
-              <button
-                key={s.store_uuid}
-                type="button"
-                onClick={() => {
-                  setStoreUuid(s.store_uuid)
-                  setStep("service")
-                  haptic(8)
-                }}
-                className={cn(
-                  "rounded-2xl px-3 py-3 flex flex-col items-start gap-1 border-2 active:scale-95 transition-transform shadow-sm",
-                  mine
-                    ? "bg-gradient-to-br from-[#C49B61]/15 to-[#A87D45]/10 border-[#C49B61]/40"
-                    : "bg-[#FFFCF6] border-[#D8D2C8]/60",
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-bold text-[#A87D45] bg-[#C49B61]/15 px-2 py-0.5 rounded-full">
-                    {s.floor}F
-                  </span>
-                  {mine && (
-                    <span className="text-[9px] font-extrabold text-white bg-gradient-to-br from-[#C49B61] to-[#A87D45] px-2 py-0.5 rounded-full">
-                      본 매장
-                    </span>
-                  )}
-                </div>
-                <div className="text-[14px] font-extrabold tracking-tight text-[#2D2B26]">{s.store_name}</div>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Step 3 — Service */}
-      {step === "service" && (
-        <>
-          {!isMyStore && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-[11px] font-semibold text-blue-800 mb-3">
-              타 매장 배정 — 대상 매장에 자동으로 세션 개설 + 식구 등록 (origin_store 자동 기록)
-            </div>
-          )}
-          <div className="grid grid-cols-3 gap-2.5">
-            {(["퍼블릭", "하퍼", "셔츠"] as Cat[]).map((c) => {
-              const meta = CAT_META[c]
+        {/* Step 1: 방 pick — grid · 빈 방 하이라이트 · active 방 흐릿 */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">방 선택</div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {roomList.map((r) => {
+              const isSelected = r.id === roomUuid
+              const isActive = !!r.session
               return (
                 <button
-                  key={c}
+                  key={r.id}
                   type="button"
-                  onClick={() => {
-                    setCat(c)
-                    setStep("time")
-                    haptic(8)
-                  }}
-                  className="aspect-[1/1.2] rounded-2xl border-2 border-[#D8D2C8]/60 flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-sm"
-                  style={{ background: `linear-gradient(135deg, ${meta.from}, ${meta.to})` }}
+                  onClick={() => setRoomUuid(r.id)}
+                  className={cn(
+                    "rounded-xl py-3 border-2 text-[13px] font-extrabold text-center transition-all",
+                    isSelected
+                      ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26] scale-[1.02]"
+                      : isActive
+                        ? "border-[#D8D2C8]/40 bg-[#EFEBE3] text-[#7A746A]/60"
+                        : "border-[#D8D2C8] bg-white text-[#2D2B26] active:bg-[#FAF5EC]",
+                  )}
                 >
-                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[24px] font-extrabold text-[#2D2B26] shadow-inner">
-                    {meta.icon}
-                  </div>
-                  <div className="text-[12px] font-extrabold text-[#2D2B26]">{c}</div>
-                  <div className="text-[9px] font-bold text-[#7A746A] text-center">{meta.sub}</div>
+                  <div>{r.room_no}</div>
+                  {isActive && (
+                    <div className="text-[8px] font-bold mt-0.5 text-[#7A746A]/60">사용중</div>
+                  )}
                 </button>
               )
             })}
           </div>
-        </>
-      )}
-
-      {/* Step 4 — Time */}
-      {step === "time" && cat && (
-        <div className="space-y-2">
-          {TIMES.map((t) => {
-            const st = matchingTypes.find((s) => s.time_type === t)
-            const active = time === t
-            return (
-              <button
-                key={t}
-                type="button"
-                disabled={!st}
-                onClick={() => {
-                  setTime(t)
-                  haptic(6)
-                }}
-                className={cn(
-                  "w-full rounded-xl px-4 py-3 flex items-center justify-between border-2 active:scale-[0.98] transition-all",
-                  active
-                    ? "bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white border-transparent"
-                    : st
-                      ? "bg-white border-[#D8D2C8] text-[#2D2B26]"
-                      : "bg-[#F0EDE7] border-[#D8D2C8] text-[#A09A8E] cursor-not-allowed opacity-60",
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-extrabold", active ? "bg-white/20 text-white" : "bg-[#C49B61]/15 text-[#A87D45]")}>
-                    {t === "기본" ? "기" : t === "반티" ? "반" : "차"}
-                  </div>
-                  <div className="text-left">
-                    <div className="text-[14px] font-extrabold">{t}</div>
-                    <div className={cn("text-[10px] font-semibold", active ? "text-white/80" : "text-[#7A746A]")}>
-                      {st ? `${st.time_minutes}분` : "단가 미설정"}
-                    </div>
-                  </div>
-                </div>
-                <div className={cn("text-[16px] font-extrabold", active ? "text-white" : "text-[#A87D45]")}>
-                  {st ? `${(st.price / 10000).toFixed(0)}만원` : "—"}
-                </div>
-              </button>
-            )
-          })}
         </div>
-      )}
+
+        {/* Step 2: 종목 pill row · default = 하퍼 · localStorage 기억 */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">종목</div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {CATS.map((c) => {
+              const on = cat === c
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCat(c)}
+                  className={cn(
+                    "rounded-xl py-2.5 text-[12px] font-extrabold border-2 transition-all",
+                    on ? "border-[#A87D45] scale-[1.02]" : "border-[#D8D2C8]",
+                  )}
+                  style={on ? { backgroundColor: CAT_COLOR[c].bg, color: CAT_COLOR[c].text } : { backgroundColor: "white", color: "#7A746A" }}
+                >
+                  {c}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Step 3: 시간 pill row · default = 기본 */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">시간</div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {TIMES.map((t) => {
+              const on = time === t
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTime(t)}
+                  className={cn(
+                    "rounded-xl py-2.5 text-[12px] font-extrabold border-2 transition-all",
+                    on
+                      ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26] scale-[1.02]"
+                      : "border-[#D8D2C8] bg-white text-[#7A746A]",
+                  )}
+                >
+                  {t}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 하단 액션 */}
+        <div className="grid grid-cols-[auto_1fr] gap-2 mt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border-2 border-[#D8D2C8] bg-white px-6 py-3 text-[13px] font-extrabold text-[#7A746A]"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!ready}
+            className={cn(
+              "rounded-xl py-3 text-[13px] font-extrabold text-white transition-all",
+              ready
+                ? "bg-gradient-to-br from-[#C49B61] to-[#A87D45] active:scale-[0.98]"
+                : "bg-[#D8D2C8] opacity-70",
+            )}
+          >
+            {submitting ? "배정 중..." : `✓ ${hostessIds.length}명 배정 완료`}
+          </button>
+        </div>
+      </div>
     </Sheet>
   )
-}
-
-function crumbs(floor: number | null, store: string | null | undefined, cat: Cat | null, time: TimeKey | null) {
-  const parts: string[] = []
-  if (floor != null) parts.push(`${floor}F`)
-  if (store) parts.push(store)
-  if (cat) parts.push(cat)
-  if (time) parts.push(time)
-  return parts.length > 0 ? parts.join(" › ") : "층 선택 → 매장 → 종목 → 시간"
 }
