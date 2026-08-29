@@ -61,17 +61,21 @@ export default function SettlePendingPage() {
     if (quickBusy) return
     setQuickBusy(hostessId)
     haptic(10)
-    const bizDay = settle.data?.business_day_id ?? null
     try {
-      const res = await apiFetch("/api/manager/settlement/quick-payout", {
-        method: "POST",
+      // R-pending-endpoint-fix (2026-08-30): 잘못된 /api/manager/settlement/quick-payout
+      //   (404) 대신 실 endpoint `/api/manager/staff-payout/[hostess_id]` PATCH 사용
+      //   (settle/page.tsx quickPayout 과 동일 signature).
+      const res = await apiFetch(`/api/manager/staff-payout/${encodeURIComponent(hostessId)}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostess_membership_id: hostessId, status: next, business_day_id: bizDay }),
+        body: JSON.stringify({ status: next }),
       })
-      const j = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(j?.message ?? `HTTP ${res.status}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.message ?? `HTTP ${res.status}`)
+      }
       setQuickStatus((m) => new Map(m).set(hostessId, next))
-      toast(next === "paid" ? "정산완료 처리" : "보관 처리", "success")
+      toast(next === "paid" ? "✓ 정산완료" : "📦 보관 처리", "success")
       invalidateApi("/api/manager/settlement/summary")
     } catch (e) {
       toast(`실패: ${(e as Error).message}`, "error")
