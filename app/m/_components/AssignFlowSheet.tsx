@@ -7,6 +7,8 @@ import {
   useServiceTypes,
   useRooms,
   useMe,
+  useBuildingStores,
+  useBuildingRooms,
 } from "../_hooks/useMobileData"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
@@ -68,32 +70,68 @@ export function AssignFlowSheet({
   const me = useMe()
   const types = useServiceTypes()
   const rooms = useRooms()
+  const buildingS = useBuildingStores()
+  const buildingR = useBuildingRooms()
   const toast = useToast()
 
+  // R-cross-store-picker (2026-08-30): 5~8F 매장 선택 지원. default = 본 매장 (자기 층).
+  const [storeUuid, setStoreUuid] = useState<string | null>(null)
   const [roomUuid, setRoomUuid] = useState<string | null>(null)
   const [cat, setCat] = useState<Cat>(DEFAULT_CAT)
   const [time, setTime] = useState<TimeKey>(DEFAULT_TIME)
+  // R-time-offset (2026-08-30): 시작 시각 조정 · 분 단위 · 0 = 지금.
+  const [offsetMin, setOffsetMin] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
-  // Sheet 열릴 때 방 pick 초기화 + last used cat/time 복원
+  const myStoreUuid = me.data?.store_uuid ?? null
+  const myFloor = me.data?.store_floor ?? null
+
+  // Sheet 열릴 때 초기화 + last used cat/time 복원 + default 본 매장
   useEffect(() => {
     if (open) {
       setRoomUuid(null)
+      setStoreUuid(myStoreUuid)
       setCat(readLast(LS_CAT_KEY, CATS, DEFAULT_CAT))
       setTime(readLast(LS_TIME_KEY, TIMES, DEFAULT_TIME))
+      setOffsetMin(0)
     }
-  }, [open])
+  }, [open, myStoreUuid])
 
-  // 빈 방 자동 pick (첫 빈 방) — 사용자 즉시 완료 가능
+  const isMyStore = storeUuid === myStoreUuid
+
+  // 방 리스트 — 본 매장: useRooms (session 정보 포함). 타 매장: buildingR
+  const roomList = useMemo(() => {
+    if (isMyStore) {
+      return (rooms.data?.rooms ?? [])
+        .filter((r) => r.is_active !== false)
+        .map((r) => ({ id: r.id, room_no: r.room_no, isActive: !!r.session }))
+    }
+    if (!storeUuid) return []
+    const block = (buildingR.data?.stores ?? []).find((s) => s.store_uuid === storeUuid)
+    return (block?.rooms ?? [])
+      .filter((r) => r.is_active !== false)
+      .map((r) => ({ id: r.room_uuid, room_no: r.room_no, isActive: !!r.session }))
+  }, [isMyStore, rooms.data, buildingR.data, storeUuid])
+
+  // 빈 방 자동 pick (본 매장 열림 시)
   useEffect(() => {
     if (!open || roomUuid) return
-    const rs = rooms.data?.rooms ?? []
-    const empty = rs.find((r) => !r.session && r.is_active !== false)
+    const empty = roomList.find((r) => !r.isActive)
     if (empty) setRoomUuid(empty.id)
-  }, [open, roomUuid, rooms.data])
+  }, [open, roomUuid, roomList])
 
-  const roomList = useMemo(() => (rooms.data?.rooms ?? []).filter((r) => r.is_active !== false), [rooms.data])
   const selectedRoom = useMemo(() => roomList.find((r) => r.id === roomUuid) ?? null, [roomList, roomUuid])
+
+  // 층 pick — default 본 매장 층
+  const floors = [5, 6, 7, 8] as const
+  const [pickedFloor, setPickedFloor] = useState<number | null>(null)
+  useEffect(() => { if (open) setPickedFloor(myFloor) }, [open, myFloor])
+  const currentFloor = pickedFloor ?? myFloor
+  const storesInFloor = useMemo(() => {
+    return (buildingS.data?.stores ?? [])
+      .filter((s) => s.floor === currentFloor)
+      .sort((a, b) => a.store_name.localeCompare(b.store_name))
+  }, [buildingS.data, currentFloor])
 
   const selectedType = useMemo(() => {
     return (types.data?.service_types ?? []).find(
@@ -104,69 +142,103 @@ export function AssignFlowSheet({
   const ready = Boolean(roomUuid && selectedType && hostessIds.length > 0 && me.data?.membership_id && !submitting)
 
   async function submit() {
-    if (!ready || !roomUuid || !selectedType) return
+    if (!ready || !selectedType || !storeUuid) return
     setSubmitting(true)
     haptic([10, 30, 10])
+    // R-time-offset (2026-08-30): 사용자가 조정한 시각 반영 · entered_at 명시.
+    const enteredAt = new Date(Date.now() + offsetMin * 60_000).toISOString()
     try {
-      let sessionId: string | null = selectedRoom?.session?.id ?? null
-      if (!sessionId) {
-        // 체크인 (담당 = 현재 사용자)
-        const res = await apiFetch("/api/sessions/checkin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room_uuid: roomUuid,
-            manager_membership_id: me.data?.membership_id,
-            manager_name: me.data?.full_name ?? "",
-          }),
-        })
-        const j = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          if (res.status === 409) {
-            invalidateApi("/api/rooms")
-            await rooms.refresh()
-            const again = (rooms.data?.rooms ?? []).find((r) => r.id === roomUuid)?.session
-            if (again) sessionId = again.id
-            else throw new Error("세션 확보 실패 · 방 새로고침")
-          } else {
-            throw new Error(j?.message ?? `체크인 실패 HTTP ${res.status}`)
-          }
+      if (isMyStore) {
+        // 본 매장 flow
+        if (!roomUuid) throw new Error("방 선택 필요")
+        let sessionId: string | null = null
+        const existing = (rooms.data?.rooms ?? []).find((r) => r.id === roomUuid)?.session ?? null
+        if (existing) {
+          sessionId = existing.id
         } else {
-          sessionId = j.session_id
+          const res = await apiFetch("/api/sessions/checkin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              // R-time-offset (2026-08-30): checkin 은 started_at override 미지원.
+              //   entered_at 은 participants POST 에서 개별 반영.
+              room_uuid: roomUuid,
+              manager_membership_id: me.data?.membership_id,
+              manager_name: me.data?.full_name ?? "",
+            }),
+          })
+          const j = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            if (res.status === 409) {
+              invalidateApi("/api/rooms")
+              await rooms.refresh()
+              const again = (rooms.data?.rooms ?? []).find((r) => r.id === roomUuid)?.session
+              if (again) sessionId = again.id
+              else throw new Error("세션 확보 실패 · 방 새로고침")
+            } else {
+              throw new Error(j?.message ?? `체크인 실패 HTTP ${res.status}`)
+            }
+          } else {
+            sessionId = j.session_id
+          }
         }
-      }
-      if (!sessionId) throw new Error("session_id 없음")
+        if (!sessionId) throw new Error("session_id 없음")
 
-      // 참여자 등록
-      for (const mid of hostessIds) {
-        await apiFetch("/api/sessions/participants", {
+        for (const mid of hostessIds) {
+          await apiFetch("/api/sessions/participants", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              membership_id: mid,
+              role: "hostess",
+              category: cat,
+              time_minutes: selectedType.time_minutes,
+              time_type: time,
+              manager_deduction: selectedType.manager_deduction,
+              greeting_confirmed: cat === "셔츠" ? true : undefined,
+              entered_at: enteredAt,
+            }),
+          })
+        }
+
+        toast(`${hostessIds.length}명 배정 완료 · ${selectedRoom?.room_no ?? ""}번방`, "success")
+      } else {
+        // 타 매장 flow — cross-store/dispatch (서버가 세션 + 참여자 일괄 처리 · room 자동)
+        const res = await apiFetch("/api/cross-store/dispatch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            session_id: sessionId,
-            membership_id: mid,
-            role: "hostess",
+            target_store_uuid: storeUuid,
+            hostess_membership_ids: hostessIds,
             category: cat,
-            time_minutes: selectedType.time_minutes,
             time_type: time,
-            manager_deduction: selectedType.manager_deduction,
-            greeting_confirmed: cat === "셔츠" ? true : undefined,
           }),
         })
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean; message?: string; error?: string
+          participants_created?: number
+          room?: { room_no?: string }
+          target_store?: { name?: string }
+          errors?: string[]
+        }
+        if (!res.ok || !j.ok) throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
+        const created = j.participants_created ?? 0
+        if (created === 0) throw new Error(j.errors?.[0] ?? "참여자 등록 실패")
+        toast(
+          `${created}명 → ${j.target_store?.name ?? "타매장"} ${j.room?.room_no ? `${j.room.room_no}번방` : ""} 배정`,
+          "success",
+        )
       }
 
-      // 마지막 값 기억
       try {
         window.localStorage.setItem(LS_CAT_KEY, cat)
         window.localStorage.setItem(LS_TIME_KEY, time)
       } catch { /* noop */ }
 
-      toast(
-        `${hostessIds.length}명 배정 완료 · ${selectedRoom?.room_name || `${selectedRoom?.room_no}번방`}`,
-        "success",
-      )
       invalidateApi("/api/rooms")
       invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/manager/incoming-staff")
       invalidateApi("/api/manager/settlement/summary")
       onClose()
       router.push("/m")
@@ -195,13 +267,74 @@ export function AssignFlowSheet({
           </div>
         </div>
 
+        {/* R-cross-store-picker (2026-08-30): 층 pill · 다른 층 pick 지원 (5~8F) */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">층</div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {floors.map((f) => {
+              const on = currentFloor === f
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => {
+                    setPickedFloor(f)
+                    // 층 바꾸면 매장/방 리셋 · 본 매장 층으로 돌아오면 본 매장 자동 pick
+                    setStoreUuid(f === myFloor ? myStoreUuid : null)
+                    setRoomUuid(null)
+                  }}
+                  className={cn(
+                    "rounded-xl py-2 text-[13px] font-extrabold border-2 transition-all",
+                    on
+                      ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
+                      : "border-[#D8D2C8] bg-white text-[#7A746A]",
+                  )}
+                >
+                  {f}F
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 매장 pill — 해당 층의 매장들 · 본 매장 default */}
+        {storesInFloor.length > 0 && (
+          <div className="mb-3">
+            <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">매장</div>
+            <div className="flex flex-wrap gap-1.5">
+              {storesInFloor.map((s) => {
+                const on = storeUuid === s.store_uuid
+                const isMe = s.store_uuid === myStoreUuid
+                return (
+                  <button
+                    key={s.store_uuid}
+                    type="button"
+                    onClick={() => {
+                      setStoreUuid(s.store_uuid)
+                      setRoomUuid(null)
+                    }}
+                    className={cn(
+                      "rounded-full px-3 py-1.5 text-[12px] font-extrabold border-2 transition-all",
+                      on
+                        ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
+                        : "border-[#D8D2C8] bg-white text-[#7A746A]",
+                    )}
+                  >
+                    {s.store_name}
+                    {isMe && <span className="ml-1 text-[9px] text-[#A87D45]">본</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Step 1: 방 pick — grid · 빈 방 하이라이트 · active 방 흐릿 */}
         <div className="mb-3">
           <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">방 선택</div>
           <div className="grid grid-cols-4 gap-1.5">
             {roomList.map((r) => {
               const isSelected = r.id === roomUuid
-              const isActive = !!r.session
               return (
                 <button
                   key={r.id}
@@ -211,13 +344,13 @@ export function AssignFlowSheet({
                     "rounded-xl py-3 border-2 text-[13px] font-extrabold text-center transition-all",
                     isSelected
                       ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26] scale-[1.02]"
-                      : isActive
+                      : r.isActive
                         ? "border-[#D8D2C8]/40 bg-[#EFEBE3] text-[#7A746A]/60"
                         : "border-[#D8D2C8] bg-white text-[#2D2B26] active:bg-[#FAF5EC]",
                   )}
                 >
                   <div>{r.room_no}</div>
-                  {isActive && (
+                  {r.isActive && (
                     <div className="text-[8px] font-bold mt-0.5 text-[#7A746A]/60">사용중</div>
                   )}
                 </button>
@@ -269,6 +402,33 @@ export function AssignFlowSheet({
                   )}
                 >
                   {t}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* R-time-offset (2026-08-30): 시작 시각 조정 */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">
+            시작 시각 {offsetMin === 0 ? "· 지금" : offsetMin > 0 ? `· +${offsetMin}분` : `· ${offsetMin}분`}
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {[-10, -5, 0, 5, 10].map((v) => {
+              const on = offsetMin === v
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setOffsetMin(v)}
+                  className={cn(
+                    "rounded-xl py-2 text-[12px] font-extrabold border-2 transition-all",
+                    on
+                      ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
+                      : "border-[#D8D2C8] bg-white text-[#7A746A]",
+                  )}
+                >
+                  {v === 0 ? "지금" : v > 0 ? `+${v}` : `${v}`}
                 </button>
               )
             })}

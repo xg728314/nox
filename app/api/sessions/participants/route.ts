@@ -49,6 +49,18 @@ export async function POST(request: Request) {
     const externalNameRaw = parsed.body.external_name
     const originStoreUuidParam = parsed.body.origin_store_uuid
     const originStoreNameParam = parsed.body.origin_store_name
+    // R-time-offset (2026-08-30): client 가 시작 시각 조정한 경우 override 허용.
+    //   AssignFlowSheet 의 offsetMin (±10분) UI 지원. 안전 범위: 지금 ±30분.
+    //   초과 시 무시 (silently drop → 서버 default now).
+    const enteredAtOverride = ((): string | null => {
+      const raw = (parsed.body as { entered_at?: unknown }).entered_at
+      if (typeof raw !== "string" || raw.length === 0) return null
+      const t = Date.parse(raw)
+      if (Number.isNaN(t)) return null
+      const now = Date.now()
+      if (Math.abs(t - now) > 30 * 60_000) return null
+      return new Date(t).toISOString()
+    })()
 
     if (!session_id || !isValidUUID(session_id)) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "session_id is required and must be a valid UUID." }, { status: 400 })
@@ -320,6 +332,9 @@ export async function POST(request: Request) {
         transfer_request_id: transferRequestId,
         status: "active",
         store_uuid: authContext.store_uuid,
+        // R-time-offset (2026-08-30): entered_at override (client 조정 ±30분).
+        //   null 이면 컬럼 자체를 넣지 않고 서버 default now() 사용.
+        ...(enteredAtOverride ? { entered_at: enteredAtOverride } : {}),
       })
       .select("id, session_id, membership_id, role, category, time_minutes, price_amount, cha3_amount, banti_amount, waiter_tip_received, waiter_tip_amount, manager_payout_amount, hostess_payout_amount, greeting_confirmed, status, entered_at, external_name, origin_store_uuid")
       .single()

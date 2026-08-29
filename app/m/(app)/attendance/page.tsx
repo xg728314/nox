@@ -27,6 +27,10 @@ export default function AttendancePage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkMgrId, setBulkMgrId] = useState<string>("")
 
+  // R-attendance-search (2026-08-30): 사용자 요청 "출근자 많으면 이름 선택 힘들어".
+  //   실시간 filter · 이름 / 담당 실장 검색 · 매장 hostess 420명 시 필수.
+  const [search, setSearch] = useState("")
+
   useEffect(() => {
     (async () => {
       try {
@@ -49,8 +53,20 @@ export default function AttendancePage() {
     return m
   }, [managers])
 
-  const all = hostesses.data?.hostesses ?? []
+  const allRaw = hostesses.data?.hostesses ?? []
   const map = new Map((attendance.data?.attendance ?? []).map((a) => [a.membership_id, a]))
+
+  // 검색 filter: 이름 or 담당실장 이름 부분일치 (한글 정규화 없이 includes).
+  const all = useMemo(() => {
+    const q = search.trim()
+    if (!q) return allRaw
+    const lower = q.toLowerCase()
+    return allRaw.filter((h) => {
+      const name = (h.hostess_name ?? "").toLowerCase()
+      const mgr = (managerNameById.get(h.manager_membership_id ?? "") ?? "").toLowerCase()
+      return name.includes(lower) || mgr.includes(lower)
+    })
+  }, [allRaw, search, managerNameById])
 
   async function setStatus(membershipId: string, status: Status) {
     setPending((s) => new Set(s).add(membershipId))
@@ -124,7 +140,7 @@ export default function AttendancePage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader title="출근 체크" subtitle={`${all.length}명 등록`} backHref="/m/staff" />
+      <PageHeader title="출근 체크" subtitle={`${allRaw.length}명 등록`} backHref="/m/staff" />
 
       {/* R-manager-assign-attendance (2026-08-23): 일괄 실장 할당 툴바 · 선택 있을 때만 */}
       {managers.length > 0 && selected.size > 0 && (
@@ -163,9 +179,42 @@ export default function AttendancePage() {
       )}
 
       <div className="px-5 pb-24">
+        {/* R-attendance-search (2026-08-30): 이름 or 담당실장 검색 · 420명 규모 대응 */}
+        <div className="sticky top-0 z-10 -mx-5 px-5 pt-2 pb-2 bg-[#FAF5EC]/95 backdrop-blur">
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍  이름 · 담당실장 검색"
+              className="w-full rounded-full border border-[#D8D2C8] bg-white px-4 py-2.5 text-[13px] placeholder:text-[#B4B2A9] focus:border-[#C49B61] outline-none"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#EFEBE3] text-[#7A746A] text-[12px] leading-none"
+                aria-label="검색어 지우기"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {search && (
+            <div className="text-[10px] font-bold text-[#7A746A] mt-1.5 px-1">
+              {all.length}명 매칭 · 전체 {allRaw.length}명 중
+            </div>
+          )}
+        </div>
+
         {hostesses.isLoading && <div className="text-center text-[12px] text-[#7A746A] py-6">로딩 중...</div>}
-        {all.length === 0 && !hostesses.isLoading && (
+        {allRaw.length === 0 && !hostesses.isLoading && (
           <div className="text-center text-[12px] text-[#7A746A] py-10">등록된 식구가 없습니다</div>
+        )}
+        {allRaw.length > 0 && all.length === 0 && (
+          <div className="text-center text-[12px] text-[#7A746A] py-10">
+            &ldquo;{search}&rdquo; 매칭 없음
+          </div>
         )}
 
         {/* 전체 선택 헤더 · 실장 지정 안내 */}
