@@ -45,6 +45,11 @@ export async function POST(request: Request) {
     if (svc.error) return svc.error
     const supabase = svc.supabase
 
+    // R-room-lock (2026-08-31): 세션 편집 잠금 검증.
+    const { assertSessionUnlocked } = await import("@/lib/session/lockGuard")
+    const locked = await assertSessionUnlocked(supabase, session_id, authContext)
+    if (locked) return locked
+
     // 2026-05-01 R-No-Manager-OK: 실장 미지정 세션 체크아웃 허용.
     //   운영자 정책: "실장 지정이 안됐으면 가게 매출로 잡자."
     //   기존: MANAGER_REQUIRED 로 차단 (체크아웃 불가).

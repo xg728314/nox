@@ -24,6 +24,7 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 type Metadata = { category?: string; time_type?: string }
 
@@ -175,6 +176,9 @@ export async function POST(
       .eq("status", "active")
       .maybeSingle()
     if (activeSess) {
+      // R-room-lock (2026-08-31): 대상 세션 잠금 시 다른 실장이 참여자 추가 못 함.
+      const targetLocked = await assertSessionUnlocked(supabase, activeSess.id, auth)
+      if (targetLocked) return targetLocked
       sessionId = activeSess.id
     } else {
       // 배정자의 이름 lookup (profiles.full_name)

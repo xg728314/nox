@@ -32,6 +32,7 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 export async function POST(
   request: Request,
@@ -85,6 +86,10 @@ export async function POST(
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
     }
 
+    // R-room-lock (2026-08-31): 원 세션 잠금 상태 검증. 이동 = 원 세션 편집.
+    const locked = await assertSessionUnlocked(supabase, part.session_id, auth)
+    if (locked) return locked
+
     // 3. target_room 검증 — 같은 매장
     const { data: room } = await supabase
       .from("rooms")
@@ -128,6 +133,9 @@ export async function POST(
       .maybeSingle()
 
     if (activeInTarget) {
+      // R-room-lock (2026-08-31): 대상 세션이 잠금이면 참여자 추가도 차단.
+      const targetLocked = await assertSessionUnlocked(supabase, activeInTarget.id, auth)
+      if (targetLocked) return targetLocked
       targetSessionId = activeInTarget.id
     } else {
       // business_day 확보 — 원 세션의 business_day_id 재사용 or 오늘 자 확보
