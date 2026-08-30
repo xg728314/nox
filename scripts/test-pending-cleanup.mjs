@@ -13,16 +13,20 @@ const env = Object.fromEntries(
 )
 const sb = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
 
-// R-pending-pool 테스트 (2026-08-31)
+// R-pending-pool 테스트 (2026-08-31 · 재생성)
 const PENDING_TRS = [
-  "1c9e67c2-0b65-42ed-9d96-f81f11255dea", // 채아
-  "7a8f8491-3dff-4c98-8a8b-85e0215a9850", // 지유
+  "19a58023-d01e-44ee-ab2e-e6e159060fb3", // 채아
+  "eef4f20a-8917-4b8a-a1d9-21c215fac2c9", // 지유
 ]
 
-// 이전 test-cross-store-dispatch.mjs (immediate) 지효 데이터
+// 이전 test-cross-store-dispatch.mjs (immediate) 지효 데이터 (이미 삭제됨 · null-safe)
 const IMMEDIATE_PART = "9d6381d6-bfca-4fa2-a44b-d7a0707eebbb"
 const IMMEDIATE_SESS = "180dcf29-abaf-4c45-b38a-3ee3e2d8613b"
 const IMMEDIATE_TR = "8de62198-2a2f-4410-806a-3c514a9340c3"
+
+// E2E 스크립트로 생성한 지유 participant (5번방) — session/participant cascade
+const E2E_PARTICIPANT = "c90d3f90"  // prefix 만
+const E2E_SESSION = "ee0067ad"      // prefix 만
 
 // 1. pending TRs — 각각 session_participant 생성됐는지 확인 후 삭제
 for (const trId of PENDING_TRS) {

@@ -8,7 +8,8 @@ import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
 import { AddHostessToSessionSheet } from "../../_components/AddHostessToSessionSheet"
-import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
+import { PendingArrivalSheet } from "../../_components/PendingArrivalSheet"
+import { useBuildingRooms, useMe, usePendingArrivals, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
 // R-external-extend-modal (2026-07-24): 참여자 [연장] 버튼 클릭 → 시트 오픈용 상태.
@@ -39,6 +40,9 @@ export default function ExternalDispatchPage() {
   const { data, isLoading, error } = useBuildingRooms()
   const [filter, setFilter] = useState<FilterKey>("all")
   const [storeFilter, setStoreFilter] = useState<string | null>(null) // store_uuid | null(전체)
+  // R-pending-pool (2026-08-31): 외부조판 페이지에도 도착 대기 배지 노출.
+  const pendingArrivals = usePendingArrivals()
+  const [pendingSheetOpen, setPendingSheetOpen] = useState(false)
   const [closedFilter, setClosedFilter] = useState<ClosedFilter>("all")
   const [expandAllClosed, setExpandAllClosed] = useState(false)
   const [extendTarget, setExtendTarget] = useState<ExtendTarget | null>(null)
@@ -93,6 +97,29 @@ export default function ExternalDispatchPage() {
       />
 
       <main className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+        {/* R-pending-pool (2026-08-31): 도착 대기 · 방 배정 필요 배지 (count>0 만) */}
+        {(pendingArrivals.data?.count ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => setPendingSheetOpen(true)}
+            className="w-full mb-2 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-3 text-left active:bg-amber-200 animate-pulse"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-extrabold text-amber-800">
+                  🚪 도착 대기 · 방 배정 필요 {pendingArrivals.data?.count}명
+                </div>
+                <div className="text-[10px] font-bold text-amber-700/80 mt-0.5">
+                  외부 매장에서 우리 매장으로 보낸 아가씨 · 방을 선택하세요
+                </div>
+              </div>
+              <div className="shrink-0 rounded-full bg-amber-600 text-white text-[10px] font-black px-2 py-1">
+                {pendingArrivals.data?.count}
+              </div>
+            </div>
+          </button>
+        )}
+
         {/* ── 상태 필터 chips ── */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           <StateChip label="전체" count={totals.rooms} active={filter === "all"} onClick={() => setFilter("all")} />
@@ -171,6 +198,11 @@ export default function ExternalDispatchPage() {
           startedAt={extendTarget.participant.entered_at}
         />
       )}
+      {/* R-pending-pool (2026-08-31): 도착 대기 → 방 배정 시트 */}
+      <PendingArrivalSheet
+        open={pendingSheetOpen}
+        onClose={() => setPendingSheetOpen(false)}
+      />
     </>
   )
 }
