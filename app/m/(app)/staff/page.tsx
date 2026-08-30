@@ -7,6 +7,7 @@ import { invalidateApi } from "../../_hooks/useApi"
 import { PageHeader } from "../../_components/PageHeader"
 import { TabBar } from "../../_components/TabBar"
 import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
+import { AddHostessToSessionSheet } from "../../_components/AddHostessToSessionSheet"
 import { useBuildingRooms, useMe, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
@@ -306,11 +307,35 @@ function LiveRoomCard({
   onOpenExtend: (participant: BuildingRoomParticipant, sessionId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  // R-add-hostess + R-force-close (2026-08-31)
+  const [addSheetOpen, setAddSheetOpen] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const toast = useToast()
   const s = room.session!
   const isMine =
     (currentMembershipId != null && s.manager_membership_id === currentMembershipId) || s.is_mine
 
   const elapsedMin = elapsedMinutesSince(s.started_at)
+
+  async function forceClose() {
+    if (closing) return
+    if (!confirm(`${room.room_no}번방 세션을 종료하시겠습니까? (빈 세션 정리)`)) return
+    setClosing(true)
+    try {
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(s.session_id)}/force-close`, {
+        method: "POST",
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+      toast(`${room.room_no}번방 세션 종료`, "success")
+      invalidateApi("/api/building/rooms")
+      invalidateApi("/api/rooms")
+    } catch (e) {
+      toast(`종료 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setClosing(false)
+    }
+  }
   return (
     <div
       className={cn(
@@ -390,7 +415,36 @@ function LiveRoomCard({
               onOpenExtend={() => onOpenExtend(p, s.session_id)}
             />
           ))}
+          {/* R-add-hostess + R-force-close (2026-08-31): 방 액션 */}
+          <div className="mt-2 pt-2 border-t border-[#EDE7DA] flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAddSheetOpen(true)}
+              className="flex-1 rounded-lg py-2 text-[11px] font-extrabold border-2 border-[#A87D45] bg-[#C49B61]/15 text-[#8C6A3A] active:bg-[#C49B61]/25"
+            >
+              + 아가씨 추가
+            </button>
+            {s.participants.length === 0 && (
+              <button
+                type="button"
+                disabled={closing}
+                onClick={forceClose}
+                className="flex-1 rounded-lg py-2 text-[11px] font-extrabold border-2 border-red-300 bg-red-50 text-red-700 active:bg-red-100 disabled:opacity-40"
+              >
+                {closing ? "..." : "🔚 세션 종료"}
+              </button>
+            )}
+          </div>
         </div>
+      )}
+      {addSheetOpen && (
+        <AddHostessToSessionSheet
+          open={addSheetOpen}
+          onClose={() => setAddSheetOpen(false)}
+          sessionId={s.session_id}
+          storeUuid={storeUuid}
+          roomLabel={`${room.room_no}번방`}
+        />
       )}
     </div>
   )
