@@ -342,12 +342,40 @@ function LiveRoomCard({
   // R-add-hostess + R-force-close (2026-08-31)
   const [addSheetOpen, setAddSheetOpen] = useState(false)
   const [closing, setClosing] = useState(false)
+  // R-room-lock (2026-08-31)
+  const [lockBusy, setLockBusy] = useState(false)
   const toast = useToast()
   const s = room.session!
   const isMine =
     (currentMembershipId != null && s.manager_membership_id === currentMembershipId) || s.is_mine
 
   const elapsedMin = elapsedMinutesSince(s.started_at)
+
+  const lockedBy = s.locked_by_membership_id ?? null
+  const isLocked = !!lockedBy
+  const isLockedByMe = lockedBy != null && lockedBy === currentMembershipId
+
+  async function toggleLock() {
+    if (lockBusy) return
+    setLockBusy(true)
+    try {
+      const nextLocked = !isLocked
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(s.session_id)}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: nextLocked }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+      toast(nextLocked ? `🔒 ${room.room_no}번방 잠금` : `🔓 ${room.room_no}번방 잠금 해제`, "success")
+      invalidateApi("/api/building/rooms")
+      invalidateApi("/api/rooms")
+    } catch (e) {
+      toast(`잠금 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setLockBusy(false)
+    }
+  }
 
   async function forceClose() {
     if (closing) return
@@ -399,6 +427,32 @@ function LiveRoomCard({
         <span className="inline-flex items-center gap-1 ml-1 bg-[#5FAB4E]/12 text-[#468838] rounded-md px-1.5 py-0.5 text-[10px] font-black">
           진행 {formatElapsed(elapsedMin)}
         </span>
+
+        {/* R-room-lock (2026-08-31): 방 수정 잠금 toggle
+             OFF (default): 🔓 회색 · 클릭 → 잠금
+             ON (내가 잠금): 🔒 amber · 클릭 → 해제
+             ON (남이 잠금): 🔒 red · disabled */}
+        <button
+          type="button"
+          disabled={lockBusy || (isLocked && !isLockedByMe)}
+          onClick={(e) => { e.stopPropagation(); toggleLock() }}
+          title={
+            !isLocked ? "방 수정 잠금 (같은 매장 다른 실장 차단)"
+              : isLockedByMe ? "잠금 해제"
+                : "다른 실장 잠금 중 · 사장만 해제 가능"
+          }
+          className={cn(
+            "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-black border shrink-0 ml-0.5",
+            !isLocked
+              ? "bg-[#EFEBE3] text-[#7A746A] border-[#D8D2C8] active:bg-[#E5DED0]"
+              : isLockedByMe
+                ? "bg-amber-100 text-amber-800 border-amber-400 active:bg-amber-200"
+                : "bg-red-100 text-red-700 border-red-300 opacity-70 cursor-not-allowed",
+            lockBusy && "opacity-40 cursor-wait",
+          )}
+        >
+          {!isLocked ? "🔓" : "🔒"}
+        </button>
 
         {/* R-manager-pill-always (2026-08-23): 접힌 상태에서도 담당 실장 항상 노출.
               미지정 (null) 시 붉은 pill 로 인지 강화 · 세션 열지 않고도 바로 확인. */}

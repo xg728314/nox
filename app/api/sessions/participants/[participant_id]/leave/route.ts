@@ -10,6 +10,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createServiceClient } from "@/lib/session/createServiceClient"
 import { isValidUUID } from "@/lib/validation"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 export async function POST(
   request: Request,
@@ -44,6 +45,10 @@ export async function POST(
     if (!auth.is_super_admin && part.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
     }
+
+    // R-room-lock (2026-08-31)
+    const locked = await assertSessionUnlocked(supabase, part.session_id, auth)
+    if (locked) return locked
 
     const nowIso = new Date().toISOString()
     const { error: upErr } = await supabase

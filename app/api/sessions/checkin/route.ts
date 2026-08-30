@@ -234,6 +234,9 @@ export async function POST(request: Request) {
     // 2026-05-06: room_participants/session_orders 도 invalidate — 새 세션 빈 상태로 즉시 반영.
     invalidateCache("room_participants")
     invalidateCache("session_orders")
+    // R-checkin-building-cache (2026-08-31): /m/staff 외부조판 화면이
+    //   building_rooms 캐시로 렌더링 → 이걸 무효화해야 즉시 반영.
+    invalidateCache("building_rooms")
 
     return NextResponse.json(
       {

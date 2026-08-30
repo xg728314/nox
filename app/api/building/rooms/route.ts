@@ -134,6 +134,9 @@ export type BuildingRoomsResponse = {
         manager_name: string | null
         manager_membership_id: string | null
         is_mine: boolean
+        /** R-room-lock (2026-08-31): 세션 잠금 상태 (null=해제) */
+        locked_by_membership_id: string | null
+        locked_at: string | null
         customer_name: string | null
         customer_party_size: number
         participants: Array<{
@@ -261,13 +264,13 @@ export async function GET(request: Request) {
             .order("sort_order", { ascending: true }),
           sb
             .from("room_sessions")
-            .select("id, store_uuid, room_uuid, status, started_at, ended_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size")
+            .select("id, store_uuid, room_uuid, status, started_at, ended_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size, locked_by_membership_id, locked_at")
             .in("store_uuid", storeIds)
             .eq("status", "active")
             .is("archived_at", null),
           sb
             .from("room_sessions")
-            .select("id, store_uuid, room_uuid, status, started_at, ended_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size")
+            .select("id, store_uuid, room_uuid, status, started_at, ended_at, manager_name, manager_membership_id, customer_name_snapshot, customer_party_size, locked_by_membership_id, locked_at")
             .in("store_uuid", storeIds)
             .eq("status", "closed")
             .gte("ended_at", dayAgoIso)
@@ -528,6 +531,9 @@ export async function GET(request: Request) {
                 manager_name: sess.manager_name,
                 manager_membership_id: sess.manager_membership_id,
                 is_mine: isMine,
+                // R-room-lock (2026-08-31)
+                locked_by_membership_id: (sess as { locked_by_membership_id?: string | null }).locked_by_membership_id ?? null,
+                locked_at: (sess as { locked_at?: string | null }).locked_at ?? null,
                 customer_name: sess.customer_name_snapshot,
                 customer_party_size: sess.customer_party_size ?? 0,
                 participants: partDtos,

@@ -148,6 +148,9 @@ export type BuildingRoomSession = {
   manager_name: string | null
   manager_membership_id: string | null
   is_mine: boolean
+  /** R-room-lock (2026-08-31): 세션 편집 잠금 소유자 */
+  locked_by_membership_id?: string | null
+  locked_at?: string | null
   customer_name: string | null
   customer_party_size: number
   participants: BuildingRoomParticipant[]

@@ -265,6 +265,7 @@ export async function POST(
     invalidateCache("rooms")
     invalidateCache("monitor")
     invalidateCache("room_participants")
+    invalidateCache("building_rooms")
 
     return NextResponse.json({
       ok: true,

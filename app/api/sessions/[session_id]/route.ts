@@ -5,6 +5,7 @@ import { parseJsonBody } from "@/lib/session/parseBody"
 import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 // 세션 메타 수정 — 실장(manager_*) + 손님(customer_*) 변경
 export async function PATCH(
@@ -42,6 +43,10 @@ export async function PATCH(
     const svc = createServiceClient()
     if (svc.error) return svc.error
     const supabase = svc.supabase
+
+    // R-room-lock (2026-08-31): 실장/손님 정보 변경도 잠금 대상.
+    const locked = await assertSessionUnlocked(supabase, session_id, authContext)
+    if (locked) return locked
 
     // 2026-05-03 R-Perf: session 조회 + receipts(finalized) 체크 + 옵션
     //   manager 검증을 단일 Promise.all 로 fire — 직렬 3 RTT → 1 RTT.

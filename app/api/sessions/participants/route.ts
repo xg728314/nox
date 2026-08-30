@@ -10,6 +10,7 @@ import { publishManagerCheckinMessage } from "@/lib/chat/publishManagerCheckinMe
 import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { lookupServiceType, lookupCategoryPricing } from "@/lib/session/services/pricingLookup"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 const VALID_ROLES = ["manager", "hostess"] as const
 const VALID_CATEGORIES = ["퍼블릭", "셔츠", "하퍼", "차3"] as const
@@ -89,6 +90,10 @@ export async function POST(request: Request) {
     const svc = createServiceClient()
     if (svc.error) return svc.error
     const supabase = svc.supabase
+
+    // R-room-lock (2026-08-31): 세션 잠금 상태 검증. 잠금 소유자 · owner · super_admin 만 통과.
+    const locked = await assertSessionUnlocked(supabase, session_id, authContext)
+    if (locked) return locked
 
     // 2026-05-01 R-Counter-Speed: session 검증 + origin store resolve 병렬 fire.
     // 2026-05-03 R-Speed-x10: business_day 도 같이 prefetch 해서 추가 RTT 절감.

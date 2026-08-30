@@ -22,6 +22,7 @@ import { createServiceClient } from "@/lib/session/createServiceClient"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 
 export async function POST(
   request: Request,
@@ -56,6 +57,10 @@ export async function POST(
     if (!auth.is_super_admin && session.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
     }
+
+    // R-room-lock (2026-08-31)
+    const locked = await assertSessionUnlocked(supabase, session_id, auth)
+    if (locked) return locked
 
     // 3. active 참여자 있으면 거부
     const { count } = await supabase
@@ -95,6 +100,7 @@ export async function POST(
     invalidateCache("rooms")
     invalidateCache("monitor")
     invalidateCache("room_participants")
+    invalidateCache("building_rooms")
 
     return NextResponse.json({ ok: true, session_id, status: "closed", ended_at: nowIso })
   } catch (error) {

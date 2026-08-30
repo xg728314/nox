@@ -59,6 +59,9 @@ export function AddHostessToSessionSheet({
   const [time, setTime] = useState<TimeKey>(() => readLast(LS_TIME, TIMES, "기본"))
   const [q, setQ] = useState("")
   const [busyMid, setBusyMid] = useState<string | null>(null)
+  // R-scope-own-store (2026-08-31): default 본 매장만 · 외부 검색은 토글로.
+  //   사용자 요청 — "내가게 아가씨만 보이는게 맞다" · 외부는 명시적 opt-in.
+  const [includeExternal, setIncludeExternal] = useState(false)
 
   const selectedType = useMemo(() => {
     return (types.data?.service_types ?? []).find(
@@ -70,19 +73,23 @@ export function AddHostessToSessionSheet({
     const all = building.data?.hostesses ?? []
     const needle = q.trim().toLowerCase()
     const rows = all.filter((h) => {
+      // R-scope-own-store (2026-08-31): 외부 매장은 토글 켜야 노출.
+      if (!includeExternal && h.store_uuid !== storeUuid) return false
       if (!needle) return true
       return h.hostess_name.toLowerCase().includes(needle)
         || h.store_name.toLowerCase().includes(needle)
         || (h.manager_name ?? "").toLowerCase().includes(needle)
     })
-    // 본 매장 우선 정렬
     return rows.sort((a, b) => {
       const aOwn = a.store_uuid === storeUuid ? 0 : 1
       const bOwn = b.store_uuid === storeUuid ? 0 : 1
       if (aOwn !== bOwn) return aOwn - bOwn
       return a.hostess_name.localeCompare(b.hostess_name, "ko")
     }).slice(0, 40)
-  }, [building.data, q, storeUuid])
+  }, [building.data, q, storeUuid, includeExternal])
+  const totalOwn = useMemo(() => {
+    return (building.data?.hostesses ?? []).filter((h) => h.store_uuid === storeUuid).length
+  }, [building.data, storeUuid])
 
   async function add(h: { membership_id: string; hostess_name: string; origin_store_uuid: string | null; store_uuid: string }) {
     if (busyMid || !selectedType) return
@@ -182,11 +189,26 @@ export function AddHostessToSessionSheet({
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="이름 · 매장 · 실장 검색"
+            placeholder={includeExternal ? "이름 · 매장 · 실장 검색" : "우리 매장 아가씨 이름 검색"}
             className="w-full rounded-xl border-2 border-[#D8D2C8] bg-white px-3 py-2.5 text-[13px] font-bold placeholder:text-[#B0A99B] focus:outline-none focus:border-[#A87D45]"
           />
-          <div className="text-[10px] font-bold text-[#7A746A] mt-1">
-            {building.isLoading ? "..." : `${filtered.length} / ${building.data?.hostesses?.length ?? 0}명`}
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <div className="text-[10px] font-bold text-[#7A746A]">
+              {building.isLoading ? "..." : `${filtered.length} / ${includeExternal ? (building.data?.hostesses?.length ?? 0) : totalOwn}명`}
+            </div>
+            {/* R-scope-own-store (2026-08-31): 외부 아가씨 검색 토글 */}
+            <button
+              type="button"
+              onClick={() => setIncludeExternal((v) => !v)}
+              className={cn(
+                "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black border-2 transition-all",
+                includeExternal
+                  ? "border-amber-400 bg-amber-100 text-amber-800"
+                  : "border-[#D8D2C8] bg-white text-[#7A746A]",
+              )}
+            >
+              {includeExternal ? "🌍 외부 매장 ON" : "🏠 우리 매장만"}
+            </button>
           </div>
         </div>
 
