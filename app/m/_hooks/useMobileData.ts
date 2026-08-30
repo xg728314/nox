@@ -307,6 +307,9 @@ export type IncomingStaffParticipant = {
   entered_at: string | null
   left_at: string | null
   session_id?: string
+  /** R-cross-store-room-move (2026-08-31): 현재 방 (도착 매장 기준) */
+  room_uuid?: string | null
+  room_no?: string | null
   /** R-cross-payout-settle (2026-06-26): 개별 정산 시점 */
   payout_settled_at?: string | null
 }

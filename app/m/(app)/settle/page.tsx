@@ -11,6 +11,7 @@ import { cn } from "../../_lib/cn"
 import { apiFetch } from "@/lib/apiFetch"
 import { invalidateApi } from "../../_hooks/useApi"
 import { EditParticipantSheet } from "../../_components/EditParticipantSheet"
+import { MoveRoomSheet } from "../../_components/MoveRoomSheet"
 import { StaffPayoutSheet } from "../../_components/StaffPayoutSheet"
 import { StaffDetailSheet } from "../../_components/StaffDetailSheet"
 import { TrendChart } from "../../_components/TrendChart"
@@ -635,6 +636,8 @@ function IncomingStaffSection({
   const [settling, setSettling] = useState<string | null>(null)
   // R-edit-participant (2026-06-26): 수정 시트 타겟
   const [editTarget, setEditTarget] = useState<IncomingStaffParticipant | null>(null)
+  // R-cross-store-room-move (2026-08-31): 방 이동 시트 타겟
+  const [moveTarget, setMoveTarget] = useState<IncomingStaffParticipant | null>(null)
   const toast = useToast()
 
   function toggle(key: string) {
@@ -817,6 +820,7 @@ function IncomingStaffSection({
                               </div>
                               <div className="text-[9px] font-semibold text-[#7A746A]">
                                 {p.status === "active" ? "🟢 일하는 중" : "✓ 종료"}
+                                {p.room_no && ` · ${p.room_no}번방`}
                                 {p.entered_at && ` · ${formatClockTime(p.entered_at)}`}
                                 {p.left_at && ` → ${formatClockTime(p.left_at)}`}
                               </div>
@@ -832,6 +836,17 @@ function IncomingStaffSection({
                                 줄 {fmtMoney(p.hostess_payout_amount)}
                               </div>
                             </div>
+                            {p.status === "active" && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setMoveTarget(p) }}
+                                className="text-[14px] px-1.5 py-1 rounded-md hover:bg-[#FAF5EC] active:bg-[#F0E8D8] text-[#A87D45]"
+                                aria-label="방 이동"
+                                title="다른 방으로 이동"
+                              >
+                                🚪
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setEditTarget(p) }}
@@ -889,6 +904,16 @@ function IncomingStaffSection({
           timeMinutes={editTarget.time_minutes}
           priceAmount={editTarget.price_amount}
           managerPayout={editTarget.manager_payout_amount}
+        />
+      )}
+      {/* R-cross-store-room-move (2026-08-31): 방 이동 시트 */}
+      {moveTarget && (
+        <MoveRoomSheet
+          open={!!moveTarget}
+          onClose={() => setMoveTarget(null)}
+          participantId={moveTarget.participant_id}
+          hostessName={moveTarget.hostess_name}
+          currentRoomNo={moveTarget.room_no ?? null}
         />
       )}
     </div>

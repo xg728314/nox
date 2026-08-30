@@ -132,6 +132,26 @@ export async function GET(request: Request) {
     const hostessMids = Array.from(new Set(parts.map((p) => p.membership_id)))
     const originStores = Array.from(new Set(parts.map((p) => p.origin_store_uuid).filter(Boolean) as string[]))
 
+    // R-cross-store-room-move (2026-08-31): 참여자 현재 방 정보 노출.
+    //   상한가 도착 UI 에서 "지효 · 3번방 · 방이동" 표시 위해 session → room 매핑.
+    const sessionIds = Array.from(new Set(parts.map((p) => p.session_id)))
+    const { data: sessRows } = await supabase
+      .from("room_sessions")
+      .select("id, room_uuid")
+      .in("id", sessionIds)
+    type SessRow = { id: string; room_uuid: string }
+    const roomUuidBySession = new Map<string, string>()
+    for (const s of ((sessRows ?? []) as SessRow[])) roomUuidBySession.set(s.id, s.room_uuid)
+    const roomUuids = Array.from(new Set([...roomUuidBySession.values()]))
+    const { data: roomRows } = await supabase
+      .from("rooms")
+      .select("id, room_no")
+      .in("id", roomUuids)
+    const roomNoByUuid = new Map<string, string>()
+    for (const r of ((roomRows ?? []) as { id: string; room_no: string }[])) {
+      roomNoByUuid.set(r.id, r.room_no)
+    }
+
     // hostesses → name + 원소속 manager_membership_id
     const { data: hRows } = await supabase
       .from("hostesses")
@@ -197,6 +217,9 @@ export async function GET(request: Request) {
         left_at: string | null
         /** R-extend-end (2026-06-25): 외부 식구 카드 클릭 → ExtendEndSheet 용 */
         session_id: string
+        /** R-cross-store-room-move (2026-08-31): 현재 방 (도착 매장 기준) */
+        room_uuid: string | null
+        room_no: string | null
         /** R-cross-payout-settle (2026-06-26): 개별 정산 완료 시점 */
         payout_settled_at: string | null
       }>
@@ -237,6 +260,7 @@ export async function GET(request: Request) {
       else g.finished_count++
       if (p.payout_settled_at) g.settled_count++
       else g.unsettled_count++
+      const roomUuidVal = roomUuidBySession.get(p.session_id) ?? null
       g.participants.push({
         participant_id: p.id,
         membership_id: p.membership_id,
@@ -250,6 +274,8 @@ export async function GET(request: Request) {
         entered_at: p.entered_at,
         left_at: p.left_at,
         session_id: p.session_id,
+        room_uuid: roomUuidVal,
+        room_no: roomUuidVal ? (roomNoByUuid.get(roomUuidVal) ?? null) : null,
         payout_settled_at: p.payout_settled_at,
       })
     }
