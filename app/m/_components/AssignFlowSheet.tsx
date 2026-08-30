@@ -204,7 +204,10 @@ export function AssignFlowSheet({
 
         toast(`${hostessIds.length}명 배정 완료 · ${selectedRoom?.room_no ?? ""}번방`, "success")
       } else {
-        // 타 매장 flow — cross-store/dispatch (서버가 세션 + 참여자 일괄 처리 · room 자동)
+        // R-pending-pool (2026-08-31): 타 매장 flow → mode="pending".
+        //   방 자동 배정 하지 않고 transfer_request 만 생성 (도착 대기 pool).
+        //   도착 매장 실장/사장이 조판 홈의 「🚪 도착 대기 N명」 배지 → sheet
+        //   에서 방 pick → 정식 등록.
         const res = await apiFetch("/api/cross-store/dispatch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -213,20 +216,21 @@ export function AssignFlowSheet({
             hostess_membership_ids: hostessIds,
             category: cat,
             time_type: time,
+            mode: "pending",
           }),
         })
         const j = (await res.json().catch(() => ({}))) as {
           ok?: boolean; message?: string; error?: string
-          participants_created?: number
-          room?: { room_no?: string }
+          mode?: string
+          pending_count?: number
           target_store?: { name?: string }
           errors?: string[]
         }
-        if (!res.ok || !j.ok) throw new Error(j.message ?? j.error ?? `HTTP ${res.status}`)
-        const created = j.participants_created ?? 0
-        if (created === 0) throw new Error(j.errors?.[0] ?? "참여자 등록 실패")
+        if (!res.ok || !j.ok) throw new Error(j.message ?? j.error ?? j.errors?.[0] ?? `HTTP ${res.status}`)
+        const count = j.pending_count ?? 0
+        if (count === 0) throw new Error(j.errors?.[0] ?? "요청 생성 실패")
         toast(
-          `${created}명 → ${j.target_store?.name ?? "타매장"} ${j.room?.room_no ? `${j.room.room_no}번방` : ""} 배정`,
+          `${count}명 → ${j.target_store?.name ?? "타매장"} 도착 대기 · 방 배정 대기 중`,
           "success",
         )
       }

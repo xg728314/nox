@@ -6,7 +6,8 @@ import { SosButton } from "../_components/SosButton"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo } from "../_lib/format"
-import { useMe, useHostesses, useAttendance, useRooms, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useAttendance, useRooms, usePendingArrivals, type HostessPreview } from "../_hooks/useMobileData"
+import { PendingArrivalSheet } from "../_components/PendingArrivalSheet"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
 import { useToast } from "../_components/Toast"
@@ -69,6 +70,8 @@ export default function DispatchPage() {
   const hostesses = useHostesses()
   const attendance = useAttendance()
   const roomsQ = useRooms()  // R-home-dashboard (2026-08-23): 매장 실시간 매출 · 방수
+  const pendingArrivals = usePendingArrivals()
+  const [pendingSheetOpen, setPendingSheetOpen] = useState(false)
   const { recent: autoClosedRecent } = useAutoCloseExpired()
   const toast = useToast()
 
@@ -441,6 +444,22 @@ export default function DispatchPage() {
             {counts.all}
           </span>
         </Link>
+        {/* R-pending-pool (2026-08-31): 도착 대기 배지. count>0 일 때만 노출. */}
+        {(pendingArrivals.data?.count ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => setPendingSheetOpen(true)}
+            className={cn(
+              "shrink-0 rounded-xl border-2 px-3 py-1.5 text-[11px] font-extrabold inline-flex items-center gap-1.5 animate-pulse",
+              "bg-amber-100 border-amber-400 text-amber-800",
+            )}
+          >
+            🚪 도착 대기
+            <span className="rounded-full text-[9px] font-black px-1.5 py-0.5 bg-amber-600 text-white">
+              {pendingArrivals.data?.count}
+            </span>
+          </button>
+        )}
         <Link
           href="/operating-days"
           className={cn(
@@ -553,6 +572,11 @@ export default function DispatchPage() {
         onClose={() => { setAssignOpen(false); setPendingIds([]); setPendingNames([]) }}
         hostessIds={pendingIds}
         hostessNames={pendingNames}
+      />
+      {/* R-pending-pool (2026-08-31): 도착 대기 → 방 배정 시트 */}
+      <PendingArrivalSheet
+        open={pendingSheetOpen}
+        onClose={() => setPendingSheetOpen(false)}
       />
       {/* 컬럼 밀도 선택 모달 */}
       {colsModalOpen && (

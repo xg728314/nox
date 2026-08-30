@@ -342,6 +342,27 @@ export function useIncomingStaff() {
   return useApi<IncomingStaffResponse>("/api/manager/incoming-staff", { ttl: 15000 })
 }
 
+/** R-pending-pool (2026-08-31): 도착 대기 (방 미지정) 아가씨 pool */
+export type PendingArrival = {
+  transfer_request_id: string
+  hostess_membership_id: string
+  hostess_name: string
+  origin_store_uuid: string
+  origin_store_name: string
+  origin_manager_name: string | null
+  category: string | null
+  time_type: string | null
+  dispatched_at: string
+  requested_at: string
+}
+export type PendingArrivalsResponse = {
+  count: number
+  items: PendingArrival[]
+}
+export function usePendingArrivals() {
+  return useApi<PendingArrivalsResponse>("/api/manager/pending-arrivals", { ttl: 10_000 })
+}
+
 /** R-room-chats (2026-06-26): 본 매장 active 룸 채팅 목록 (방번호별 분리). */
 export type ActiveRoomChatParticipant = {
   membership_id: string

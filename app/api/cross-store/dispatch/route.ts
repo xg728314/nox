@@ -57,9 +57,15 @@ export async function POST(request: Request) {
       hostess_membership_ids?: string[]
       category?: string
       time_type?: string
+      /** R-pending-pool (2026-08-31): "immediate" = 자동 방배정 + session/participant 즉시 생성 (기존).
+       *  "pending" = transfer_request 만 생성 → 도착 매장이 방 pick 필요.
+       *  default = "immediate" — 기존 caller 하위호환. AssignFlowSheet 타 매장 branch 만 "pending".
+       */
+      mode?: "immediate" | "pending"
     }>(request)
     if (parsed.error) return parsed.error
     const { target_store_uuid, hostess_membership_ids, category, time_type } = parsed.body
+    const mode = parsed.body.mode ?? "immediate"
 
     if (!target_store_uuid || typeof target_store_uuid !== "string") {
       return NextResponse.json({ error: "BAD_REQUEST", message: "target_store_uuid required" }, { status: 400 })
@@ -160,6 +166,112 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "BUSINESS_DAY_CREATE_FAILED", message: bdErr?.message ?? "business_day 생성 실패" }, { status: 500 })
       }
       businessDayId = newBd.id
+    }
+
+    // R-pending-pool (2026-08-31): pending mode 분기.
+    //   AssignFlowSheet 타 매장 branch (sending own → external) 는 항상 pending.
+    //   ExternalStaffAddSheet (본 매장에 외부 부름) 는 immediate 유지 (기존).
+    //   pending: hostess 별로 transfer_request 만 생성 · session/participant 없음.
+    //   category/time_type/dispatcher metadata 는 reason 필드에 JSON 인코딩
+    //   (schema 변경 없이 후속 assign-room 에서 파싱해서 사용).
+    if (mode === "pending") {
+      const nowIso = new Date().toISOString()
+      const pendingErrors: string[] = []
+      const createdIds: string[] = []
+      for (const hmid of hostess_membership_ids) {
+        // hostess origin 확인
+        const { data: hRow } = await supabase
+          .from("hostesses")
+          .select("membership_id, name, store_uuid, origin_store_uuid")
+          .eq("membership_id", hmid)
+          .maybeSingle()
+        const nameForErr = (hRow as { name?: string } | null)?.name ?? hmid.slice(0, 8)
+        const origin = (hRow as { origin_store_uuid?: string | null; store_uuid?: string } | null)?.origin_store_uuid
+          ?? (hRow as { store_uuid?: string } | null)?.store_uuid
+          ?? null
+        if (!origin) {
+          pendingErrors.push(`${nameForErr}: 원소속 매장 없음`)
+          continue
+        }
+        if (origin === target_store_uuid) {
+          pendingErrors.push(`${nameForErr}: 원소속 = 대상 매장 (cross-store 아님)`)
+          continue
+        }
+        // 권한: sending 만 (자기 식구를 남에게) — target=본 매장 케이스는 immediate 사용해야 함
+        if (!auth.is_super_admin && origin !== auth.store_uuid) {
+          pendingErrors.push(`${nameForErr}: 본인 매장 식구 아님`)
+          continue
+        }
+        // 이미 active 참여자면 reject
+        const { data: activeP } = await supabase
+          .from("session_participants")
+          .select("id")
+          .eq("membership_id", hmid)
+          .eq("status", "active")
+          .is("deleted_at", null)
+          .limit(1)
+          .maybeSingle()
+        if (activeP) {
+          pendingErrors.push(`${nameForErr}: 이미 다른 세션에서 일하는 중`)
+          continue
+        }
+        // 오늘 이미 pending transfer 있으면 재사용 (idempotent)
+        const { data: existTr } = await supabase
+          .from("transfer_requests")
+          .select("id, reason")
+          .eq("hostess_membership_id", hmid)
+          .eq("from_store_uuid", origin)
+          .eq("to_store_uuid", target_store_uuid)
+          .eq("business_day_id", businessDayId)
+          .eq("status", "approved")
+          .limit(1)
+          .maybeSingle()
+        if (existTr?.id) {
+          // 이미 참여자 등록됐는지 확인 — 등록됐으면 새로 만들 필요 없음
+          const { data: usedP } = await supabase
+            .from("session_participants")
+            .select("id")
+            .eq("transfer_request_id", existTr.id)
+            .limit(1)
+            .maybeSingle()
+          if (usedP) {
+            pendingErrors.push(`${nameForErr}: 이미 방 배정된 요청 존재 — 도착 매장 확인`)
+            continue
+          }
+          createdIds.push(existTr.id)
+          continue
+        }
+        const metadata = { category: cat, time_type: ttype, dispatched_by: auth.membership_id ?? null, dispatched_at: nowIso }
+        const { data: trRow, error: trErr } = await supabase
+          .from("transfer_requests")
+          .insert({
+            hostess_membership_id: hmid,
+            from_store_uuid: origin,
+            to_store_uuid: target_store_uuid,
+            business_day_id: businessDayId,
+            status: "approved",
+            from_store_approved_by: auth.user_id,
+            from_store_approved_at: nowIso,
+            to_store_approved_by: auth.user_id,
+            to_store_approved_at: nowIso,
+            reason: JSON.stringify(metadata),
+          })
+          .select("id")
+          .single()
+        if (trErr || !trRow) {
+          pendingErrors.push(`${nameForErr}: transfer_request 생성 실패 — ${trErr?.message ?? "?"}`)
+          continue
+        }
+        createdIds.push(trRow.id)
+      }
+      return NextResponse.json({
+        ok: pendingErrors.length === 0 || createdIds.length > 0,
+        mode: "pending",
+        pending_count: createdIds.length,
+        transfer_request_ids: createdIds,
+        target_store: { id: target_store_uuid, name: targetStore.store_name, floor: targetStore.floor },
+        errors: pendingErrors,
+      })
     }
 
     // 6. session 개설 (또는 빈 룸 active 재사용)
