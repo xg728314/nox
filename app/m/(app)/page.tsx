@@ -1081,10 +1081,20 @@ function HostessDispatchRow({
       onMergeDrop={onMergeDrop}
     >
     <div className={cn(cardBase, "text-left")}>
-      <button
-        type="button"
+      {/* R-hydration-fix (2026-08-31): button 안에 DuplicateActionButton (button)
+          + Link (a) 가 들어가 button-in-button 해서 hydration 실패 → 페이지
+          전체 클릭 죽음. div role=button 으로 전환 · Enter/Space 지원 유지. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={handleTap}
-        className="w-full text-left px-3 py-2.5"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            handleTap()
+          }
+        }}
+        className="w-full text-left px-3 py-2.5 cursor-pointer"
       >
         <div className="flex items-center gap-2 min-w-0">
           {/* ▶ chevron — 항상 자리 확보 (세션 이력 없으면 투명 placeholder) */}
@@ -1190,7 +1200,7 @@ function HostessDispatchRow({
           </div>
         )}
         {/* wait / off — 한 줄 표시. 상태 pill 이 이미 우측에 표시되므로 2번째 줄 생략 */}
-      </button>
+      </div>
 
       {/* ad-detail — chevron 클릭 시 오늘 세션 이력 (프로토타입 매칭) */}
       {expanded && todaySessions.length > 0 && (
