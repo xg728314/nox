@@ -489,6 +489,69 @@ function EmptyRoomCard({
   room: BuildingRoom
   storeUuid: string
 }) {
+  // R-instant-checkin (2026-08-31): 사용자 요청 "체크인 눌렀을때 체크인 한사람이
+  //   담당이 되고 세션이 열리게만" — /m/assign 페이지 우회, 즉시 checkin API 호출.
+  //   체크인 후 아가씨 추가는 확장 카드의 「+ 아가씨 추가」 사용.
+  const me = useMe()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  async function instantCheckin() {
+    if (busy || !me.data?.membership_id) return
+    setBusy(true)
+    try {
+      const res = await apiFetch("/api/sessions/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_uuid: room.room_uuid,
+          manager_membership_id: me.data.membership_id,
+          manager_name: me.data.full_name ?? "",
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (res.status === 409) {
+          toast(`${room.room_no}번방 이미 사용중 · 새로고침`, "info")
+          invalidateApi("/api/building/rooms")
+          invalidateApi("/api/rooms")
+        } else {
+          throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
+        }
+      } else {
+        toast(`✓ ${room.room_no}번방 체크인 · 담당 ${me.data.full_name ?? "나"}`, "success")
+        invalidateApi("/api/building/rooms")
+        invalidateApi("/api/rooms")
+      }
+    } catch (e) {
+      toast(`체크인 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // storeUuid 는 소속 매장이 아닌 다른 매장 방이면 링크 모드 유지 (외부 체크인).
+  const isOwnStore = me.data?.store_uuid === storeUuid
+  if (!isOwnStore) {
+    return (
+      <div className="rounded-xl border border-dashed border-[#D8D2C8] bg-white/70 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <span className="text-[13px] font-extrabold text-[#7A746A]">
+            {room.room_no}
+            <span className="text-[10px] font-bold text-[#B0A99B] ml-0.5">번방</span>
+          </span>
+          <span className="text-[10px] font-bold text-[#B0A99B]">빈방</span>
+          <Link
+            href={`/m/assign?destStore=${encodeURIComponent(storeUuid)}&room=${encodeURIComponent(room.room_uuid)}`}
+            className="ml-auto rounded-full bg-[#2D2B26] text-white text-[10px] font-black tracking-tight px-3 py-1 no-underline"
+          >
+            + 체크인
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-xl border border-dashed border-[#D8D2C8] bg-white/70 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -497,12 +560,14 @@ function EmptyRoomCard({
           <span className="text-[10px] font-bold text-[#B0A99B] ml-0.5">번방</span>
         </span>
         <span className="text-[10px] font-bold text-[#B0A99B]">빈방</span>
-        <Link
-          href={`/m/assign?destStore=${encodeURIComponent(storeUuid)}&room=${encodeURIComponent(room.room_uuid)}`}
-          className="ml-auto rounded-full bg-[#2D2B26] text-white text-[10px] font-black tracking-tight px-3 py-1 no-underline"
+        <button
+          type="button"
+          disabled={busy}
+          onClick={instantCheckin}
+          className="ml-auto rounded-full bg-[#2D2B26] text-white text-[10px] font-black tracking-tight px-3 py-1 disabled:opacity-40"
         >
-          + 체크인
-        </Link>
+          {busy ? "..." : "+ 체크인"}
+        </button>
       </div>
     </div>
   )

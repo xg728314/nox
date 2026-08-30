@@ -13,10 +13,10 @@ const env = Object.fromEntries(
 )
 const sb = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
 
-// R-pending-pool 테스트 (2026-08-31 · 재생성)
+// R-pending-pool 테스트 (2026-08-31 · 최신 재생성)
 const PENDING_TRS = [
-  "19a58023-d01e-44ee-ab2e-e6e159060fb3", // 채아
-  "eef4f20a-8917-4b8a-a1d9-21c215fac2c9", // 지유
+  "d1137c41-66f9-4632-a09c-24f074ec6931", // 채아
+  "3ff81044-4c5a-418b-beda-8ed929a87ec0", // 지유
 ]
 
 // 이전 test-cross-store-dispatch.mjs (immediate) 지효 데이터 (이미 삭제됨 · null-safe)

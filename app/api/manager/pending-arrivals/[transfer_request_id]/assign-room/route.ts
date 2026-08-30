@@ -163,6 +163,9 @@ export async function POST(
     }
 
     // 7. active session 재사용 or 생성
+    //    R-auto-manager (2026-08-31): 세션 신규 생성 시 배정자를 자동 실장으로.
+    //    사용자 요구: "배정 = 체크인 · 배정한 사람이 담당 실장".
+    //    기존 active session 이면 그 매니저 유지 (덮어쓰기 X).
     let sessionId: string
     const { data: activeSess } = await supabase
       .from("room_sessions")
@@ -174,6 +177,12 @@ export async function POST(
     if (activeSess) {
       sessionId = activeSess.id
     } else {
+      // 배정자의 이름 lookup (profiles.full_name)
+      let assignerName: string | null = null
+      const { data: prof } = await supabase
+        .from("profiles").select("full_name").eq("id", auth.user_id).maybeSingle()
+      if (prof?.full_name) assignerName = prof.full_name
+      // membership 이 owner/manager 인지 확인 (hostess 는 이미 route 초입에서 차단됨)
       const { data: newSess, error: sErr } = await supabase
         .from("room_sessions")
         .insert({
@@ -182,8 +191,8 @@ export async function POST(
           business_day_id: businessDayId,
           status: "active",
           opened_by: auth.user_id,
-          manager_membership_id: null,
-          manager_name: null,
+          manager_membership_id: auth.membership_id,
+          manager_name: assignerName,
           is_external_manager: false,
           started_at: new Date().toISOString(),
         })
