@@ -517,10 +517,29 @@ export default function DispatchPage() {
           </div>
         )}
         {hostesses.data && filteredSorted.length === 0 && (
-          <div className={cn("text-center py-8 text-[13px] font-bold", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
-            {filter === "live" ? "지금 일하는 식구 없음"
-              : filter === "wait" ? "대기 중인 식구 없음"
-                : "표시할 식구 없음"}
+          <div className={cn("text-center py-8", dark ? "text-[#8A8578]" : "text-[#7A746A]")}>
+            <div className="text-[13px] font-bold mb-1">
+              {filter === "live" ? "지금 일하는 식구 없음"
+                : filter === "wait" ? "대기 중인 식구 없음"
+                  : "표시할 식구 없음"}
+            </div>
+            {/* R-empty-hint (2026-09-04): 활성방/외부식구 있으면 안내 배지.
+                사용자 혼란 지점: "활성 방 5방 · 방중 2명" 인데 리스트 비어 보임.
+                이유: 조판 홈 = 내 담당 아가씨. 외부 매장 식구는 /m/staff 노출. */}
+            {filter === "all" && (roomsQ.data?.rooms ?? []).some((r) => r.session) && (
+              <div className="text-[10px] font-semibold mt-2 leading-relaxed">
+                이 화면은 <b>내 담당 아가씨</b> 만 표시.
+                <br />활성 방/외부 매장 식구는{" "}
+                <Link href="/m/staff" className={cn("underline no-underline", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>
+                  외부조판
+                </Link>{" "}
+                또는{" "}
+                <Link href="/m/settle" className={cn("underline no-underline", dark ? "text-[#F2ECE0]" : "text-[#2D2B26]")}>
+                  정산
+                </Link>{" "}
+                에서 확인.
+              </div>
+            )}
           </div>
         )}
         {hostesses.data && filteredSorted.length > 0 && (

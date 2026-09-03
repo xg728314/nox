@@ -177,6 +177,13 @@ export async function POST(
         }
       }
 
+      // R-auto-manager-on-move (2026-09-04): 신규 세션 시 이동 요청자를 자동 실장으로.
+      //   기존엔 null → "실장 미지정" 표시. 사용자 요구 "체크인/배정 = 담당" 일관.
+      //   요청자가 hostess 는 route 초입에서 이미 차단 · membership_id 는 owner/manager.
+      let assignerName: string | null = null
+      const { data: prof } = await supabase
+        .from("profiles").select("full_name").eq("id", auth.user_id).maybeSingle()
+      if (prof?.full_name) assignerName = prof.full_name
       const { data: newSess, error: newSessErr } = await supabase
         .from("room_sessions")
         .insert({
@@ -185,8 +192,8 @@ export async function POST(
           business_day_id: bizDayId,
           status: "active",
           opened_by: auth.user_id,
-          manager_membership_id: null,
-          manager_name: null,
+          manager_membership_id: auth.membership_id,
+          manager_name: assignerName,
           is_external_manager: false,
         })
         .select("id")
