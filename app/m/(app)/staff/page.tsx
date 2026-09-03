@@ -9,6 +9,7 @@ import { TabBar } from "../../_components/TabBar"
 import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
 import { AddHostessToSessionSheet } from "../../_components/AddHostessToSessionSheet"
 import { PendingArrivalSheet } from "../../_components/PendingArrivalSheet"
+import { SessionTimeSheet } from "../../_components/SessionTimeSheet"
 import { useBuildingRooms, useMe, usePendingArrivals, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
@@ -344,6 +345,8 @@ function LiveRoomCard({
   const [closing, setClosing] = useState(false)
   // R-room-lock (2026-08-31)
   const [lockBusy, setLockBusy] = useState(false)
+  // R-session-time (2026-09-04)
+  const [timeSheetOpen, setTimeSheetOpen] = useState(false)
   const toast = useToast()
   const s = room.session!
   const isMine =
@@ -423,10 +426,15 @@ function LiveRoomCard({
           </span>
         )}
 
-        {/* 진행 시간 */}
-        <span className="inline-flex items-center gap-1 ml-1 bg-[#5FAB4E]/12 text-[#468838] rounded-md px-1.5 py-0.5 text-[10px] font-black">
-          진행 {formatElapsed(elapsedMin)}
-        </span>
+        {/* 진행 시간 · click 시 방 시각 조정 시트 */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setTimeSheetOpen(true) }}
+          title="방 시작 시각 조정"
+          className="inline-flex items-center gap-1 ml-1 bg-[#5FAB4E]/12 text-[#468838] rounded-md px-1.5 py-0.5 text-[10px] font-black active:bg-[#5FAB4E]/20"
+        >
+          진행 {formatElapsed(elapsedMin)} <span className="text-[9px]">⏱</span>
+        </button>
 
         {/* R-room-lock (2026-08-31): 방 수정 잠금 toggle
              OFF (default): 🔓 회색 · 클릭 → 잠금
@@ -530,6 +538,15 @@ function LiveRoomCard({
           sessionId={s.session_id}
           storeUuid={storeUuid}
           roomLabel={`${room.room_no}번방`}
+        />
+      )}
+      {timeSheetOpen && (
+        <SessionTimeSheet
+          open={timeSheetOpen}
+          onClose={() => setTimeSheetOpen(false)}
+          sessionId={s.session_id}
+          roomLabel={`${room.room_no}번방`}
+          currentStartedAt={s.started_at}
         />
       )}
     </div>

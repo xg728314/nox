@@ -753,6 +753,34 @@ function IncomingStaffSection({
           const storeHostessTotal = store.subGroups.reduce((a, g) => a + g.total_hostess_payout, 0)
           const totalCount = store.subGroups.reduce((a, g) => a + g.participants.length, 0)
           const managerCount = store.subGroups.length
+          const allSettled = store.subGroups.every((g) => (g.settlement_status ?? "none") === "all_settled")
+          const storeBusyKey = `store-settle-${store.store_uuid}`
+          const storeSettling = settling === storeBusyKey
+          async function settleAll(next: boolean) {
+            if (settling) return
+            setSettling(storeBusyKey)
+            try {
+              for (const g of store.subGroups) {
+                if (((g.settlement_status ?? "none") === "all_settled") === next) continue
+                const res = await apiFetch("/api/cross-store/settle-group", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    origin_store_uuid: g.origin_store_uuid,
+                    origin_manager_membership_id: g.origin_manager_membership_id,
+                    settled: next,
+                  }),
+                })
+                if (!res.ok) throw new Error(`${g.origin_manager_name ?? "미배정"} 실장: HTTP ${res.status}`)
+              }
+              toast(next ? `${store.store_name} 전체 정산완료` : `${store.store_name} 정산완료 해제`, "success")
+              invalidateApi("/api/manager/incoming-staff")
+            } catch (e) {
+              toast(`처리 실패: ${(e as Error).message}`, "error")
+            } finally {
+              setSettling(null)
+            }
+          }
           return (
             <div key={storeKey} className="rounded-2xl border-2 border-[#D8D2C8] bg-white/70 overflow-hidden">
               {/* 매장 헤더 (1개 실장이든 여러 실장이든 통일) */}
@@ -777,6 +805,35 @@ function IncomingStaffSection({
                   <div className="text-[10px] font-black text-red-700">줄 {fmtMoneyWon(storeHostessTotal)}</div>
                 </div>
               </button>
+
+              {/* R-store-settle-all (2026-09-04): 매장 전체 정산완료 버튼
+                   실장별 개별 정산은 하위 서브카드의 「💰 정산완료 표시」 버튼 사용. */}
+              {storeOpen && managerCount > 1 && (
+                <div className="border-t border-[#EDE7DA] px-3 py-2 flex items-center justify-between bg-[#FAF5EC]/40">
+                  <div className="text-[10px] font-bold text-[#7A746A]">
+                    {store.store_name} 전체 (실장 {managerCount}명) 한번에 정산?
+                  </div>
+                  {allSettled ? (
+                    <button
+                      type="button"
+                      disabled={storeSettling}
+                      onClick={(e) => { e.stopPropagation(); settleAll(false) }}
+                      className="text-[11px] font-extrabold bg-white text-green-700 border-2 border-green-400 rounded-full px-3 py-1.5 disabled:opacity-40"
+                    >
+                      {storeSettling ? "..." : "✓ 전체 완료 (해제)"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={storeSettling}
+                      onClick={(e) => { e.stopPropagation(); settleAll(true) }}
+                      className="text-[11px] font-extrabold bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full px-3 py-1.5 disabled:opacity-40 shadow-sm"
+                    >
+                      {storeSettling ? "..." : "💰 전체 정산완료"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* 확장 시 실장별 서브그룹 · 기존 group card UI 재사용 */}
               {storeOpen && (
