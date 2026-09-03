@@ -116,11 +116,9 @@ export function SessionTimeSheet({
 
   async function confirmTier(tier: Tier) {
     if (busy) return
-    const label = tierLabel[tier]
-    const hint = tierHint[tier]
-    if (!confirm(
-      `${roomLabel} 지난 ${elapsedMin}분을 ${label} 처리?\n\n${hint}\n\n※ 참여자별 요금은 EditParticipant 로 수동 입력 (자동 청구는 다음 라운드)`
-    )) return
+    // R-no-confirm (2026-09-04): 이전엔 browser confirm() dialog 사용 → mobile
+    //   webview 에서 종종 안 뜨거나 사용자가 인지 못 함 → 버튼 무반응 오해.
+    //   Sheet 안에서 이미 tier 옵션을 명시적으로 선택했으므로 즉시 실행.
     await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 ${tier} 재시작`)
   }
 
