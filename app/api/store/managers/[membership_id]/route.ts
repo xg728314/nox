@@ -52,17 +52,36 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ me
     if (!auth.is_super_admin && target.store_uuid !== auth.store_uuid) {
       return NextResponse.json({ error: "STORE_FORBIDDEN" }, { status: 403 })
     }
-    if (mid === auth.membership_id && action === "revoke") {
-      return NextResponse.json({ error: "SELF_REVOKE_FORBIDDEN", message: "본인 계정은 revoke 불가" }, { status: 400 })
+    // R31 (2026-09-04): 자기 자신 방어 확장
+    //   revoke : 본인 계정 → SELF_REVOKE_FORBIDDEN
+    //   set_permissions : 본인 계정 → SELF_PERMS_FORBIDDEN (자기 잠금 방지)
+    if (mid === auth.membership_id) {
+      if (action === "revoke") {
+        return NextResponse.json({ error: "SELF_REVOKE_FORBIDDEN", message: "본인 계정은 revoke 불가" }, { status: 400 })
+      }
+      if (action === "set_permissions") {
+        return NextResponse.json({ error: "SELF_PERMS_FORBIDDEN", message: "본인 권한은 스스로 변경 불가 (self-lock 방지)" }, { status: 400 })
+      }
     }
-    // owner 는 다른 owner revoke 가능 (매장 여러 사장 케이스) · 하지만 마지막 owner 방지
+    // R31 (2026-09-04): owner 대상 조작은 사장 or super_admin 만.
+    //   위임된 실장 (MANAGERS_MANAGE) 이 다른 사장을 revoke 하는 우회 차단.
+    if (target.role === "owner" && (action === "revoke" || action === "set_permissions")) {
+      if (auth.role !== "owner" && !auth.is_super_admin) {
+        return NextResponse.json({
+          error: "OWNER_TARGET_FORBIDDEN",
+          message: "사장 대상 조작은 사장 본인 또는 super_admin 만 가능",
+        }, { status: 403 })
+      }
+    }
+    // R31 (2026-09-04): LAST_OWNER 가드는 super_admin 도 예외 없이 적용.
+    //   매장 무주공산화 방지 — 매장에는 최소 1명의 활성 owner 필요.
     if (target.role === "owner" && action === "revoke") {
       const { count } = await sb.from("store_memberships")
         .select("id", { count: "exact", head: true })
         .eq("store_uuid", target.store_uuid).eq("role", "owner").eq("status", "approved")
         .is("deleted_at", null)
       if ((count ?? 0) <= 1) {
-        return NextResponse.json({ error: "LAST_OWNER", message: "마지막 사장은 revoke 불가" }, { status: 400 })
+        return NextResponse.json({ error: "LAST_OWNER", message: "마지막 사장은 revoke 불가 (super_admin 도 예외 없음)" }, { status: 400 })
       }
     }
 
@@ -81,10 +100,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ me
       if ((count ?? 0) === 0) {
         return NextResponse.json({ error: "NOT_UPDATED", message: "membership 을 찾지 못했거나 이미 처리됨" }, { status: 409 })
       }
-      // R-chat-cleanup (2026-09-04): 이 실장이 참여 중인 매장 그룹채팅에서도 즉시 제거
-      await sb.from("chat_participants").update({
-        removed_at: nowIso,
-      }).eq("membership_id", mid).is("removed_at", null)
+      // R-chat-cleanup (2026-09-04): 이 실장이 참여 중인 채팅에서 즉시 나감.
+      //   R31 fix: 실 스키마 컬럼은 removed_at 이 아니라 `left_at` (chat_participants 는
+      //   { joined_at, left_at, pinned_at, deleted_at } 만 존재). 이전에는 removed_at
+      //   컬럼 부재로 update 가 silently fail 했음.
+      const { error: chatErr } = await sb.from("chat_participants").update({
+        left_at: nowIso,
+      }).eq("membership_id", mid).is("left_at", null)
+      if (chatErr) {
+        // non-fatal: 실장 revoke 는 성공했으니 chat cleanup 실패는 로그만.
+        console.warn("[managers/revoke] chat_participants left_at update failed:", chatErr.message)
+      }
     } else if (action === "restore") {
       const { error: upErr } = await sb.from("store_memberships").update({
         status: "approved", deleted_at: null, updated_at: nowIso,

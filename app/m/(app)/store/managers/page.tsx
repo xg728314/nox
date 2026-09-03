@@ -27,6 +27,7 @@ import {
   PERM_LABELS,
   PERMISSION_PRESETS,
   DEFAULT_MANAGER_PERMS,
+  PERMS,
   type PermKey,
 } from "@/lib/auth/permissions"
 
@@ -123,13 +124,17 @@ export default function ManagersPage() {
     }
   }
 
+  // R31 (2026-09-04): UI 가드 완화 — 사장 · super_admin · MANAGERS_MANAGE 위임 실장.
+  //   서버 API 는 이미 delegated manager 를 허용하므로 UI 도 열어야 위임이 실제 작동.
   const isOwner = me.data?.role === "owner" || me.data?.is_super_admin
-  if (!isOwner) {
+  const hasManagersManage = me.data?.permissions?.[PERMS.MANAGERS_MANAGE] === true
+  const canAccess = isOwner || hasManagersManage
+  if (!canAccess) {
     return (
       <div className="min-h-dvh bg-[#F5F0E5]">
         <PageHeader title="실장 관리" backHref="/me" />
         <div className="p-6 text-center text-[12px] text-[#7A746A]">
-          사장 권한만 접근 가능합니다.
+          사장 또는 위임된 실장만 접근 가능합니다.
         </div>
         <TabBar />
       </div>

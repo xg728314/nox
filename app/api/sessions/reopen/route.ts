@@ -5,6 +5,7 @@ import { parseJsonBody } from "@/lib/session/parseBody"
 import { isValidUUID } from "@/lib/validation"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { unarchiveRoomSessionChat } from "@/lib/chat/services/unarchiveRoomSessionChat"
 
 /**
  * POST /api/sessions/reopen
@@ -174,6 +175,10 @@ export async function POST(request: Request) {
     invalidateCache("monitor")
     invalidateCache("room_participants")
     invalidateCache("session_orders")
+
+    // R31 (2026-09-04): 채팅방 복원 (archiveRoomSessionChat 의 대칭).
+    //   fire-and-forget · 실패해도 reopen 성공. 실장이 "채팅방이 없다" 문의 감소.
+    void unarchiveRoomSessionChat(supabase, sessionId).catch(() => { /* silent */ })
 
     // 5. audit
     const reason = (parsed.body.reason ?? "").trim()

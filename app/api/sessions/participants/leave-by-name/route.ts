@@ -106,6 +106,10 @@ export async function POST(request: Request) {
       .filter(p => p.room_sessions?.status === "active")
 
     // room_no 필터 (선택)
+    // R31 (2026-09-04): room_no 지정됐는데 매칭 실패 시 매장 전체 대상으로 fallback
+    //   되던 위험 fix. 실장이 "1번방 지연 팅" 채팅에서 "1번방" 파싱 결과가
+    //   실제 rooms.room_no 와 불일치 (신설 룸번호 · 오파싱) 하면 이전엔 매장
+    //   전체 지연을 다 leave 시켰음. 이제 즉시 빈 결과 반환.
     if (body.room_no) {
       const { data: roomRows } = await sb
         .from("rooms")
@@ -114,9 +118,13 @@ export async function POST(request: Request) {
         .eq("room_no", body.room_no)
         .is("deleted_at", null)
       const roomIds = ((roomRows ?? []) as Array<{ id: string }>).map(r => r.id)
-      if (roomIds.length > 0) {
-        candidates = candidates.filter(p => roomIds.includes(p.room_sessions.room_uuid))
+      if (roomIds.length === 0) {
+        return NextResponse.json({
+          ok: true, left: [], count: 0,
+          message: `방번호 '${body.room_no}' 을 매장에서 찾지 못함 (오파싱 방지)`,
+        })
       }
+      candidates = candidates.filter(p => roomIds.includes(p.room_sessions.room_uuid))
     }
 
     if (candidates.length === 0) {
