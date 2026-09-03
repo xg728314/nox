@@ -12,6 +12,7 @@
 import { parseStaffChat } from "@/app/counter/helpers/staffChatParser"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { sendPushToUser } from "@/lib/push/send"
+import { autoExecuteSessionEvent } from "./autoExecuteSessionEvent"
 
 /**
  * 대기 요청 판별 정규식 — 카톡 실사 관찰 표현들.
@@ -61,7 +62,8 @@ export async function autoProcessChatMessage(input: {
     }
 
     // ── 3. 세션 이벤트 감지 (연장/종료/시작) ────────────────
-    //   dispatch 흐름은 기존 pattern-dispatch 유지. 여기선 이벤트만 감사.
+    //   R-chat-auto-execute (2026-09-04): audit 만 하지 않고 실제 실행.
+    //   실행은 매장 설정 chat_auto_execute=true 인 경우만.
     if (SESSION_EVENT_PATTERN.test(content) && parsed.entries.length > 0) {
       await supabase.from("chat_auto_actions").insert({
         chat_message_id,
@@ -79,6 +81,13 @@ export async function autoProcessChatMessage(input: {
         },
         status: "success",
       })
+
+      // 실제 실행 (매장 설정 확인 후 · fire-and-forget)
+      void autoExecuteSessionEvent({
+        chat_message_id, chat_room_id, sender_user_id,
+        sender_membership_id: input.sender_membership_id,
+        store_uuid, content, parsed,
+      }).catch(() => { /* silent · 실패해도 챗 응답 안 막음 */ })
     }
   } catch (e) {
     // best-effort — 절대 채팅 응답 실패시키지 않음
