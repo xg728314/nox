@@ -15,6 +15,16 @@ export type MeResponse = {
   backup_codes_remaining: number
   display_labels: Record<string, string>
   full_name: string | null
+  /**
+   * R-manager-perms (2026-09-04): 실장 세부 권한 (사장이 설정).
+   *   owner   → 모든 키 true (전권)
+   *   manager → 사장이 설정한 권한 (NULL = 기본 실장 권한)
+   *   기타     → 모든 키 false
+   *
+   * 클라이언트는 이 map 을 참조해 TabBar/메뉴 항목 숨김.
+   * 서버 enforce 는 각 route 에서 lib/auth/permissions.ts helper 사용.
+   */
+  permissions?: Record<string, boolean>
 }
 
 export function useMe() {

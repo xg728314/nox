@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { createClient } from "@supabase/supabase-js"
 import { cached } from "@/lib/cache/inMemoryTtl"
+import { effectivePermissions, type PermissionMap } from "@/lib/auth/permissions"
 
 // 2026-05-03 R-Speed-x10: 페이지 진입 / route 변경 시마다 호출 → 매우 빈번.
 //   MFA 상태 / store 이름·floor 는 거의 안 바뀜. 30초 TTL 안전.
@@ -22,6 +23,8 @@ export async function GET(request: Request) {
       // R-mobile (2026-06-01): 스태프동기화 모바일 앱이 헤더에 표시할 이름.
       //   profiles.full_name. 없으면 null.
       full_name: string | null
+      // R-manager-perms (2026-09-04): 실장 세부 권한. owner 는 항상 전권 (null 반환).
+      permissions_raw: PermissionMap | null
     }
 
     // R26: mfa_enabled + backup_codes_remaining 노출 (additive). /me/security
@@ -38,6 +41,7 @@ export async function GET(request: Request) {
         let storeFloor: number | null = null
         let displayLabels: Record<string, string> = {}
         let fullName: string | null = null
+        let permissionsRaw: PermissionMap | null = null
         try {
           const url = process.env.NEXT_PUBLIC_SUPABASE_URL
           const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -46,7 +50,7 @@ export async function GET(request: Request) {
             // 2026-05-08: store_settings.display_labels 도 동시 fetch.
             //   migration 110 미적용 시 42703 → 빈 객체로 fallback.
             // R-mobile (2026-06-01): profiles.full_name 도 함께 fetch.
-            const [mfaRes, storeRes, settingsRes, profileRes] = await Promise.all([
+            const [mfaRes, storeRes, settingsRes, profileRes, permsRes] = await Promise.all([
               sb
                 .from("user_mfa_settings")
                 .select("is_enabled, backup_codes_hashed")
@@ -70,6 +74,14 @@ export async function GET(request: Request) {
                 .select("full_name")
                 .eq("id", authContext.user_id)
                 .maybeSingle(),
+              // R-manager-perms (2026-09-04): 실장 세부 권한 원본 (매니저만; owner 무시)
+              authContext.role === "manager"
+                ? sb
+                    .from("store_memberships")
+                    .select("permissions")
+                    .eq("id", authContext.membership_id)
+                    .maybeSingle()
+                : Promise.resolve({ data: null }),
             ])
             const r = mfaRes.data as
               | { is_enabled?: boolean; backup_codes_hashed?: string[] }
@@ -91,6 +103,11 @@ export async function GET(request: Request) {
             }
             const p = profileRes.data as { full_name?: string | null } | null
             fullName = (p?.full_name ?? null) || null
+            // R-manager-perms: raw JSONB. null 이면 기본 실장 권한 적용됨.
+            const pr = (permsRes as { data?: { permissions?: unknown } | null } | undefined)?.data
+            if (pr && pr.permissions && typeof pr.permissions === "object" && !Array.isArray(pr.permissions)) {
+              permissionsRaw = pr.permissions as PermissionMap
+            }
           }
         } catch {
           // best-effort — me 응답은 MFA / store 조회 실패해도 정상 동작.
@@ -102,6 +119,7 @@ export async function GET(request: Request) {
           store_floor: storeFloor,
           display_labels: displayLabels,
           full_name: fullName,
+          permissions_raw: permissionsRaw,
         }
       },
     )
@@ -121,6 +139,8 @@ export async function GET(request: Request) {
       display_labels: extras.display_labels,
       // R-mobile (2026-06-01): 스태프동기화 모바일 앱이 헤더에 표시.
       full_name: extras.full_name,
+      // R-manager-perms (2026-09-04): 클라이언트가 탭/메뉴 숨김 판단.
+      permissions: effectivePermissions(authContext.role, extras.permissions_raw),
     })
     // 짧은 max-age + 긴 SWR — 페이지 전환마다 호출되어도 즉시 반환.
     res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=60")

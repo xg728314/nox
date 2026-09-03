@@ -22,6 +22,13 @@ import { useToast } from "../../../_components/Toast"
 import { useMe } from "../../../_hooks/useMobileData"
 import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../../../_lib/cn"
+import {
+  ALL_PERMS,
+  PERM_LABELS,
+  PERMISSION_PRESETS,
+  DEFAULT_MANAGER_PERMS,
+  type PermKey,
+} from "@/lib/auth/permissions"
 
 type Row = {
   membership_id: string
@@ -34,6 +41,8 @@ type Row = {
   created_at: string
   deleted_at: string | null
   is_active: boolean
+  /** R-manager-perms: 원본 JSONB (null = 기본 실장 권한). owner 는 항상 null (전권). */
+  permissions: Record<string, boolean> | null
 }
 
 export default function ManagersPage() {
@@ -43,6 +52,8 @@ export default function ManagersPage() {
   const [busy, setBusy] = useState<string | null>(null)
   // R-confirm-modal (2026-09-04): browser confirm() mobile webview 에서 안 뜸 → in-page modal
   const [confirmTarget, setConfirmTarget] = useState<{ mid: string; name: string; action: "revoke" | "restore" } | null>(null)
+  // R-manager-perms (2026-09-04): 권한 편집 modal 상태
+  const [permsEditTarget, setPermsEditTarget] = useState<Row | null>(null)
   const toast = useToast()
 
   async function load() {
@@ -82,6 +93,28 @@ export default function ManagersPage() {
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.message ?? `HTTP ${res.status}`)
       toast(action === "revoke" ? `${name} 퇴사 처리` : `${name} 재입사 처리`, "success")
+      void load()
+    } catch (e) {
+      toast(`실패: ${(e as Error).message}`, "error")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // R-manager-perms (2026-09-04): 권한 저장
+  async function savePermissions(mid: string, name: string, nextPerms: Record<string, boolean> | null) {
+    if (busy) return
+    setBusy(mid)
+    try {
+      const res = await apiFetch(`/api/store/managers/${encodeURIComponent(mid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_permissions", permissions: nextPerms }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.message ?? `HTTP ${res.status}`)
+      toast(`${name} 권한 저장`, "success")
+      setPermsEditTarget(null)
       void load()
     } catch (e) {
       toast(`실패: ${(e as Error).message}`, "error")
@@ -137,6 +170,7 @@ export default function ManagersPage() {
                   isSelf={r.membership_id === me.data?.membership_id}
                   busy={busy === r.membership_id}
                   onAction={a => requestPatch(r.membership_id, a, r.full_name)}
+                  onEditPerms={() => setPermsEditTarget(r)}
                 />
               ))}
             </div>
@@ -156,6 +190,7 @@ export default function ManagersPage() {
                   isSelf={r.membership_id === me.data?.membership_id}
                   busy={busy === r.membership_id}
                   onAction={a => requestPatch(r.membership_id, a, r.full_name)}
+                  onEditPerms={() => setPermsEditTarget(r)}
                 />
               ))}
             </div>
@@ -168,6 +203,16 @@ export default function ManagersPage() {
           </div>
         )}
       </div>
+
+      {/* R-manager-perms (2026-09-04): 세부 권한 편집 modal */}
+      {permsEditTarget && (
+        <PermissionsEditor
+          row={permsEditTarget}
+          busy={busy === permsEditTarget.membership_id}
+          onClose={() => setPermsEditTarget(null)}
+          onSave={next => void savePermissions(permsEditTarget.membership_id, permsEditTarget.full_name, next)}
+        />
+      )}
 
       {/* R-confirm-modal (2026-09-04): 퇴사/재입사 확인 모달 · mobile webview 에서 확실히 뜨도록 */}
       {confirmTarget && (
@@ -226,9 +271,19 @@ export default function ManagersPage() {
   )
 }
 
-function ManagerCard({ row, isSelf, busy, onAction }: {
-  row: Row; isSelf: boolean; busy: boolean; onAction: (a: "revoke" | "restore") => void
+function ManagerCard({ row, isSelf, busy, onAction, onEditPerms }: {
+  row: Row; isSelf: boolean; busy: boolean;
+  onAction: (a: "revoke" | "restore") => void
+  onEditPerms: () => void
 }) {
+  // R-manager-perms (2026-09-04): 권한 요약 라벨
+  const permsLabel = row.role === "owner"
+    ? "전권 (사장)"
+    : row.permissions === null
+      ? "기본 실장 권한"
+      : Object.values(row.permissions).every(v => v === true) && Object.keys(row.permissions).length === ALL_PERMS.length
+        ? "🔑 사장 대행 (전권)"
+        : `제한 · ${Object.values(row.permissions).filter(v => v === true).length}개`
   return (
     <div className={cn(
       "rounded-2xl border-2 px-3 py-3",
@@ -270,8 +325,25 @@ function ManagerCard({ row, isSelf, busy, onAction }: {
           </div>
         </div>
       </div>
+      {/* R-manager-perms (2026-09-04): 권한 요약 · manager 만 표시 */}
+      {row.role === "manager" && row.is_active && (
+        <div className="mt-2 text-[10px] font-bold text-[#8C6A3A] bg-[#C49B61]/10 rounded-lg px-2 py-1">
+          권한: <b>{permsLabel}</b>
+        </div>
+      )}
       {!isSelf && (
-        <div className="mt-2 pt-2 border-t border-[#EDE7DA]">
+        <div className="mt-2 pt-2 border-t border-[#EDE7DA] space-y-2">
+          {/* R-manager-perms: 권한 설정 (활성 manager 만) */}
+          {row.role === "manager" && row.is_active && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onEditPerms}
+              className="w-full rounded-lg py-2 text-[11px] font-extrabold border-2 border-[#C49B61] bg-[#FAF5EC] text-[#8C6A3A] active:bg-[#EDE0C4] disabled:opacity-40"
+            >
+              ⚙ 권한 설정
+            </button>
+          )}
           {row.is_active ? (
             <button
               type="button"
@@ -293,6 +365,151 @@ function ManagerCard({ row, isSelf, busy, onAction }: {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * PermissionsEditor - 실장 세부 권한 편집 modal
+ *
+ * R-manager-perms (2026-09-04): 사장이 실장별로 어떤 기능 사용할 수 있는지 설정.
+ *   - 프리셋 4개: 사장 대행 / 일반 실장 / 채팅만 / 외부조판만
+ *   - 개별 토글: 15개 권한 키
+ *   - "기본으로 되돌리기" → null 저장 (backend 기본 실장 권한 적용)
+ */
+function PermissionsEditor({ row, busy, onClose, onSave }: {
+  row: Row
+  busy: boolean
+  onClose: () => void
+  onSave: (next: Record<string, boolean> | null) => void
+}) {
+  // 초기값: DB 원본 or 기본 실장 권한
+  const initial: Record<PermKey, boolean> = row.permissions
+    ? Object.fromEntries(ALL_PERMS.map(k => [k, row.permissions?.[k] === true])) as Record<PermKey, boolean>
+    : { ...DEFAULT_MANAGER_PERMS }
+
+  const [draft, setDraft] = useState<Record<PermKey, boolean>>(initial)
+
+  function applyPreset(preset: Record<string, boolean>) {
+    setDraft(Object.fromEntries(ALL_PERMS.map(k => [k, preset[k] === true])) as Record<PermKey, boolean>)
+  }
+
+  function toggle(k: PermKey) {
+    setDraft(d => ({ ...d, [k]: !d[k] }))
+  }
+
+  // section 별 grouping
+  const bySection = new Map<string, PermKey[]>()
+  for (const k of ALL_PERMS) {
+    const sec = PERM_LABELS[k].section
+    if (!bySection.has(sec)) bySection.set(sec, [])
+    bySection.get(sec)!.push(k)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="text-[16px] font-black text-[#2D2B26] mb-1">
+          ⚙ 권한 설정 · {row.full_name}
+        </div>
+        <div className="text-[11px] font-bold text-[#7A746A] mb-4">
+          이 실장이 사용할 수 있는 기능을 선택하세요.
+        </div>
+
+        {/* 프리셋 */}
+        <div className="mb-4">
+          <div className="text-[10px] font-black text-[#7A746A] uppercase tracking-wider mb-2">
+            빠른 설정 (프리셋)
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {PERMISSION_PRESETS.map(p => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => applyPreset(p.perms)}
+                className="rounded-xl border-2 border-[#D8D2C8] bg-white py-2 px-2 text-[11px] font-extrabold text-[#2D2B26] active:bg-[#F5F0E5]"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 세부 권한 (section 별 grouping) */}
+        <div className="space-y-3 mb-5">
+          {Array.from(bySection.entries()).map(([section, keys]) => (
+            <div key={section} className="rounded-2xl border border-[#D8D2C8] bg-[#FAF5EC]/50 p-3">
+              <div className="text-[11px] font-black text-[#8C6A3A] mb-2">
+                {section}
+              </div>
+              <div className="space-y-1.5">
+                {keys.map(k => {
+                  const meta = PERM_LABELS[k]
+                  const on = draft[k]
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => toggle(k)}
+                      className={cn(
+                        "w-full flex items-start gap-2 rounded-lg px-2 py-2 text-left",
+                        on ? "bg-green-50" : "bg-white",
+                      )}
+                    >
+                      <div className={cn(
+                        "w-5 h-5 rounded shrink-0 mt-0.5 flex items-center justify-center border-2",
+                        on ? "bg-green-600 border-green-600 text-white" : "border-[#D8D2C8] bg-white",
+                      )}>
+                        {on && <span className="text-[12px] leading-none">✓</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] font-extrabold text-[#2D2B26]">{meta.label}</div>
+                        <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">{meta.desc}</div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onSave(draft)}
+            className="w-full rounded-xl bg-[#C49B61] py-3 text-[13px] font-extrabold text-white active:bg-[#A87D45] disabled:opacity-40"
+          >
+            {busy ? "저장 중..." : "저장"}
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onSave(null)}
+              className="flex-1 rounded-xl border-2 border-[#D8D2C8] bg-white py-2.5 text-[11px] font-extrabold text-[#7A746A] active:bg-[#F5F0E5]"
+            >
+              기본값으로 되돌리기
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className="flex-1 rounded-xl border-2 border-[#D8D2C8] bg-white py-2.5 text-[11px] font-extrabold text-[#7A746A] active:bg-[#F5F0E5]"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
