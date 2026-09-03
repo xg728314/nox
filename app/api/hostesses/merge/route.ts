@@ -30,6 +30,8 @@ import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 export async function POST(request: Request) {
   try {
@@ -37,6 +39,10 @@ export async function POST(request: Request) {
     if (auth.role !== "owner" && auth.role !== "manager") {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
+    // R33 (2026-09-04): staff.manage 권한 게이트 (병합 = irreversible · 최소 STAFF_MANAGE)
+    const permErr = await ensurePerm(auth, PERMS.STAFF_MANAGE)
+    if (permErr) return permErr
+
     const parsed = await parseJsonBody<{ from_membership_id?: string; to_membership_id?: string }>(request)
     if (parsed.error) return parsed.error
     const { from_membership_id: fromId, to_membership_id: toId } = parsed.body

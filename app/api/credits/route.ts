@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import { logAuditEvent } from "@/lib/audit/logEvent"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * POST /api/credits — 외상 등록
@@ -20,6 +22,9 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    // R33 (2026-09-04): credits.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.CREDITS_MANAGE)
+    if (permErr) return permErr
 
     let body: {
       session_id?: string

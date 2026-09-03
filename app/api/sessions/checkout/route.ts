@@ -6,6 +6,8 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * STEP-4C: Cutover to close_session_atomic RPC.
@@ -29,6 +31,9 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    // R33 (2026-09-04): roster.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.ROSTER_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{ session_id?: string }>(request)
     if (parsed.error) return parsed.error

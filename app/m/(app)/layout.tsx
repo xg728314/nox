@@ -1,9 +1,12 @@
 "use client"
 import type { ReactNode } from "react"
+import { useEffect } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { PhoneFrame } from "../_components/PhoneFrame"
 import { ToastProvider } from "../_components/Toast"
 import { useMe } from "../_hooks/useMobileData"
 import { SuperAdminStoreBar } from "../_components/SuperAdminStoreBar"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * 스태프동기화 앱 sublayout — /m/(app)/* 만 적용.
@@ -48,5 +51,54 @@ function AuthGate({ children }: { children: ReactNode }) {
       </div>
     )
   }
+  return <PermGate>{children}</PermGate>
+}
+
+/**
+ * R33 (2026-09-04): permission-based client guard.
+ *
+ * 경로 접두어 → 필요한 permission 매핑. 실장에게 「채팅만」 위임하면
+ * `/m/settle`, `/m/hostess-manage`, `/m/store/settings` 등 URL 직입력해도
+ * 자동으로 첫 가용 페이지로 redirect.
+ *
+ * defense-in-depth: 서버 API 도 requirePerm 게이트 필수 (curl 우회 방지).
+ * 이 client guard 는 UX 계약 (숨긴 페이지는 안 뜨게).
+ */
+const PATH_PERMS: Array<{ prefix: string; perm: string }> = [
+  { prefix: "/m/settle", perm: PERMS.SETTLE_VIEW },
+  { prefix: "/m/staff", perm: PERMS.STAFF_VIEW },
+  { prefix: "/m/attendance", perm: PERMS.STAFF_VIEW },
+  { prefix: "/m/credits", perm: PERMS.CREDITS_VIEW },
+  { prefix: "/m/inventory", perm: PERMS.INVENTORY_VIEW },
+  { prefix: "/m/reports", perm: PERMS.REPORTS_VIEW },
+  { prefix: "/m/store/settings", perm: PERMS.STORE_SETTINGS },
+  { prefix: "/m/store/managers", perm: PERMS.MANAGERS_MANAGE },
+  { prefix: "/m/hostess-manage", perm: PERMS.STAFF_MANAGE },
+  { prefix: "/m/assign", perm: PERMS.ROSTER_MANAGE },
+  { prefix: "/m/ops", perm: PERMS.ROSTER_MANAGE },
+  // 아래는 permission 없이 항상 접근: /m, /m/chat, /m/me, /m/store (매장 상세)
+]
+
+function PermGate({ children }: { children: ReactNode }) {
+  const { data: me } = useMe()
+  const pathname = usePathname()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!me?.permissions || !pathname) return
+    // owner + super_admin 은 전권 (effectivePermissions 로 이미 모든 키 true)
+    // 매칭되는 접두어 있으면 permission 체크
+    const gated = PATH_PERMS.find(p => pathname.startsWith(p.prefix))
+    if (!gated) return
+    if (me.permissions[gated.perm] !== true) {
+      // 첫 가용 페이지로 redirect (chat.view 우선, 그다음 roster.view)
+      const fallback =
+        me.permissions[PERMS.CHAT_VIEW] ? "/m/chat" :
+        me.permissions[PERMS.ROSTER_VIEW] ? "/m" :
+        "/m/me"
+      router.replace(fallback)
+    }
+  }, [me, pathname, router])
+
   return <>{children}</>
 }

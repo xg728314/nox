@@ -6,6 +6,8 @@ import { handleRouteError } from "@/lib/session/handleAuthError"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 import { resolveOwnerVisibility, applyOwnerVisibility } from "@/lib/settlement/services/ownerVisibility"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * POST /api/sessions/settlement/finalize
@@ -24,6 +26,9 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    // R33 (2026-09-04): settle.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.SETTLE_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{ session_id?: string }>(request)
     if (parsed.error) return parsed.error

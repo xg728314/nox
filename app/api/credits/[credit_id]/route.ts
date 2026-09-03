@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isValidUUID } from "@/lib/validation"
 import { auditOr500 } from "@/lib/audit/logEvent"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * GET   /api/credits/[credit_id] — 외상 상세 조회
@@ -117,6 +119,9 @@ export async function PATCH(
         { status: 403 }
       )
     }
+    // R33 (2026-09-04): credits.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.CREDITS_MANAGE)
+    if (permErr) return permErr
 
     const { credit_id } = await params
     if (!credit_id || !isValidUUID(credit_id)) {

@@ -9,6 +9,8 @@ import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +23,9 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    // R33 (2026-09-04): roster.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.ROSTER_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{
       room_uuid?: string

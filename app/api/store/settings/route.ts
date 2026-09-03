@@ -3,6 +3,8 @@ import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { cached, invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { sanitizeStoreLabels } from "@/lib/labels"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 // 2026-05-03 R-Speed-x10: store_settings 는 영업일 중 잠겨있고 owner 만 변경 →
 //   변경 빈도 매우 낮음. 카운터 / 정산 / 청구서 화면이 자주 읽음 (TC율, 카드수수료,
@@ -136,11 +138,11 @@ export async function PATCH(request: Request) {
   try {
     const authContext = await resolveAuthContext(request)
 
+    // R33 (2026-09-04): owner-only → owner OR delegated (STORE_SETTINGS).
+    //   사장이 특정 실장에게 매장 설정 조작 위임 가능. 위임 없으면 이전과 동일 owner-only.
     if (authContext.role !== "owner") {
-      return NextResponse.json(
-        { error: "ROLE_FORBIDDEN", message: "Only owner can modify store settings." },
-        { status: 403 }
-      )
+      const permErr = await ensurePerm(authContext, PERMS.STORE_SETTINGS)
+      if (permErr) return permErr
     }
 
     // 동적 필드 접근은 whitelist 기반 + unknown 타입. `as any` 금지.
