@@ -524,6 +524,7 @@ function LiveRoomCard({
                   onOpenExtend={() => onOpenExtend(p, s.session_id)}
                   roundInfo={{ index: idx, total }}
                   storeUuid={storeUuid}
+                  sameSessionParticipants={s.participants}
                 />
               )
             })
@@ -738,6 +739,7 @@ function ParticipantRow({
   onOpenExtend,
   roundInfo,
   storeUuid,
+  sameSessionParticipants,
 }: {
   participant: BuildingRoomParticipant
   sessionId: string
@@ -746,6 +748,8 @@ function ParticipantRow({
   roundInfo?: { index: number; total: number }
   /** R-hostess-merge (2026-09-04): 병합 시트 open 시 storeUuid 전달 */
   storeUuid?: string
+  /** R-scope-same-room (2026-09-04): 같은 방 참여자 (병합 후보 좁힘) */
+  sameSessionParticipants?: BuildingRoomParticipant[]
 }) {
   const [busy, setBusy] = useState<"leave" | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -851,6 +855,21 @@ function ParticipantRow({
           fromName={participant.name}
           storeUuid={storeUuid}
           fromParticipantId={participant.participant_id}
+          candidates={(() => {
+            // R-scope-same-room (2026-09-04): 같은 방 참여자 중 같은 이름 · 다른 mid
+            const rows = sameSessionParticipants ?? []
+            return rows
+              .filter((p) =>
+                p.name === participant.name
+                && p.membership_id
+                && p.membership_id !== participant.membership_id,
+              )
+              .map((p) => ({
+                membership_id: p.membership_id!,
+                hostess_name: p.name,
+                hint: `같은 방 · ${p.ticket}${p.category_letter ? ` · ${p.category_letter}` : ""}`,
+              }))
+          })()}
         />
       )}
     </div>

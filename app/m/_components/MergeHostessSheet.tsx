@@ -14,11 +14,19 @@
  */
 import { useEffect, useMemo, useState } from "react"
 import { Sheet } from "./Sheet"
-import { useBuildingHostesses } from "../_hooks/useMobileData"
 import { useToast, haptic } from "./Toast"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../_lib/cn"
+
+/** 같은 방 참여자 후보 (caller 가 dedup/필터 · MergeHostessSheet 는 표시만) */
+export type MergeCandidate = {
+  membership_id: string
+  hostess_name: string
+  manager_name?: string | null
+  /** 참고 정보 · UI 표시 */
+  hint?: string
+}
 
 export function MergeHostessSheet({
   open,
@@ -27,6 +35,7 @@ export function MergeHostessSheet({
   fromName,
   storeUuid,
   fromParticipantId,
+  candidates,
 }: {
   open: boolean
   onClose: () => void
@@ -34,8 +43,10 @@ export function MergeHostessSheet({
   fromName: string
   storeUuid: string
   fromParticipantId?: string   // 참고 · UI 표시용
+  /** R-scope-same-room (2026-09-04): 후보는 caller (LiveRoomCard) 가 좁혀서 넘김 —
+   *  같은 방 참여자 중 같은 이름 · from 아닌 것. 매장 전체 노출 X. */
+  candidates: MergeCandidate[]
 }) {
-  const building = useBuildingHostesses()
   const toast = useToast()
   const [pickedTo, setPickedTo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -45,17 +56,11 @@ export function MergeHostessSheet({
     if (open) { setPickedTo(null); setConfirmed(false) }
   }, [open])
 
-  // 후보: 같은 매장 · 같은 이름 · from 아닌 것
-  const candidates = useMemo(() => {
-    const rows = building.data?.hostesses ?? []
-    return rows.filter((h) =>
-      h.store_uuid === storeUuid
-      && h.hostess_name === fromName
-      && h.membership_id !== fromMembershipId
-    )
-  }, [building.data, storeUuid, fromName, fromMembershipId])
+  // 후보는 이미 caller 가 좁힘 · 필터 재실행 안 함
+  const _candidates = candidates
+  void useMemo(() => storeUuid, [storeUuid])  // storeUuid unused warning 회피
 
-  const pickedName = pickedTo ? candidates.find((c) => c.membership_id === pickedTo)?.hostess_name : null
+  const pickedName = pickedTo ? _candidates.find((c) => c.membership_id === pickedTo)?.hostess_name : null
 
   async function merge() {
     if (busy || !pickedTo || !confirmed) return
@@ -100,26 +105,24 @@ export function MergeHostessSheet({
             {fromName}
           </div>
           <div className="mt-1 text-[10px] font-bold text-amber-700/80 leading-relaxed">
-            같은 이름 (동명이인) 중 실수로 만들어진 duplicate 를 병합.
+            같은 방 안의 같은 이름 (동명이인) 만 후보.
             <br />세션 · 이적 · 채팅 이력 통합 → 이 아가씨는 사라짐.
             <br />⚠ 서로 다른 사람이면 절대 병합 X · 확인 필수.
           </div>
         </div>
 
-        {building.isLoading && (
-          <div className="text-[12px] text-[#7A746A] py-4 text-center">로드중...</div>
-        )}
-        {!building.isLoading && candidates.length === 0 && (
+        {_candidates.length === 0 && (
           <div className="rounded-2xl border border-dashed border-[#D8D2C8] bg-[#FAF5EC]/60 px-4 py-8 text-center">
-            <div className="text-[12px] font-bold text-[#7A746A]">병합 가능한 동명이인 없음</div>
-            <div className="mt-1 text-[10px] text-[#7A746A]/70">
-              같은 매장에 「{fromName}」 이름 다른 아가씨가 없습니다.
+            <div className="text-[12px] font-bold text-[#7A746A]">이 방에 「{fromName}」 동명이인 없음</div>
+            <div className="mt-1 text-[10px] text-[#7A746A]/70 leading-relaxed">
+              같은 방 안의 같은 이름 참여자만 병합 후보.
+              <br />매장 전체 병합은 안전 상 지원 X.
             </div>
           </div>
         )}
 
         <div className="space-y-2 mb-3 max-h-[40vh] overflow-y-auto">
-          {candidates.map((c) => {
+          {_candidates.map((c) => {
             const isPicked = pickedTo === c.membership_id
             return (
               <button
@@ -144,7 +147,7 @@ export function MergeHostessSheet({
                       </span>
                     </div>
                     <div className="text-[10px] font-semibold text-[#7A746A] mt-0.5 truncate">
-                      담당 {c.manager_name ?? "미배정"}
+                      {c.hint ?? (c.manager_name ? `담당 ${c.manager_name}` : "담당 미배정")}
                     </div>
                   </div>
                   <div className={cn(
