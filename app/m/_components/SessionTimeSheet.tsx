@@ -64,14 +64,15 @@ export function SessionTimeSheet({
   const types = useServiceTypes()
   const [offsetMin, setOffsetMin] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [confirming, setConfirming] = useState(false)  // 재시작 옵션 표시
+  // R-end-tier (2026-09-04): confirming 상태 = mode 별 tier 옵션 노출
+  const [confirming, setConfirming] = useState<"restart" | "end" | null>(null)
   // R-preextend (2026-09-04): 미리 연장 선택 참여자
   const [selectedMids, setSelectedMids] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (open) {
       setOffsetMin(0)
-      setConfirming(false)
+      setConfirming(null)
       // 미리 연장 default: 전체 선택
       const all = new Set<string>()
       for (const p of participants ?? []) {
@@ -100,13 +101,19 @@ export function SessionTimeSheet({
     "차3": elapsedMin >= 9,
     "무료": true,
   }
+  const modeSuffix = confirming === "end" ? "종료" : "재시작"
   const tierLabel: Record<Tier, string> = {
-    "완티": "완티 처리 · 재시작",
-    "반티": "반티 처리 · 재시작",
-    "차3": "차3 처리 · 재시작",
-    "무료": "무료 삭제 · 재시작",
+    "완티": `완티 처리 · ${modeSuffix}`,
+    "반티": `반티 처리 · ${modeSuffix}`,
+    "차3": `차3 처리 · ${modeSuffix}`,
+    "무료": `무료 처리 · ${modeSuffix}`,
   }
-  const tierHint: Record<Tier, string> = {
+  const tierHint: Record<Tier, string> = confirming === "end" ? {
+    "완티": "지금 라운드 완티 완료 처리 · 방 종료 (전액 청구)",
+    "반티": "지금 라운드 반티 처리 · 방 종료 (반티 요금)",
+    "차3": "지금 라운드 차3 처리 · 방 종료 (차3 요금)",
+    "무료": "지금 라운드 무료 · 방 종료 (요금 없음)",
+  } : {
     "완티": "기존 아가씨 1개 완료 (연장 카운트 +1) · 완티 요금 청구",
     "반티": "기존 아가씨 반티 요금 청구 · 재시작",
     "차3": "차3 요금 청구 · 재시작 (퍼블릭 90분 통일 이후 종목 무관)",
@@ -143,10 +150,33 @@ export function SessionTimeSheet({
 
   async function confirmTier(tier: Tier) {
     if (busy) return
-    // R-no-confirm (2026-09-04): 이전엔 browser confirm() dialog 사용 → mobile
-    //   webview 에서 종종 안 뜨거나 사용자가 인지 못 함 → 버튼 무반응 오해.
-    //   Sheet 안에서 이미 tier 옵션을 명시적으로 선택했으므로 즉시 실행.
-    await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 ${tier} 재시작`)
+    if (confirming === "restart") {
+      // 재시작: started_at = now
+      await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 ${tier} 재시작`)
+    } else if (confirming === "end") {
+      // R-end-tier (2026-09-04): 종료 = 참여자 순차 leave → 세션 자동 close
+      //   실제 정산은 EditParticipantSheet 로 실장이 수동 (자동 청구는 다음 라운드)
+      setBusy(true)
+      haptic([10, 30, 10])
+      try {
+        let count = 0
+        for (const p of participants ?? []) {
+          const res = await apiFetch(`/api/sessions/participants/${encodeURIComponent(p.participant_id)}/leave`, {
+            method: "POST",
+          })
+          if (res.ok) count++
+        }
+        toast(`${roomLabel} ${tier} 종료 · ${count}명 leave`, "success")
+        invalidateApi("/api/rooms")
+        invalidateApi("/api/building/rooms")
+        invalidateApi("/api/manager/incoming-staff")
+        onClose()
+      } catch (e) {
+        toast(`종료 실패: ${(e as Error).message}`, "error")
+      } finally {
+        setBusy(false)
+      }
+    }
   }
 
   async function applyOffset() {
@@ -221,11 +251,11 @@ export function SessionTimeSheet({
 
         {!confirming && (
           <>
-            {/* Primary — 재시작 (옵션 표시로 확장) */}
+            {/* Primary — 재시작 */}
             <button
               type="button"
               disabled={busy || elapsedMin < 1}
-              onClick={() => setConfirming(true)}
+              onClick={() => setConfirming("restart")}
               className={cn(
                 "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-2 transition-all",
                 busy || elapsedMin < 1
@@ -235,9 +265,22 @@ export function SessionTimeSheet({
             >
               🔄 {elapsedMin}분 삭제 · 재시작 (연장)
             </button>
+            {/* Primary — 방 종료 */}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming("end")}
+              className={cn(
+                "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-2 transition-all",
+                busy
+                  ? "border-[#D8D2C8] bg-white text-[#B0A99B] opacity-60"
+                  : "border-red-400 bg-red-50 text-red-800 active:bg-red-100",
+              )}
+            >
+              ⭕ 방 종료 (참여자 모두 leave)
+            </button>
             <div className="text-[10px] font-bold text-[#7A746A] mb-3 text-center leading-relaxed">
-              지난 {elapsedMin}분을 어떻게 처리할지 선택
-              <br />(완티 / 반티 / 차3 / 무료)
+              어느 tier 로 처리할지 선택 (완티 / 반티 / 차3 / 무료)
             </div>
           </>
         )}
@@ -245,10 +288,10 @@ export function SessionTimeSheet({
         {confirming && (
           <>
             <div className="mb-2 text-[11px] font-extrabold text-[#7A746A] flex items-center justify-between">
-              <span>⚠ 지난 {elapsedMin}분 처리 방식 선택</span>
+              <span>⚠ {confirming === "restart" ? `지난 ${elapsedMin}분 재시작 tier` : `방 종료 tier (참여자 ${participants?.length ?? 0}명)`}</span>
               <button
                 type="button"
-                onClick={() => setConfirming(false)}
+                onClick={() => setConfirming(null)}
                 disabled={busy}
                 className="text-[10px] font-bold text-[#7A746A] underline"
               >
