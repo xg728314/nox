@@ -8,6 +8,7 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { archivedAtFilter } from "@/lib/session/archivedFilter"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
+import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
 
 export async function POST(request: Request) {
   try {
@@ -226,6 +227,17 @@ export async function POST(request: Request) {
       },
     }).catch((e) => {
       console.warn("[checkin] audit failed:", e instanceof Error ? e.message : e)
+    })
+
+    // R-room-chat-on-checkin (2026-09-04): 세션 개설 즉시 room 채팅방 생성 + 매니저 자동 참여.
+    //   이전엔 첫 아가씨 추가 시에만 chat_room 만들어짐 → 체크인만 하고 아가씨 없는 방은
+    //   채팅 없음. 매니저는 방 개설 시부터 채팅방에 참여 가능해야 함.
+    void syncRoomSessionChat(supabase, {
+      session_id: session.id,
+      store_uuid: authContext.store_uuid,
+      actor_membership_id: authContext.membership_id,
+    }).catch((e) => {
+      console.warn("[checkin] chat sync failed:", e instanceof Error ? e.message : e)
     })
 
     // R29-perf: 캐시 즉시 무효화 → 다른 카운터에서 바로 반영.

@@ -24,6 +24,18 @@ import { useToast, haptic } from "./Toast"
 import { invalidateApi } from "../_hooks/useApi"
 import { apiFetch } from "@/lib/apiFetch"
 import { cn } from "../_lib/cn"
+import { useServiceTypes } from "../_hooks/useMobileData"
+
+/** 방 안 참여자 스냅샷 · 미리 연장 UI 용 */
+export type SheetParticipant = {
+  participant_id: string
+  membership_id: string | null
+  name: string
+  category: string | null
+  ticket: string
+  /** 같은 아가씨의 현재 라운드 수 (미리 연장 포함) */
+  currentRounds: number
+}
 
 function fmtHM(iso: string): string {
   const d = new Date(iso)
@@ -38,21 +50,36 @@ export function SessionTimeSheet({
   sessionId,
   roomLabel,
   currentStartedAt,
+  participants,
 }: {
   open: boolean
   onClose: () => void
   sessionId: string
   roomLabel: string
   currentStartedAt: string
+  /** 방 안 참여자 스냅샷 · 미리 연장 UI 용 (기본 없으면 미리 연장 섹션 안 뜸) */
+  participants?: SheetParticipant[]
 }) {
   const toast = useToast()
+  const types = useServiceTypes()
   const [offsetMin, setOffsetMin] = useState(0)
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)  // 재시작 옵션 표시
+  // R-preextend (2026-09-04): 미리 연장 선택 참여자
+  const [selectedMids, setSelectedMids] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    if (open) { setOffsetMin(0); setConfirming(false) }
-  }, [open])
+    if (open) {
+      setOffsetMin(0)
+      setConfirming(false)
+      // 미리 연장 default: 전체 선택
+      const all = new Set<string>()
+      for (const p of participants ?? []) {
+        if (p.membership_id) all.add(p.membership_id)
+      }
+      setSelectedMids(all)
+    }
+  }, [open, participants])
 
   const nowMs = Date.now()
   const startMs = new Date(currentStartedAt).getTime()
@@ -125,6 +152,55 @@ export function SessionTimeSheet({
   async function applyOffset() {
     if (busy || offsetMin === 0) return
     await patchStartedAt(previewIso, `${offsetMin > 0 ? "+" : ""}${offsetMin}분 조정`)
+  }
+
+  // R-preextend (2026-09-04): 방 안 아가씨 선택 → 다음 라운드 참여자 미리 등록.
+  //   각자 기존 category + 기본 종목 시간으로 새 participant row 추가.
+  //   결과: 화영 1개째 → 2개째 라운드 예약됨 (참여자 카드 1/2 로 뜸).
+  async function preExtend() {
+    if (busy || !participants || selectedMids.size === 0) return
+    setBusy(true)
+    haptic([10, 30, 10])
+    try {
+      let count = 0
+      for (const p of participants) {
+        if (!p.membership_id || !selectedMids.has(p.membership_id)) continue
+        // 각자 기존 category 로 기본 종목 시간 lookup
+        const cat = p.category ?? "퍼블릭"
+        const st = (types.data?.service_types ?? []).find((t) => t.service_type === cat && t.time_type === "기본")
+        if (!st) continue
+        const res = await apiFetch("/api/sessions/participants", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            membership_id: p.membership_id,
+            role: "hostess",
+            category: cat,
+            time_minutes: st.time_minutes,
+            time_type: "기본",
+            manager_deduction: st.manager_deduction,
+            greeting_confirmed: cat === "셔츠" ? true : undefined,
+          }),
+        })
+        if (res.ok) count++
+      }
+      toast(`${count}명 미리 연장 완료`, "success")
+      invalidateApi("/api/rooms")
+      invalidateApi("/api/building/rooms")
+      onClose()
+    } catch (e) {
+      toast(`실패: ${(e as Error).message}`, "error")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggleSelectAll() {
+    if (!participants) return
+    const eligible = participants.filter((p) => p.membership_id).map((p) => p.membership_id!)
+    if (selectedMids.size === eligible.length) setSelectedMids(new Set())
+    else setSelectedMids(new Set(eligible))
   }
 
   return (
@@ -256,6 +332,78 @@ export function SessionTimeSheet({
               )}
             >
               ⏱ {offsetMin === 0 ? "조정 없음" : `${offsetMin > 0 ? "+" : ""}${offsetMin}분 적용 (${previewHM})`}
+            </button>
+          </div>
+        )}
+
+        {/* R-preextend (2026-09-04): 방 안 아가씨 미리 연장 (다음 라운드 예약) */}
+        {!confirming && participants && participants.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-[#D8D2C8]/40">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] font-extrabold text-[#7A746A]">
+                🔁 미리 연장 (다음 라운드 예약)
+              </div>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                disabled={busy}
+                className="text-[10px] font-black text-[#A87D45] underline"
+              >
+                {selectedMids.size === participants.filter((p) => p.membership_id).length ? "전체 해제" : "전체 선택"}
+              </button>
+            </div>
+            <div className="space-y-1 mb-2">
+              {participants.map((p) => {
+                const canPick = !!p.membership_id
+                const checked = canPick && selectedMids.has(p.membership_id!)
+                return (
+                  <button
+                    key={p.participant_id}
+                    type="button"
+                    disabled={busy || !canPick}
+                    onClick={() => {
+                      if (!canPick) return
+                      setSelectedMids((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(p.membership_id!)) next.delete(p.membership_id!)
+                        else next.add(p.membership_id!)
+                        return next
+                      })
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-left",
+                      checked
+                        ? "border-[#A87D45] bg-[#C49B61]/15"
+                        : "border-[#D8D2C8] bg-white",
+                      !canPick && "opacity-40",
+                    )}
+                  >
+                    <span className={cn(
+                      "w-4 h-4 rounded border-2 flex items-center justify-center shrink-0",
+                      checked ? "border-[#A87D45] bg-[#A87D45] text-white" : "border-[#D8D2C8] bg-white",
+                    )}>
+                      {checked && <span className="text-[10px] font-black">✓</span>}
+                    </span>
+                    <span className="text-[12px] font-extrabold text-[#2D2B26] flex-1 truncate">{p.name}</span>
+                    <span className="text-[9px] font-bold text-[#7A746A]">
+                      {p.category ?? "?"} · 지금 {p.currentRounds}개째
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <button
+              type="button"
+              disabled={busy || selectedMids.size === 0}
+              onClick={preExtend}
+              className={cn(
+                "w-full rounded-xl py-2.5 text-[12px] font-extrabold text-white transition-all",
+                busy || selectedMids.size === 0
+                  ? "bg-[#D8D2C8] opacity-70"
+                  : "bg-gradient-to-br from-[#C49B61] to-[#A87D45] active:scale-[0.98]",
+              )}
+            >
+              {busy ? "..." : `⏱ 선택된 ${selectedMids.size}명 미리 연장 (기본)`}
             </button>
           </div>
         )}

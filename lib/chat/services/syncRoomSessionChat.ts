@@ -44,15 +44,18 @@ export async function syncRoomSessionChat(
     return { error: "SESSION_NOT_ACTIVE" }
   }
 
-  // 2. 방 이름
+  // 2. 방 이름 · rooms 컬럼은 room_name / room_no
+  //    R-column-fix (2026-09-04): 이전 SELECT("name") 은 42703 오류 발생 → 폴백 "룸"
+  //    으로 모든 채팅방 이름이 "룸 채팅" 통일되어 방 구분 안 됨.
   const { data: room } = await supabase
     .from("rooms")
-    .select("name")
+    .select("room_name, room_no")
     .eq("id", (session as { room_uuid: string }).room_uuid)
     .eq("store_uuid", store_uuid)
     .is("deleted_at", null)
     .maybeSingle()
-  const roomName = (room as { name?: string } | null)?.name ?? "룸"
+  const roomRow = room as { room_name?: string | null; room_no?: string | null } | null
+  const roomName = roomRow?.room_name || (roomRow?.room_no ? `${roomRow.room_no}번방` : "룸")
 
   // 3. chat_room 조회 또는 생성
   const { data: existing } = await supabase

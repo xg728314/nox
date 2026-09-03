@@ -501,14 +501,31 @@ function LiveRoomCard({
           {s.participants.length === 0 && (
             <div className="text-[10px] font-bold text-[#7A746A] py-1">참여자 없음</div>
           )}
-          {s.participants.map((p) => (
-            <ParticipantRow
-              key={p.participant_id}
-              participant={p}
-              sessionId={s.session_id}
-              onOpenExtend={() => onOpenExtend(p, s.session_id)}
-            />
-          ))}
+          {/* R-round-count (2026-09-04): 같은 방·같은 아가씨(membership_id)의 라운드 순번 계산.
+              entered_at 오래된 것이 1번째 · 새 것이 N번째 (미리 연장 포함). */}
+          {(() => {
+            const bucketTotal = new Map<string, number>()
+            for (const p of s.participants) {
+              const key = p.membership_id ?? p.participant_id
+              bucketTotal.set(key, (bucketTotal.get(key) ?? 0) + 1)
+            }
+            const seen = new Map<string, number>()
+            return s.participants.map((p) => {
+              const key = p.membership_id ?? p.participant_id
+              const idx = (seen.get(key) ?? 0) + 1
+              seen.set(key, idx)
+              const total = bucketTotal.get(key) ?? 1
+              return (
+                <ParticipantRow
+                  key={p.participant_id}
+                  participant={p}
+                  sessionId={s.session_id}
+                  onOpenExtend={() => onOpenExtend(p, s.session_id)}
+                  roundInfo={{ index: idx, total }}
+                />
+              )
+            })
+          })()}
           {/* R-add-hostess + R-force-close (2026-08-31): 방 액션 */}
           <div className="mt-2 pt-2 border-t border-[#EDE7DA] flex gap-1.5">
             <button
@@ -547,6 +564,25 @@ function LiveRoomCard({
           sessionId={s.session_id}
           roomLabel={`${room.room_no}번방`}
           currentStartedAt={s.started_at}
+          participants={(() => {
+            // R-preextend (2026-09-04): 참여자 dedup by membership_id + currentRounds 계산.
+            //   같은 아가씨 여러 row 있으면 1개만 시트에 노출 (2개째 라운드 정보는 currentRounds 로).
+            const bucket = new Map<string, { p: BuildingRoomParticipant; count: number }>()
+            for (const p of s.participants) {
+              const key = p.membership_id ?? p.participant_id
+              const cur = bucket.get(key)
+              if (!cur) bucket.set(key, { p, count: 1 })
+              else cur.count += 1
+            }
+            return [...bucket.values()].map(({ p, count }) => ({
+              participant_id: p.participant_id,
+              membership_id: p.membership_id,
+              name: p.name,
+              category: p.category,
+              ticket: p.ticket,
+              currentRounds: count,
+            }))
+          })()}
         />
       )}
     </div>
@@ -698,10 +734,13 @@ function ParticipantRow({
   participant,
   sessionId,
   onOpenExtend,
+  roundInfo,
 }: {
   participant: BuildingRoomParticipant
   sessionId: string
   onOpenExtend: () => void
+  /** R-round-count (2026-09-04): 같은 방·같은 아가씨의 몇 번째/총 라운드 */
+  roundInfo?: { index: number; total: number }
 }) {
   const [busy, setBusy] = useState<"leave" | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -747,6 +786,14 @@ function ParticipantRow({
         {participant.is_external ? (participant.origin_store_name || "외부") : "내"}
       </span>
       <span className="text-[12px] font-bold text-[#2D2B26] flex-1 truncate">{participant.name}</span>
+      {roundInfo && roundInfo.total > 1 && (
+        <span
+          className="text-[9px] font-black rounded px-1.5 py-0.5 bg-[#A87D45]/15 text-[#8C6A3A] border border-[#A87D45]/40 shrink-0"
+          title={`같은 방 ${roundInfo.total}개 라운드 중 ${roundInfo.index}번째`}
+        >
+          {roundInfo.index}/{roundInfo.total}
+        </span>
+      )}
       <span className="text-[10px] font-bold text-[#7A746A]">{participant.ticket}</span>
       {participant.category_letter && <CategoryPill letter={participant.category_letter} />}
       <button
