@@ -1,20 +1,15 @@
 "use client"
 /**
- * SessionTimeSheet — 방 세션 시작 시각 조정.
+ * SessionTimeSheet — 방 세션 시각 조정 (시간 삭제·차N 청구 · ±조정).
  *
- * R-session-time (2026-09-04): 시나리오
- *   - 시작 10시 · 15분 지난 방 → 새 아가씨 투입 시 남은 시간 재조정 필요
- *   - "5분 남은 방에 아가씨 들어갔을 때 손님이 연장 결정 → 5분 지우고 새로 시작"
- *
- * UI:
- *   - 현재 시작 시각 표시 (HH:MM)
- *   - ±5분 / ±1분 pill 조정 (미리보기)
- *   - [지금 재시작] 버튼 (started_at = now · 세션 첫 스타트)
- *   - [적용] → PATCH /api/sessions/[id] body { started_at }
- *
- * 참여자 entered_at 은 건드리지 않음 (개별 조정은 EditParticipantSheet 로).
+ * R-session-time (2026-09-04): 사용자 시나리오
+ *   - 진행 20분 방 · 새 아가씨 투입 or 손님 연장 시 시간 재조정
+ *   - "N분 삭제 (재시작)" — 지난 시간 무료 처리 · started_at=now
+ *   - "N분 → 차N 청구 (재시작)" — 짧은 시간을 요금으로 (퍼블릭 차2 · 하퍼/셔츠 차3)
+ *     * 참여자 cha3_amount / cha2_amount 추가 + started_at=now
+ *   - ±5/±10 조정 (지연 처리)
  */
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Sheet } from "./Sheet"
 import { useToast, haptic } from "./Toast"
 import { invalidateApi } from "../_hooks/useApi"
@@ -41,132 +36,166 @@ export function SessionTimeSheet({
 }) {
   const toast = useToast()
   const [offsetMin, setOffsetMin] = useState(0)
-  const [useNow, setUseNow] = useState(false)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (open) { setOffsetMin(0); setUseNow(false) }
+    if (open) { setOffsetMin(0) }
   }, [open])
 
-  const previewIso = useNow
-    ? new Date().toISOString()
-    : new Date(new Date(currentStartedAt).getTime() + offsetMin * 60_000).toISOString()
-
+  const nowMs = Date.now()
+  const startMs = new Date(currentStartedAt).getTime()
+  const elapsedMin = useMemo(() => Math.max(0, Math.floor((nowMs - startMs) / 60_000)), [nowMs, startMs])
+  const previewIso = new Date(startMs + offsetMin * 60_000).toISOString()
   const previewHM = fmtHM(previewIso)
   const currentHM = fmtHM(currentStartedAt)
-  const changed = useNow || offsetMin !== 0
+  const nowHM = fmtHM(new Date().toISOString())
 
-  async function apply() {
-    if (busy || !changed) return
+  async function patchStartedAt(newIso: string, tag: string) {
     setBusy(true)
     haptic([10, 30, 10])
     try {
       const res = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ started_at: previewIso }),
+        body: JSON.stringify({ started_at: newIso }),
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${res.status}`)
-      toast(`${roomLabel} 시작 시각 → ${previewHM}`, "success")
+      toast(`${roomLabel} ${tag} · ${fmtHM(newIso)}`, "success")
       invalidateApi("/api/rooms")
       invalidateApi("/api/building/rooms")
       onClose()
     } catch (e) {
-      toast(`시각 조정 실패: ${(e as Error).message}`, "error")
+      toast(`실패: ${(e as Error).message}`, "error")
     } finally {
       setBusy(false)
     }
   }
 
+  async function deleteAndRestart() {
+    if (busy) return
+    if (!confirm(`${roomLabel} 지난 ${elapsedMin}분을 삭제하고 지금(${nowHM}) 재시작?`)) return
+    await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 삭제 · 재시작`)
+  }
+
+  async function chargeAndRestart() {
+    if (busy) return
+    // R-cha-charge (2026-09-04): 참여자별 차N 청구 · 서버 endpoint 아직 미구현.
+    //   MVP: toast 로 안내 · 시간 리셋만. 실제 요금은 실장이 수동 입력.
+    //   차N 종목 자동 청구는 별도 라운드 (participants 배치 endpoint 필요).
+    if (!confirm(
+      `${roomLabel} 지난 ${elapsedMin}분을 차N 청구 처리 후 재시작?\n\n(참여자별 차N 요금은 확장에서 수동 입력 필요 · 자동 청구 endpoint 추후)`
+    )) return
+    toast(`⚠ 차N 자동 청구 미구현 · 시간만 재시작 · 확장에서 수동 입력`, "info")
+    await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 → 차N (수동) · 재시작`)
+  }
+
+  async function applyOffset() {
+    if (busy || offsetMin === 0) return
+    await patchStartedAt(previewIso, `${offsetMin > 0 ? "+" : ""}${offsetMin}분 조정`)
+  }
+
   return (
     <Sheet open={open} onClose={onClose}>
       <div className="px-5 pb-4 pt-2">
+        {/* 상단 요약 */}
         <div className="mb-3 rounded-2xl bg-[#FAF5EC] border border-[#D8D2C8] px-4 py-3">
           <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-widest">
-            방 시작 시각 조정
+            방 시간 조정
           </div>
           <div className="mt-1 text-[13px] font-extrabold text-[#2D2B26]">
-            {roomLabel}
+            {roomLabel} · 진행 <span className="text-[#A87D45]">{elapsedMin}분</span>
           </div>
           <div className="mt-0.5 text-[11px] font-bold text-[#7A746A]">
-            현재: {currentHM}
-            {changed && (
-              <span className="ml-2 text-[#A87D45]">
-                → {previewHM}
-                {useNow ? " (지금 재시작)" : ` (${offsetMin > 0 ? "+" : ""}${offsetMin}분)`}
-              </span>
-            )}
+            시작 {currentHM} · 지금 {nowHM}
           </div>
         </div>
 
-        {/* 지금 재시작 버튼 */}
+        {/* Primary 액션 · 시간 삭제 (연장) */}
         <button
           type="button"
-          onClick={() => { setUseNow((v) => !v); setOffsetMin(0) }}
+          disabled={busy || elapsedMin < 1}
+          onClick={deleteAndRestart}
           className={cn(
-            "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-3 transition-all",
-            useNow
-              ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
-              : "border-[#D8D2C8] bg-white text-[#7A746A]",
+            "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-2 transition-all",
+            busy || elapsedMin < 1
+              ? "border-[#D8D2C8] bg-white text-[#B0A99B] opacity-60"
+              : "border-[#A87D45] bg-[#C49B61]/15 text-[#8C6A3A] active:bg-[#C49B61]/25",
           )}
         >
-          {useNow ? "✓ 지금 재시작 선택됨" : "🔄 지금 재시작 (첫 스타트)"}
+          🔄 <b>{elapsedMin}분 삭제</b> · 재시작 (무료)
         </button>
 
-        {/* ±조정 pill (지금 재시작 아닐 때만) */}
-        {!useNow && (
-          <div className="mb-3">
-            <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">시각 조정</div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {[-10, -5, 0, 5, 10].map((v) => {
-                const on = offsetMin === v
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setOffsetMin(v)}
-                    className={cn(
-                      "rounded-xl py-2.5 text-[12px] font-extrabold border-2 transition-all",
-                      on
-                        ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
-                        : "border-[#D8D2C8] bg-white text-[#7A746A]",
-                    )}
-                  >
-                    {v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="text-[10px] font-bold text-[#7A746A] mt-1 text-center">
-              (분 단위 · 앞으로 or 뒤로)
-            </div>
+        {/* Primary 액션 · 차N 청구 (연장) */}
+        <button
+          type="button"
+          disabled={busy || elapsedMin < 1}
+          onClick={chargeAndRestart}
+          className={cn(
+            "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-3 transition-all",
+            busy || elapsedMin < 1
+              ? "border-[#D8D2C8] bg-white text-[#B0A99B] opacity-60"
+              : "border-red-400 bg-red-50 text-red-800 active:bg-red-100",
+          )}
+        >
+          💰 <b>{elapsedMin}분 → 차N 청구</b> · 재시작
+          <div className="text-[9px] font-bold text-red-600 mt-0.5">
+            퍼블릭 차2 / 하퍼·셔츠 차3 · 참여자별 차 수당 수동 입력
           </div>
-        )}
+        </button>
 
-        <div className="grid grid-cols-[auto_1fr] gap-2 mt-4">
+        {/* Secondary · ±조정 (지연 처리) */}
+        <div className="mt-3 pt-3 border-t border-[#D8D2C8]/40">
+          <div className="text-[11px] font-extrabold text-[#7A746A] mb-1.5">
+            시각 미세 조정 {offsetMin !== 0 && (
+              <span className="text-[#A87D45]">· {currentHM} → {previewHM}</span>
+            )}
+          </div>
+          <div className="grid grid-cols-5 gap-1.5 mb-2">
+            {[-10, -5, 0, 5, 10].map((v) => {
+              const on = offsetMin === v
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setOffsetMin(v)}
+                  disabled={busy}
+                  className={cn(
+                    "rounded-xl py-2 text-[12px] font-extrabold border-2 transition-all",
+                    on
+                      ? "border-[#A87D45] bg-[#C49B61]/20 text-[#2D2B26]"
+                      : "border-[#D8D2C8] bg-white text-[#7A746A]",
+                    busy && "opacity-40",
+                  )}
+                >
+                  {v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`}
+                </button>
+              )
+            })}
+          </div>
           <button
             type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="rounded-xl border-2 border-[#D8D2C8] bg-white px-6 py-3 text-[13px] font-extrabold text-[#7A746A] disabled:opacity-40"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={apply}
-            disabled={busy || !changed}
+            disabled={busy || offsetMin === 0}
+            onClick={applyOffset}
             className={cn(
-              "rounded-xl py-3 text-[13px] font-extrabold text-white transition-all",
-              busy || !changed
-                ? "bg-[#D8D2C8] opacity-70"
-                : "bg-gradient-to-br from-[#C49B61] to-[#A87D45] active:scale-[0.98]",
+              "w-full rounded-xl py-2.5 text-[12px] font-extrabold border-2 transition-all",
+              busy || offsetMin === 0
+                ? "border-[#D8D2C8] bg-white text-[#B0A99B] opacity-60"
+                : "border-[#7A746A] bg-white text-[#2D2B26] active:bg-[#FAF5EC]",
             )}
           >
-            {busy ? "적용 중..." : changed ? `✓ 적용 (${previewHM})` : "변경 없음"}
+            ⏱ {offsetMin === 0 ? "조정 없음" : `${offsetMin > 0 ? "+" : ""}${offsetMin}분 적용 (${previewHM})`}
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className="mt-4 w-full rounded-xl border-2 border-[#D8D2C8] bg-white px-6 py-3 text-[13px] font-extrabold text-[#7A746A] disabled:opacity-40"
+        >
+          닫기
+        </button>
       </div>
     </Sheet>
   )
