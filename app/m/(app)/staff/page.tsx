@@ -786,15 +786,15 @@ function ParticipantRow({
         {participant.is_external ? (participant.origin_store_name || "외부") : "내"}
       </span>
       <span className="text-[12px] font-bold text-[#2D2B26] flex-1 truncate">{participant.name}</span>
-      {roundInfo && roundInfo.total > 1 && (
+      {/* R-round-count (2026-09-04): 항상 노출 · "N개" (기본 시) or "N개차3"/"N개반티" (다른 종목 시). */}
+      {roundInfo && (
         <span
           className="text-[9px] font-black rounded px-1.5 py-0.5 bg-[#A87D45]/15 text-[#8C6A3A] border border-[#A87D45]/40 shrink-0"
-          title={`같은 방 ${roundInfo.total}개 라운드 중 ${roundInfo.index}번째`}
+          title={`같은 방 ${roundInfo.total}개 라운드 · ${roundInfo.index}번째 · ${participant.ticket}`}
         >
-          {roundInfo.index}/{roundInfo.total}
+          {roundInfo.index}개{participant.ticket !== "기본" && participant.ticket !== "무료" ? participant.ticket : ""}
         </span>
       )}
-      <span className="text-[10px] font-bold text-[#7A746A]">{participant.ticket}</span>
       {participant.category_letter && <CategoryPill letter={participant.category_letter} />}
       <button
         type="button"
