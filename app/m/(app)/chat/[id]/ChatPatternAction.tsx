@@ -637,15 +637,21 @@ export function ChatPatternAction({
           )
         })}
       </div>
-      {/* 발신자 — 아직 임시 등록 안 만들었으면 \"임시 등록\" 버튼 */}
+      {/* 발신자 — 아직 임시 등록 안 만들었으면 \"임시 등록\" 버튼
+          R-dup-guard-ui (2026-09-04): 재진입 시 「등록 중」 문구 명확화 ·
+            서버 dedup 되어 있으니 중복 아님을 명시. */}
       {!isPending && (
         <button
           type="button"
-          disabled={submitting}
+          disabled={submitting || autoFiredRef.current}
           onClick={() => { void createPending() }}
-          className="w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-40 bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
+          className="w-full rounded-xl py-2 text-[12px] font-extrabold transition-transform active:scale-[0.98] disabled:opacity-70 bg-gradient-to-br from-[#C49B61] to-[#A87D45] text-white"
         >
-          {submitting ? "등록 중..." : `📝 임시 등록 (${resolvedEntries.length}건 · 미매칭 자동 등록)`}
+          {autoFiredRef.current
+            ? "☑ 이미 등록됨 · 서버 확인 중..."
+            : submitting
+              ? "등록 처리 중..."
+              : `📝 임시 등록 (${resolvedEntries.length}건 · 미매칭 자동 등록)`}
         </button>
       )}
       {isPending && approvedAll && (

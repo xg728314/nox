@@ -169,6 +169,19 @@ async function runAutoClose(supabase: SupabaseClient, scopeStoreUuid: string | n
     }
   }
 
+  // R-chat-cleanup-on-close (2026-09-04): closed_now 세션들 룸 채팅 자동 archive
+  //   fire-and-forget · cron 응답 시간에 영향 X
+  if (closedSessions.length > 0) {
+    void (async () => {
+      try {
+        const { archiveRoomSessionChat } = await import("@/lib/chat/services/archiveRoomSessionChat")
+        for (const sid of closedSessions) {
+          await archiveRoomSessionChat(supabase, sid).catch(() => { /* silent */ })
+        }
+      } catch { /* silent */ }
+    })()
+  }
+
   // 4. hostess + store 이름 매핑 (별도 쿼리 — FK 없음)
   const memberships = Array.from(new Set(overdueRows.map((r) => r.p.membership_id)))
   const stores = Array.from(new Set(overdueRows.map((r) => r.p.store_uuid)))

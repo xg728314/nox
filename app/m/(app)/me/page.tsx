@@ -104,6 +104,10 @@ export default function MePage() {
         <Group title="매장">
           <Row href="/m/store" label="매장 상세" icon="🏪" />
           <Row href="/m/store/settings" label="매장 설정 (단가/페널티)" icon="⚙" />
+          {/* R-manager-mgmt (2026-09-04): 사장만 실장 관리 진입 · 퇴사 시 접근 차단 */}
+          {(data?.role === "owner" || data?.is_super_admin) && (
+            <Row href="/m/store/managers" label="실장 관리 (퇴사/재입사)" icon="👔" />
+          )}
         </Group>
 
         <Group title="계정 보안">

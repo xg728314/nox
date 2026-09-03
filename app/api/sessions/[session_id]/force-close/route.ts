@@ -23,6 +23,7 @@ import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { assertSessionUnlocked } from "@/lib/session/lockGuard"
+import { archiveRoomSessionChat } from "@/lib/chat/services/archiveRoomSessionChat"
 
 export async function POST(
   request: Request,
@@ -101,6 +102,9 @@ export async function POST(
     invalidateCache("monitor")
     invalidateCache("room_participants")
     invalidateCache("building_rooms")
+
+    // R-chat-cleanup-on-close (2026-09-04): 룸 채팅방 자동 archive
+    void archiveRoomSessionChat(supabase, session_id).catch(() => { /* silent */ })
 
     return NextResponse.json({ ok: true, session_id, status: "closed", ended_at: nowIso })
   } catch (error) {
