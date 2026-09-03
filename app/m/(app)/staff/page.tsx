@@ -10,6 +10,7 @@ import { ExtendEndSheet } from "../../_components/ExtendEndSheet"
 import { AddHostessToSessionSheet } from "../../_components/AddHostessToSessionSheet"
 import { PendingArrivalSheet } from "../../_components/PendingArrivalSheet"
 import { SessionTimeSheet } from "../../_components/SessionTimeSheet"
+import { MergeHostessSheet } from "../../_components/MergeHostessSheet"
 import { useBuildingRooms, useMe, usePendingArrivals, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
@@ -522,6 +523,7 @@ function LiveRoomCard({
                   sessionId={s.session_id}
                   onOpenExtend={() => onOpenExtend(p, s.session_id)}
                   roundInfo={{ index: idx, total }}
+                  storeUuid={storeUuid}
                 />
               )
             })
@@ -735,15 +737,19 @@ function ParticipantRow({
   sessionId,
   onOpenExtend,
   roundInfo,
+  storeUuid,
 }: {
   participant: BuildingRoomParticipant
   sessionId: string
   onOpenExtend: () => void
   /** R-round-count (2026-09-04): 같은 방·같은 아가씨의 몇 번째/총 라운드 */
   roundInfo?: { index: number; total: number }
+  /** R-hostess-merge (2026-09-04): 병합 시트 open 시 storeUuid 전달 */
+  storeUuid?: string
 }) {
   const [busy, setBusy] = useState<"leave" | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [mergeOpen, setMergeOpen] = useState(false)
   // sessionId 는 종료 endpoint 에 직접 필요 없지만 audit 목적으로 참조 유지.
   void sessionId
 
@@ -820,10 +826,32 @@ function ParticipantRow({
       >
         {busy === "leave" ? "…" : "○ 종료"}
       </button>
+      {/* R-hostess-merge (2026-09-04): 동명이인 병합 버튼 · storeUuid + membership_id 있을 때만 */}
+      {participant.membership_id && storeUuid && (
+        <button
+          type="button"
+          onClick={() => setMergeOpen(true)}
+          disabled={busy !== null}
+          title="동명이인 병합 (되돌릴 수 없음)"
+          className="shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-black bg-amber-100 text-amber-800 border-amber-300 disabled:opacity-40"
+        >
+          🔀
+        </button>
+      )}
       {msg && (
         <span className={cn("text-[9px] font-bold shrink-0", msg.startsWith("실패") ? "text-red-600" : "text-[#3E7A32]")}>
           {msg}
         </span>
+      )}
+      {mergeOpen && participant.membership_id && storeUuid && (
+        <MergeHostessSheet
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          fromMembershipId={participant.membership_id}
+          fromName={participant.name}
+          storeUuid={storeUuid}
+          fromParticipantId={participant.participant_id}
+        />
       )}
     </div>
   )
