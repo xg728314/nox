@@ -70,6 +70,52 @@ export async function POST(request: Request) {
 
     const sb = getServiceClient()
 
+    // R-provisional-reuse (2026-09-04): 같은 매장에 같은 이름 이미 있으면 재사용.
+    //   이전엔 호출마다 새 hostess row 만들어 누적 (지연 113명, 수영 35명 등).
+    //   지금은 정확 이름 일치 (case-sensitive) 인 approved active hostess 있으면 그것 반환.
+    //   backfill/alias 처리는 계속 수행.
+    const { data: existing } = await sb
+      .from("hostesses")
+      .select("id, membership_id, name")
+      .eq("store_uuid", storeUuid)
+      .eq("name", name)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (existing) {
+      const existMemId = (existing as { membership_id: string }).membership_id
+      // backfill (외부 참여자 → 이 membership)
+      let backfillCount = 0
+      if (Array.isArray(body.backfill_participant_ids) && body.backfill_participant_ids.length > 0) {
+        const ids = body.backfill_participant_ids.filter(isValidUUID)
+        if (ids.length > 0) {
+          const { count } = await sb.from("session_participants")
+            .update({ membership_id: existMemId }).in("id", ids).is("membership_id", null)
+          backfillCount = count ?? 0
+        }
+      }
+      // alias 학습 (동일 이름 다른 표기 시)
+      if (body.external_name_alias && body.external_name_alias.trim() !== name) {
+        try {
+          await sb.from("alias_learnings").upsert({
+            scope: "store", scope_id: storeUuid,
+            from_text: body.external_name_alias.trim(),
+            resolved_type: "hostess", resolved_id: existMemId, resolved_value: name,
+            confirmed_count: 1, last_used_at: new Date().toISOString(),
+          }, { onConflict: "scope,scope_id,from_text,resolved_type", ignoreDuplicates: false })
+        } catch { /* alias 테이블 없음 */ }
+      }
+      return NextResponse.json({
+        membership_id: existMemId,
+        profile_id: null,
+        store_uuid: storeUuid,
+        backfill_count: backfillCount,
+        reused: true,
+      })
+    }
+
     // 1) profile 생성 (임시)
     //    profiles 스키마 (002_actual_schema.sql): id UUID NOT NULL PRIMARY KEY (no default) ·
     //      full_name · phone · nickname · is_active · timestamps · deleted_at.
