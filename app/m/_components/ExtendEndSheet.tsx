@@ -50,6 +50,8 @@ export function ExtendEndSheet({
   const toast = useToast()
   const types = useServiceTypes()
   const [submitting, setSubmitting] = useState(false)
+  // R-extend-confirm (2026-09-04): 남은 시간 있을 때 「미리 연장」 여부 확인 modal
+  const [pendingExtend, setPendingExtend] = useState<{ timeType: TimeKey; timeMinutes: number } | null>(null)
 
   // 본인 매장 service_types 에서 같은 카테고리 시간/가격 매핑
   const priceMap = useMemo(() => {
@@ -68,8 +70,23 @@ export function ExtendEndSheet({
     return m
   }, [types.data, category])
 
+  // R-extend-confirm (2026-09-04): 남은 시간 있을 때 「미리 연장」 여부 확인.
+  //   남은 시간 3분 미만이면 confirm 없이 즉시 실행 (실무 · 곧 끝이라 사실상 새 라운드).
+  //   3분 이상이면 modal 표시 · 사용자가 선택:
+  //     - '미리 예약' → 그대로 새 참여자 추가 (기존 유지)
+  //     - '지금 종료 후' → 기존 leave + 새 라운드
   async function extendWithMinutes(timeMinutes: number, timeType?: TimeKey) {
     if (!category || submitting) return
+    // remainingMinutes 있고 3분 초과면 확인 필요
+    if (timeType && remainingMinutes != null && remainingMinutes > 3) {
+      setPendingExtend({ timeType, timeMinutes })
+      return
+    }
+    await doExtendNow(timeMinutes, timeType)
+  }
+
+  async function doExtendNow(timeMinutes: number, timeType?: TimeKey) {
+    if (!category) return
     setSubmitting(true)
     haptic([10, 30, 10])
     try {
@@ -106,6 +123,7 @@ export function ExtendEndSheet({
       }
       toast(`${hostessName} 연장 ${timeType ?? `${timeMinutes}분`}`, "success")
       invalidateApi("/api/rooms")
+      invalidateApi("/api/building/rooms")  // 라운드 배지 즉시 갱신 (R-extend-confirm)
       invalidateApi("/api/manager/hostesses")
       invalidateApi("/api/manager/incoming-staff")
       invalidateApi("/api/manager/settlement/summary")
@@ -113,6 +131,57 @@ export function ExtendEndSheet({
       router.refresh()
     } catch (e) {
       toast(`연장 실패: ${(e as Error).message}`, "error")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // R-extend-confirm (2026-09-04): 「지금 종료 후 새 라운드」 flow
+  //   기존 참여자 leave (남은 시간 무시) + 새 참여자 추가.
+  async function doExtendAfterEnd(timeMinutes: number, timeType: TimeKey) {
+    if (!category) return
+    setSubmitting(true)
+    haptic([10, 30, 10])
+    try {
+      // 1. 기존 참여자 leave (남은 시간 tier 기록 없이 · 실장이 EditParticipant 로 조정)
+      const leaveRes = await apiFetch(`/api/sessions/participants/${encodeURIComponent(participantId)}/leave`, {
+        method: "POST",
+      })
+      // ALREADY_LEFT 는 skip · 다른 에러는 throw
+      if (!leaveRes.ok) {
+        const j = await leaveRes.json().catch(() => ({})) as { error?: string; message?: string }
+        if (j?.error !== "ALREADY_LEFT") throw new Error(j?.message ?? `leave HTTP ${leaveRes.status}`)
+      }
+      // 2. 새 참여자 추가
+      const info = priceMap.get(timeType)
+      const res = await apiFetch("/api/sessions/participants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          membership_id: membershipId,
+          role: "hostess",
+          category,
+          time_minutes: timeMinutes,
+          time_type: timeType,
+          manager_deduction: info?.manager_deduction ?? 0,
+          greeting_confirmed: category === "셔츠" ? true : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.message ?? `HTTP ${res.status}`)
+      }
+      toast(`${hostessName} 종료 후 재시작 · ${timeType}`, "success")
+      invalidateApi("/api/rooms")
+      invalidateApi("/api/building/rooms")
+      invalidateApi("/api/manager/hostesses")
+      invalidateApi("/api/manager/incoming-staff")
+      invalidateApi("/api/manager/settlement/summary")
+      onClose()
+      router.refresh()
+    } catch (e) {
+      toast(`실패: ${(e as Error).message}`, "error")
     } finally {
       setSubmitting(false)
     }
@@ -197,6 +266,7 @@ export function ExtendEndSheet({
       //   즉시 갱신되어야 홈/정산 화면에서 사라짐. 이전엔 이게 빠져서 종료가 화면에
       //   실시간 반영 안 됨 (5s TTL 만료 후에야 사라짐 = "반응이 느리다" 증상).
       invalidateApi("/api/rooms")
+      invalidateApi("/api/building/rooms")
       invalidateApi("/api/manager/hostesses")
       invalidateApi("/api/manager/incoming-staff")
       invalidateApi("/api/manager/settlement/summary")
@@ -227,6 +297,54 @@ export function ExtendEndSheet({
         </button>
       }
     >
+      {/* R-extend-confirm (2026-09-04): 남은 시간 있을 때 확인 modal */}
+      {pendingExtend && (
+        <div className="mb-3 rounded-2xl border-2 border-amber-400 bg-amber-50 p-3">
+          <div className="text-[11px] font-black text-amber-800 mb-1">
+            ⚠ 남은 시간 {remainingMinutes}분 있어요
+          </div>
+          <div className="text-[11px] text-amber-800/90 mb-2 leading-relaxed">
+            <b>{hostessName}</b> 님 지금 시간 {remainingMinutes}분 남아있어요.
+            <br />
+            어떻게 연장할까요?
+          </div>
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                const p = pendingExtend
+                setPendingExtend(null)
+                void doExtendNow(p.timeMinutes, p.timeType)
+              }}
+              className="w-full rounded-lg py-2.5 text-[12px] font-black bg-white border-2 border-amber-500 text-amber-800 active:bg-amber-100 disabled:opacity-40"
+            >
+              🔁 미리 연장 (남은 시간 이어서 새 라운드)
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                const p = pendingExtend
+                setPendingExtend(null)
+                void doExtendAfterEnd(p.timeMinutes, p.timeType)
+              }}
+              className="w-full rounded-lg py-2.5 text-[12px] font-black bg-white border-2 border-red-400 text-red-700 active:bg-red-50 disabled:opacity-40"
+            >
+              ⭕ 지금 종료 후 새 시작 (남은 {remainingMinutes}분 무시)
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => setPendingExtend(null)}
+              className="w-full rounded-lg py-2 text-[11px] font-black bg-transparent border border-[#D8D2C8] text-[#7A746A] disabled:opacity-40"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 연장 · 딜레이 조정 (프로토타입 매칭 · informational preview) */}
       <ExtendControls
         priceMap={priceMap}
