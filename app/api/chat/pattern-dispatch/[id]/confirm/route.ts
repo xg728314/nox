@@ -111,15 +111,65 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
         const originStoreUuid = hRow?.origin_store_uuid ?? hRow?.store_uuid ?? null
 
-        // target store 의 manager + 빈 룸 + 단가 + business_day
-        const { data: mgrs } = await supabase
+        // R32/#4 (2026-09-04): 실장 배정 로직 개선.
+        //   이전: `.limit(1)` 로 매장 첫 매니저에 세팅 → 정산 수수료가 엉뚱한 실장 몫으로.
+        //   지금:
+        //     1) 확인자 (auth) 가 target store 의 approved manager 이면 그 사람 사용
+        //        (본인이 확인 = 본인이 담당)
+        //     2) 없으면 그 방의 기존 active session 담당 실장 (existingActive 아래 반영)
+        //     3) fallback: 오늘 active session 이 가장 적은 실장 (load balance)
+        //   이 로직으로 여러 실장 있는 매장에서 매달 벌어지던 정산 오배정 방지.
+        type MgrRow = { id: string; profile_id: string }
+        let targetMgr: MgrRow | undefined
+        // Step 1: 확인자 == manager?
+        const { data: selfMgr } = await supabase
           .from("store_memberships")
           .select("id, profile_id")
           .eq("store_uuid", p.target_store_uuid)
-          .eq("role", "manager").eq("status", "approved").is("deleted_at", null).limit(1)
-        const targetMgr = (mgrs ?? [])[0] as { id: string; profile_id: string } | undefined
+          .eq("profile_id", auth.user_id)
+          .eq("role", "manager").eq("status", "approved").is("deleted_at", null)
+          .maybeSingle()
+        if (selfMgr) {
+          targetMgr = selfMgr as MgrRow
+        } else {
+          // Step 3: 모든 매니저 조회 후 오늘 active session count 별 최소 담당자 선택
+          const { data: allMgrs } = await supabase
+            .from("store_memberships")
+            .select("id, profile_id")
+            .eq("store_uuid", p.target_store_uuid)
+            .eq("role", "manager").eq("status", "approved").is("deleted_at", null)
+          const mgrList = (allMgrs ?? []) as MgrRow[]
+          if (mgrList.length === 0) {
+            await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: "target store 매니저 없음", updated_at: new Date().toISOString() }).eq("id", p.id)
+            continue
+          }
+          if (mgrList.length === 1) {
+            targetMgr = mgrList[0]
+          } else {
+            // load balance: 오늘 active session count 별 최소
+            const mgrIds = mgrList.map(m => m.id)
+            const { data: loads } = await supabase
+              .from("room_sessions")
+              .select("manager_membership_id")
+              .eq("store_uuid", p.target_store_uuid)
+              .in("manager_membership_id", mgrIds)
+              .eq("status", "active")
+              .is("deleted_at", null)
+            const loadMap = new Map<string, number>()
+            for (const m of mgrList) loadMap.set(m.id, 0)
+            for (const row of (loads ?? []) as Array<{ manager_membership_id: string }>) {
+              loadMap.set(row.manager_membership_id, (loadMap.get(row.manager_membership_id) ?? 0) + 1)
+            }
+            // 가장 적은 부담의 매니저 (동률이면 첫 번째)
+            let minLoad = Infinity
+            for (const m of mgrList) {
+              const l = loadMap.get(m.id) ?? 0
+              if (l < minLoad) { minLoad = l; targetMgr = m }
+            }
+          }
+        }
         if (!targetMgr) {
-          await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: "target store 매니저 없음", updated_at: new Date().toISOString() }).eq("id", p.id)
+          await supabase.from("chat_pattern_dispatches").update({ status: "rejected", rejected_reason: "매니저 배정 실패", updated_at: new Date().toISOString() }).eq("id", p.id)
           continue
         }
         // R-halfcha-fallback (2026-08-23): 반차3/반차2 는 별도 service_type row 없이도

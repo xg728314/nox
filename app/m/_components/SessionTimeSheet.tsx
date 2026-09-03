@@ -151,26 +151,44 @@ export function SessionTimeSheet({
   async function confirmTier(tier: Tier) {
     if (busy) return
     if (confirming === "restart") {
-      // 재시작: started_at = now
-      await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 ${tier} 재시작`)
+      // R32/#3 (2026-09-04): 재시작은 시간만 리셋 · 실제 청구는 참여자별 개별 편집.
+      //   이전엔 tier 를 audit note 에만 넣고 실 청구는 안 함 → "완티 처리" 착각.
+      //   지금은 tier picker 자체를 없애고 항상 "무료 재시작" 만 노출 (아래 UI 참조).
+      //   호출 도달하면 tier 무시하고 시간만 리셋.
+      await patchStartedAt(new Date().toISOString(), `${elapsedMin}분 무료 재시작 (시간 리셋)`)
     } else if (confirming === "end") {
-      // R-end-tier (2026-09-04): 종료 = 참여자 순차 leave → 세션 자동 close
-      //   실제 정산은 EditParticipantSheet 로 실장이 수동 (자동 청구는 다음 라운드)
+      // R32/#5 (2026-09-04): 방 종료 부분 실패 명시.
+      //   이전엔 실패한 이름 없이 count 만 → 실장 "종료됨" 확신 · 다음 손님 받으려다 room busy 발각.
+      //   지금은 실패한 이름을 응답에 나열 · 세션 close 확인.
       setBusy(true)
       haptic([10, 30, 10])
       try {
-        let count = 0
+        const successNames: string[] = []
+        const failedNames: string[] = []
         for (const p of participants ?? []) {
-          const res = await apiFetch(`/api/sessions/participants/${encodeURIComponent(p.participant_id)}/leave`, {
-            method: "POST",
-          })
-          if (res.ok) count++
+          try {
+            const res = await apiFetch(`/api/sessions/participants/${encodeURIComponent(p.participant_id)}/leave`, {
+              method: "POST",
+            })
+            if (res.ok) successNames.push(p.name ?? "?")
+            else failedNames.push(p.name ?? "?")
+          } catch {
+            failedNames.push(p.name ?? "?")
+          }
         }
-        toast(`${roomLabel} ${tier} 종료 · ${count}명 leave`, "success")
+        if (failedNames.length > 0) {
+          toast(
+            `⚠ 종료 부분 실패 · ${successNames.length}/${(participants ?? []).length}명 leave · 실패: ${failedNames.join(", ")}`,
+            "error",
+          )
+        } else {
+          toast(`${roomLabel} ${tier} 종료 · ${successNames.length}명 leave`, "success")
+        }
         invalidateApi("/api/rooms")
         invalidateApi("/api/building/rooms")
         invalidateApi("/api/manager/incoming-staff")
-        onClose()
+        // 부분 실패 시엔 시트 유지 → 실장이 개별 확인
+        if (failedNames.length === 0) onClose()
       } catch (e) {
         toast(`종료 실패: ${(e as Error).message}`, "error")
       } finally {
@@ -251,11 +269,12 @@ export function SessionTimeSheet({
 
         {!confirming && (
           <>
-            {/* Primary — 재시작 */}
+            {/* R32/#3 (2026-09-04): 재시작은 항상 "무료 재시작" · tier picker 안 뜸.
+                실 청구가 필요하면 참여자 카드에서 개별 편집 (실장 판단). */}
             <button
               type="button"
               disabled={busy || elapsedMin < 1}
-              onClick={() => setConfirming("restart")}
+              onClick={() => void patchStartedAt(new Date().toISOString(), `${elapsedMin}분 무료 재시작 (시간 리셋)`)}
               className={cn(
                 "w-full rounded-xl py-3 text-[13px] font-extrabold border-2 mb-2 transition-all",
                 busy || elapsedMin < 1
@@ -263,9 +282,12 @@ export function SessionTimeSheet({
                   : "border-[#A87D45] bg-[#C49B61]/15 text-[#8C6A3A] active:bg-[#C49B61]/25",
               )}
             >
-              🔄 {elapsedMin}분 삭제 · 재시작 (연장)
+              🔄 {elapsedMin}분 삭제 · 무료 재시작 (시간만 리셋)
             </button>
-            {/* Primary — 방 종료 */}
+            <div className="text-[9px] font-bold text-[#7A746A] mb-2 text-center leading-relaxed px-2">
+              ⚠ 재시작은 시간만 리셋 · 청구 금액은 참여자별 개별 편집으로
+            </div>
+            {/* Primary — 방 종료 (tier picker 유지) */}
             <button
               type="button"
               disabled={busy}
@@ -280,7 +302,7 @@ export function SessionTimeSheet({
               ⭕ 방 종료 (참여자 모두 leave)
             </button>
             <div className="text-[10px] font-bold text-[#7A746A] mb-3 text-center leading-relaxed">
-              어느 tier 로 처리할지 선택 (완티 / 반티 / 차3 / 무료)
+              방 종료 시 tier 선택 (참여자별 개별 정산은 카드에서)
             </div>
           </>
         )}

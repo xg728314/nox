@@ -31,7 +31,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
     const body = (await request.json().catch(() => ({}))) as {
-      name?: string; store_uuid?: string; room_no?: string
+      name?: string; store_uuid?: string; room_no?: string;
+      /** R32/#2: 동명이인 재확인 후 사용자가 명시 승낙한 경우 true (모두 leave) */
+      force?: boolean
     }
     const name = (body.name || "").trim()
     if (!name) return NextResponse.json({ error: "BAD_REQUEST", message: "name required" }, { status: 400 })
@@ -129,6 +131,36 @@ export async function POST(request: Request) {
 
     if (candidates.length === 0) {
       return NextResponse.json({ ok: true, left: [], count: 0, message: "매칭 active 참여자 없음" })
+    }
+
+    // R32/#2 (2026-09-04): 동명이인 mass-leave 방어.
+    //   "지연" 이 2명 (다른 membership) 이거나 같은 지연이 2방 (2개 active row)
+    //   있으면 이전엔 둘 다 leave → 정산 사고. 이제 room 정보 담아 AMBIGUOUS 반환.
+    //   UI 는 이 응답을 받아 "어느 방 지연?" 재확인 시트 표시.
+    //
+    //   단, force=true 로 명시 오면 원래대로 모두 leave (사용자 명시 승낙 시).
+    if (candidates.length > 1 && !body.force) {
+      // room_no 라벨 조회 (사용자 재확인 UI 용)
+      const roomUuids = Array.from(new Set(candidates.map(p => p.room_sessions.room_uuid)))
+      const { data: roomRows } = await sb
+        .from("rooms")
+        .select("id, room_no")
+        .in("id", roomUuids)
+      const roomMap = new Map<string, string>()
+      for (const r of (roomRows ?? []) as Array<{ id: string; room_no: string }>) {
+        roomMap.set(r.id, r.room_no)
+      }
+      return NextResponse.json({
+        error: "AMBIGUOUS_NAME",
+        message: `'${name}' 이름의 active 참여자가 ${candidates.length}건. 방번호를 지정하거나 개별 확인 필요.`,
+        candidates: candidates.map(p => ({
+          participant_id: p.id,
+          session_id: p.session_id,
+          hostess_name: p.external_name || name,
+          room_uuid: p.room_sessions.room_uuid,
+          room_no: roomMap.get(p.room_sessions.room_uuid) ?? null,
+        })),
+      }, { status: 409 })
     }
 
     // 3) leave 실행 · status=left · left_at 스탬프
