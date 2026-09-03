@@ -10,6 +10,7 @@ import { fmtHM } from "../../../_lib/format"
 import { cn } from "../../../_lib/cn"
 import { ChatPatternAction } from "./ChatPatternAction"
 import { ChatAutoActionBadge } from "./ChatAutoActionBadge"
+import { ServiceCallSheet } from "../../../_components/ServiceCallSheet"
 
 type ChatMessage = {
   id: string
@@ -40,10 +41,28 @@ export default function ChatRoomPage() {
   const [patternBusy, setPatternBusy] = useState(false)
   // R-help-modal (2026-08-23): 메이드톡 파서 인식 범위 설명
   const [helpOpen, setHelpOpen] = useState(false)
+  // R-svc-call-in-chat (2026-09-04): 룸 채팅방 · 서비스 콜 트리거
+  const [roomMeta, setRoomMeta] = useState<{ session_id: string | null; session_active: boolean; room_no: string | null } | null>(null)
+  const [svcOpen, setSvcOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   const router = useRouter()
+
+  // R-svc-call-in-chat (2026-09-04): 채팅방 메타 조회 (room_session 여부 + session_id)
+  useEffect(() => {
+    if (!roomId) return
+    apiFetch(`/api/chat/rooms/${encodeURIComponent(roomId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((j: { session_id?: string | null; session_active?: boolean; room_no?: string | null } | null) => {
+        if (j) setRoomMeta({
+          session_id: j.session_id ?? null,
+          session_active: !!j.session_active,
+          room_no: j.room_no ?? null,
+        })
+      })
+      .catch(() => { /* silent */ })
+  }, [roomId])
 
   // 채팅방의 패턴 인식 활성화 상태 조회
   useEffect(() => {
@@ -212,6 +231,17 @@ export default function ChatRoomPage() {
         backHref="/m/chat"
         right={
           <div className="flex items-center gap-1.5">
+            {/* R-svc-call-in-chat (2026-09-04): 룸 채팅 · 활성 세션 → 서비스 콜 트리거 */}
+            {roomMeta?.session_id && roomMeta.session_active && (
+              <button
+                type="button"
+                onClick={() => setSvcOpen(true)}
+                className="text-[10px] font-extrabold px-2.5 py-1 rounded-full border bg-yellow-50 text-yellow-800 border-yellow-400"
+                title="방 서비스 콜 (안주·술·담배·기타)"
+              >
+                🛎 콜
+              </button>
+            )}
             {/* R-help-modal (2026-08-23): 메이드톡 인식 범위 설명서 */}
             <button
               type="button"
@@ -243,6 +273,16 @@ export default function ChatRoomPage() {
 
       {/* R-help-modal (2026-08-23): 설명서 모달 · 파서 인식 범위 매뉴얼 */}
       {helpOpen && <ChatHelpModal onClose={() => setHelpOpen(false)} />}
+
+      {/* R-svc-call-in-chat (2026-09-04): 서비스 콜 시트 */}
+      {svcOpen && roomMeta?.session_id && (
+        <ServiceCallSheet
+          open={svcOpen}
+          onClose={() => setSvcOpen(false)}
+          sessionId={roomMeta.session_id}
+          roomLabel={roomMeta.room_no ? `${roomMeta.room_no}번방` : "방"}
+        />
+      )}
 
       {/* Sprint 3: 매장 초이스 상태 sticky bar · macro_choice 최신 (superseded 아님) */}
       {(() => {
