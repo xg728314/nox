@@ -158,17 +158,18 @@ export default function ChatRoomPage() {
       if (el) el.scrollTo({ top: el.scrollHeight, behavior })
     }
     scrollToBottom()
+    // R-raf-fix (2026-09-04): 이전 코드는 raf1 (number) 에 raf2 프로퍼티를 attach
+    //   시도 → TypeError: 원시 number 에 프로퍼티 할당 불가. closure 로 보관.
+    let raf2Id: number | null = null
     const raf1 = requestAnimationFrame(() => {
-      const raf2 = requestAnimationFrame(scrollToBottom)
-      ;(raf1 as unknown as { raf2?: number }).raf2 = raf2
+      raf2Id = requestAnimationFrame(scrollToBottom)
     })
     const t1 = window.setTimeout(scrollToBottom, 100)
     const t2 = window.setTimeout(scrollToBottom, 500)
     didInitialScrollRef.current = true
     return () => {
       cancelAnimationFrame(raf1)
-      const raf2 = (raf1 as unknown as { raf2?: number }).raf2
-      if (raf2) cancelAnimationFrame(raf2)
+      if (raf2Id !== null) cancelAnimationFrame(raf2Id)
       window.clearTimeout(t1)
       window.clearTimeout(t2)
     }
