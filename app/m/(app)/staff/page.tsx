@@ -11,6 +11,7 @@ import { AddHostessToSessionSheet } from "../../_components/AddHostessToSessionS
 import { PendingArrivalSheet } from "../../_components/PendingArrivalSheet"
 import { SessionTimeSheet } from "../../_components/SessionTimeSheet"
 import { MergeHostessSheet } from "../../_components/MergeHostessSheet"
+import { ServiceCallSheet } from "../../_components/ServiceCallSheet"
 import { useBuildingRooms, useMe, usePendingArrivals, type BuildingRoom, type BuildingRoomParticipant, type BuildingRoomsStoreBlock, type ClosedSessionLogEntry } from "../../_hooks/useMobileData"
 import { cn } from "../../_lib/cn"
 
@@ -348,6 +349,8 @@ function LiveRoomCard({
   const [lockBusy, setLockBusy] = useState(false)
   // R-session-time (2026-09-04)
   const [timeSheetOpen, setTimeSheetOpen] = useState(false)
+  // R-svc-calls (2026-09-04)
+  const [svcSheetOpen, setSvcSheetOpen] = useState(false)
   const toast = useToast()
   const s = room.session!
   const isMine =
@@ -529,14 +532,22 @@ function LiveRoomCard({
               )
             })
           })()}
-          {/* R-add-hostess + R-force-close (2026-08-31): 방 액션 */}
+          {/* R-add-hostess + R-force-close (2026-08-31): 방 액션
+              R-svc-calls (2026-09-04): 🛎 서비스 콜 버튼 추가 */}
           <div className="mt-2 pt-2 border-t border-[#EDE7DA] flex gap-1.5">
             <button
               type="button"
               onClick={() => setAddSheetOpen(true)}
               className="flex-1 rounded-lg py-2 text-[11px] font-extrabold border-2 border-[#A87D45] bg-[#C49B61]/15 text-[#8C6A3A] active:bg-[#C49B61]/25"
             >
-              + 아가씨 추가
+              + 아가씨
+            </button>
+            <button
+              type="button"
+              onClick={() => setSvcSheetOpen(true)}
+              className="flex-1 rounded-lg py-2 text-[11px] font-extrabold border-2 border-yellow-400 bg-yellow-50 text-yellow-800 active:bg-yellow-100"
+            >
+              🛎 콜
             </button>
             {s.participants.length === 0 && (
               <button
@@ -545,7 +556,7 @@ function LiveRoomCard({
                 onClick={forceClose}
                 className="flex-1 rounded-lg py-2 text-[11px] font-extrabold border-2 border-red-300 bg-red-50 text-red-700 active:bg-red-100 disabled:opacity-40"
               >
-                {closing ? "..." : "🔚 세션 종료"}
+                {closing ? "..." : "🔚 종료"}
               </button>
             )}
           </div>
@@ -557,6 +568,14 @@ function LiveRoomCard({
           onClose={() => setAddSheetOpen(false)}
           sessionId={s.session_id}
           storeUuid={storeUuid}
+          roomLabel={`${room.room_no}번방`}
+        />
+      )}
+      {svcSheetOpen && (
+        <ServiceCallSheet
+          open={svcSheetOpen}
+          onClose={() => setSvcSheetOpen(false)}
+          sessionId={s.session_id}
           roomLabel={`${room.room_no}번방`}
         />
       )}

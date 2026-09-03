@@ -404,3 +404,46 @@ export type AttendanceRow = {
 export function useAttendance() {
   return useApi<{ attendance: AttendanceRow[] }>("/api/attendance", { ttl: 5000 })
 }
+
+/** R-waitlist (2026-09-04): 매장 대기 board */
+export type WaitlistItem = {
+  id: string
+  store_uuid: string
+  store_name: string
+  floor: number | null
+  category: "퍼블릭" | "하퍼" | "셔츠" | "any"
+  party_size: number
+  room_count: number
+  is_new_room: boolean
+  seen_policy: "unseen_only" | "any"
+  tags: string[]
+  note: string | null
+  status: "active" | "matched" | "cancelled" | "expired"
+  created_at: string
+  expires_at: string
+  author_membership_id: string
+  is_mine: boolean
+}
+export function useWaitlist(scope: "mine" | "building" = "building") {
+  return useApi<{ items: WaitlistItem[] }>(`/api/waitlist?scope=${scope}`, { ttl: 3000 })
+}
+
+/** R-svc-calls (2026-09-04): 방 서비스 콜 */
+export type ServiceCall = {
+  id: string
+  session_id: string
+  store_uuid: string
+  room_uuid: string | null
+  room_no: string | null
+  request_type: "menu"|"drink"|"smoke"|"temp"|"blanket"|"ashtray"|"mic"|"battery"|"water"|"other"
+  detail: string | null
+  status: "requested"|"in_progress"|"done"|"cancelled"
+  requested_by_membership_id: string
+  assigned_to_membership_id: string | null
+  progress_at: string | null
+  completed_at: string | null
+  created_at: string
+}
+export function useServiceCalls(status: "active" | "done" = "active") {
+  return useApi<{ items: ServiceCall[] }>(`/api/service-calls?status=${status}`, { ttl: 3000 })
+}

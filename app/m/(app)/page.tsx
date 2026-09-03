@@ -6,7 +6,7 @@ import { SosButton } from "../_components/SosButton"
 import { AssignFlowSheet } from "../_components/AssignFlowSheet"
 import { ExtendEndSheet } from "../_components/ExtendEndSheet"
 import { fmtDateKo } from "../_lib/format"
-import { useMe, useHostesses, useAttendance, useRooms, usePendingArrivals, type HostessPreview } from "../_hooks/useMobileData"
+import { useMe, useHostesses, useAttendance, useRooms, usePendingArrivals, useWaitlist, useServiceCalls, type HostessPreview } from "../_hooks/useMobileData"
 import { PendingArrivalSheet } from "../_components/PendingArrivalSheet"
 import { useAutoCloseExpired } from "../_hooks/useAutoCloseExpired"
 import { invalidateApi } from "../_hooks/useApi"
@@ -72,6 +72,11 @@ export default function DispatchPage() {
   const roomsQ = useRooms()  // R-home-dashboard (2026-08-23): 매장 실시간 매출 · 방수
   const pendingArrivals = usePendingArrivals()
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false)
+  // R-waitlist + R-svc-calls (2026-09-04): 배지 count 만 표시
+  const waitlistData = useWaitlist("building")
+  const svcData = useServiceCalls("active")
+  const waitlistCount = (waitlistData.data?.items ?? []).length
+  const svcCount = (svcData.data?.items ?? []).length
   const { recent: autoClosedRecent } = useAutoCloseExpired()
   const toast = useToast()
 
@@ -460,6 +465,38 @@ export default function DispatchPage() {
             </span>
           </button>
         )}
+        {/* R-waitlist (2026-09-04): 대기 board 진입 */}
+        <Link
+          href="/waitlist"
+          className={cn(
+            "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold no-underline inline-flex items-center gap-1.5",
+            dark ? "bg-[#3a2e1a] border-[#7a5c30] text-[#F5D9A8]" : "bg-[#C49B61]/15 border-[#A87D45] text-[#8C6A3A]",
+          )}
+        >
+          📋 대기
+          {waitlistCount > 0 && (
+            <span className="rounded-full text-[9px] font-black px-1.5 py-0.5 bg-[#A87D45] text-white">
+              {waitlistCount}
+            </span>
+          )}
+        </Link>
+        {/* R-svc-calls (2026-09-04): 서비스 콜 대시보드 진입 */}
+        <Link
+          href="/service"
+          className={cn(
+            "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold no-underline inline-flex items-center gap-1.5",
+            svcCount > 0
+              ? "bg-yellow-100 border-yellow-400 text-yellow-800 animate-pulse"
+              : (dark ? "bg-[#2e2e1a] border-[#7a7a30] text-[#F5E9A8]" : "bg-yellow-50 border-yellow-300 text-yellow-700"),
+          )}
+        >
+          🛎 콜
+          {svcCount > 0 && (
+            <span className="rounded-full text-[9px] font-black px-1.5 py-0.5 bg-yellow-600 text-white">
+              {svcCount}
+            </span>
+          )}
+        </Link>
         <Link
           href="/operating-days"
           className={cn(
