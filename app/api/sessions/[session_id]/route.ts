@@ -30,14 +30,36 @@ export async function PATCH(
       customer_id?: string | null
       customer_name_snapshot?: string | null
       customer_party_size?: number
+      /** R-session-time (2026-09-04): 방 시작 시각 조정 · ±조정 or now 리셋 */
+      started_at?: string
     }>(request)
     if (parsed.error) return parsed.error
     const body = parsed.body
 
     const hasManagerField = body.manager_name !== undefined || body.manager_membership_id !== undefined || body.is_external_manager !== undefined
     const hasCustomerField = body.customer_id !== undefined || body.customer_name_snapshot !== undefined || body.customer_party_size !== undefined
-    if (!hasManagerField && !hasCustomerField) {
+    const hasStartedAtField = body.started_at !== undefined
+    if (!hasManagerField && !hasCustomerField && !hasStartedAtField) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "At least one field is required." }, { status: 400 })
+    }
+    // R-session-time: started_at 검증 (±30분 안전 범위)
+    let startedAtOverride: string | null = null
+    if (hasStartedAtField) {
+      const raw = body.started_at
+      if (typeof raw !== "string") {
+        return NextResponse.json({ error: "BAD_REQUEST", message: "started_at must be ISO string" }, { status: 400 })
+      }
+      const t = Date.parse(raw)
+      if (Number.isNaN(t)) {
+        return NextResponse.json({ error: "BAD_REQUEST", message: "started_at invalid" }, { status: 400 })
+      }
+      const now = Date.now()
+      if (Math.abs(t - now) > 6 * 60 * 60_000) {
+        return NextResponse.json({
+          error: "OUT_OF_RANGE", message: "시작 시각은 지금 기준 ±6시간 이내만 조정 가능.",
+        }, { status: 400 })
+      }
+      startedAtOverride = new Date(t).toISOString()
     }
 
     const svc = createServiceClient()

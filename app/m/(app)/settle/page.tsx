@@ -640,6 +640,21 @@ function IncomingStaffSection({
   const [moveTarget, setMoveTarget] = useState<IncomingStaffParticipant | null>(null)
   const toast = useToast()
 
+  // R-store-nested-groups (2026-09-04): 매장 하나 안에 여러 실장이면 실장별 서브그룹.
+  //   기존: (매장,실장) 페어 = 카드 하나 · 매장 이름 반복 노출.
+  //   신규: 매장 카드 하나 · 확장 시 실장별 서브 섹션.
+  const storeGrouped = useMemo(() => {
+    const map = new Map<string, { store_uuid: string; store_name: string; subGroups: IncomingStaffGroup[] }>()
+    for (const g of groups) {
+      const key = g.origin_store_uuid
+      if (!map.has(key)) {
+        map.set(key, { store_uuid: g.origin_store_uuid, store_name: g.origin_store_name, subGroups: [] })
+      }
+      map.get(key)!.subGroups.push(g)
+    }
+    return [...map.values()].sort((a, b) => a.store_name.localeCompare(b.store_name, "ko"))
+  }, [groups])
+
   function toggle(key: string) {
     setExpanded((prev) => {
       const n = new Set(prev)
@@ -730,8 +745,43 @@ function IncomingStaffSection({
           {allExpanded ? "▴ 전부 접기" : "▾ 전부 펼치기"}
         </button>
       </div>
-      <div className="space-y-2">
-        {groups.map((g, idx) => {
+      <div className="space-y-3">
+        {storeGrouped.map((store) => {
+          const storeKey = `store-${store.store_uuid}`
+          const storeOpen = expanded.has(storeKey)
+          const storeTotal = store.subGroups.reduce((a, g) => a + g.total_price, 0)
+          const storeHostessTotal = store.subGroups.reduce((a, g) => a + g.total_hostess_payout, 0)
+          const totalCount = store.subGroups.reduce((a, g) => a + g.participants.length, 0)
+          const managerCount = store.subGroups.length
+          return (
+            <div key={storeKey} className="rounded-2xl border-2 border-[#D8D2C8] bg-white/70 overflow-hidden">
+              {/* 매장 헤더 (1개 실장이든 여러 실장이든 통일) */}
+              <button
+                type="button"
+                onClick={() => toggle(storeKey)}
+                className="w-full px-4 py-2.5 flex items-center justify-between gap-2 text-left bg-gradient-to-br from-[#FAF5EC] to-[#F0E8D8] active:bg-[#F0E8D8]"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn("text-[12px] font-extrabold text-[#A87D45] transition-transform", storeOpen && "rotate-90")}>▸</span>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-black tracking-tight text-[#2D2B26]">
+                      {store.store_name}
+                    </div>
+                    <div className="text-[10px] font-bold text-[#7A746A] mt-0.5">
+                      실장 {managerCount}명 · 아가씨 {totalCount}명
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[13px] font-extrabold text-[#2D2B26]">{fmtMoneyWon(storeTotal)}</div>
+                  <div className="text-[10px] font-black text-red-700">줄 {fmtMoneyWon(storeHostessTotal)}</div>
+                </div>
+              </button>
+
+              {/* 확장 시 실장별 서브그룹 · 기존 group card UI 재사용 */}
+              {storeOpen && (
+                <div className="border-t border-[#EDE7DA] p-2 space-y-2 bg-[#FAF5EC]/30">
+                  {store.subGroups.map((g, idx) => {
           const key = `${g.origin_store_uuid}-${g.origin_manager_membership_id ?? "x"}-${idx}`
           const isOpen = expanded.has(key)
           const status = g.settlement_status ?? "none"
@@ -887,6 +937,11 @@ function IncomingStaffSection({
                     )}
                   </div>
                 </>
+              )}
+            </div>
+          )
+        })}
+                </div>
               )}
             </div>
           )
