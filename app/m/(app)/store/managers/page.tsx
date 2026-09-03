@@ -16,7 +16,6 @@
  *   - 마지막 owner · 본인 계정은 revoke 차단
  */
 import { useEffect, useState } from "react"
-import Link from "next/link"
 import { PageHeader } from "../../../_components/PageHeader"
 import { TabBar } from "../../../_components/TabBar"
 import { useToast } from "../../../_components/Toast"
@@ -42,6 +41,8 @@ export default function ManagersPage() {
   const [rows, setRows] = useState<Row[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  // R-confirm-modal (2026-09-04): browser confirm() mobile webview 에서 안 뜸 → in-page modal
+  const [confirmTarget, setConfirmTarget] = useState<{ mid: string; name: string; action: "revoke" | "restore" } | null>(null)
   const toast = useToast()
 
   async function load() {
@@ -61,12 +62,16 @@ export default function ManagersPage() {
 
   useEffect(() => { void load() }, [])
 
-  async function patch(mid: string, action: "revoke" | "restore", name: string) {
+  // R-confirm-modal (2026-09-04): 클릭 시 modal 오픈 · 실 처리는 modal 확인 후
+  function requestPatch(mid: string, action: "revoke" | "restore", name: string) {
     if (busy) return
-    const msg = action === "revoke"
-      ? `${name} 실장을 퇴사 처리하면 즉시 매장 접근 · 채팅 차단됩니다. 진행할까요?`
-      : `${name} 실장을 재입사 처리할까요?`
-    if (!confirm(msg)) return
+    setConfirmTarget({ mid, name, action })
+  }
+
+  async function doPatch() {
+    if (!confirmTarget || busy) return
+    const { mid, name, action } = confirmTarget
+    setConfirmTarget(null)
     setBusy(mid)
     try {
       const res = await apiFetch(`/api/store/managers/${encodeURIComponent(mid)}`, {
@@ -131,7 +136,7 @@ export default function ManagersPage() {
                   row={r}
                   isSelf={r.membership_id === me.data?.membership_id}
                   busy={busy === r.membership_id}
-                  onAction={a => patch(r.membership_id, a, r.full_name)}
+                  onAction={a => requestPatch(r.membership_id, a, r.full_name)}
                 />
               ))}
             </div>
@@ -150,7 +155,7 @@ export default function ManagersPage() {
                   row={r}
                   isSelf={r.membership_id === me.data?.membership_id}
                   busy={busy === r.membership_id}
-                  onAction={a => patch(r.membership_id, a, r.full_name)}
+                  onAction={a => requestPatch(r.membership_id, a, r.full_name)}
                 />
               ))}
             </div>
@@ -163,6 +168,59 @@ export default function ManagersPage() {
           </div>
         )}
       </div>
+
+      {/* R-confirm-modal (2026-09-04): 퇴사/재입사 확인 모달 · mobile webview 에서 확실히 뜨도록 */}
+      {confirmTarget && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4"
+          onClick={() => setConfirmTarget(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-[16px] font-black text-[#2D2B26] mb-2">
+              {confirmTarget.action === "revoke" ? "🚪 퇴사 처리 확인" : "🔄 재입사 처리 확인"}
+            </div>
+            <div className="text-[12px] font-bold text-[#7A746A] leading-relaxed mb-5">
+              {confirmTarget.action === "revoke" ? (
+                <>
+                  <b className="text-red-700">{confirmTarget.name}</b> 실장을 퇴사 처리합니다.
+                  <br />즉시 <b>매장 접근 · 채팅 · 로그인이 차단</b>됩니다.
+                  <br /><br />재입사 시 「재입사」 버튼으로 복원 가능합니다.
+                </>
+              ) : (
+                <>
+                  <b className="text-green-700">{confirmTarget.name}</b> 실장을 재입사 처리합니다.
+                  <br />즉시 매장 접근이 복원됩니다.
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmTarget(null)}
+                className="flex-1 rounded-xl border-2 border-[#D8D2C8] bg-white py-3 text-[13px] font-extrabold text-[#7A746A] active:bg-[#F5F0E5]"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void doPatch()}
+                className={cn(
+                  "flex-1 rounded-xl py-3 text-[13px] font-extrabold text-white",
+                  confirmTarget.action === "revoke"
+                    ? "bg-red-600 active:bg-red-700"
+                    : "bg-green-600 active:bg-green-700",
+                )}
+              >
+                {confirmTarget.action === "revoke" ? "퇴사 처리" : "재입사"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <TabBar />
     </div>
   )
