@@ -68,17 +68,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ me
 
     const nowIso = new Date().toISOString()
     if (action === "revoke") {
-      await sb.from("store_memberships").update({
-        status: "revoked", deleted_at: nowIso, updated_at: nowIso,
-      }).eq("id", mid)
+      // R-manager-revoke-fix (2026-09-04): status='revoked' 는 CHECK constraint
+      //   위반 (store_memberships_status_check: [approved,pending,rejected,suspended]).
+      //   기존 valid enum 'suspended' 사용. deleted_at 도 함께 설정 →
+      //   resolveAuthContext 가 deleted_at IS NULL 조건으로 접근 차단.
+      const { error: upErr, count } = await sb.from("store_memberships").update({
+        status: "suspended", deleted_at: nowIso, updated_at: nowIso,
+      }, { count: "exact" }).eq("id", mid)
+      if (upErr) {
+        return NextResponse.json({ error: "UPDATE_FAILED", message: upErr.message }, { status: 500 })
+      }
+      if ((count ?? 0) === 0) {
+        return NextResponse.json({ error: "NOT_UPDATED", message: "membership 을 찾지 못했거나 이미 처리됨" }, { status: 409 })
+      }
       // R-chat-cleanup (2026-09-04): 이 실장이 참여 중인 매장 그룹채팅에서도 즉시 제거
       await sb.from("chat_participants").update({
         removed_at: nowIso,
       }).eq("membership_id", mid).is("removed_at", null)
     } else if (action === "restore") {
-      await sb.from("store_memberships").update({
+      const { error: upErr } = await sb.from("store_memberships").update({
         status: "approved", deleted_at: null, updated_at: nowIso,
       }).eq("id", mid)
+      if (upErr) {
+        return NextResponse.json({ error: "UPDATE_FAILED", message: upErr.message }, { status: 500 })
+      }
     } else if (action === "set_permissions") {
       // R-manager-perms (2026-09-04): 실장 세부 권한 설정.
       //   대상은 role='manager' 만 (owner 는 항상 전권 → 무의미)
@@ -97,10 +110,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ me
       if (nextPerms !== null && (typeof nextPerms !== "object" || Array.isArray(nextPerms))) {
         return NextResponse.json({ error: "BAD_REQUEST", message: "permissions must be object or null" }, { status: 400 })
       }
-      await sb.from("store_memberships").update({
+      const { error: upErr } = await sb.from("store_memberships").update({
         permissions: nextPerms,
         updated_at: nowIso,
       }).eq("id", mid)
+      if (upErr) {
+        return NextResponse.json({ error: "UPDATE_FAILED", message: upErr.message }, { status: 500 })
+      }
     }
 
     // audit
