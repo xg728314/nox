@@ -410,10 +410,14 @@ function LiveRoomCard({
         isMine ? "border-l-[#C49B61] bg-[#FBF6EC]" : "border-l-[#5FAB4E]",
       )}
     >
-      <button
-        type="button"
+      {/* R-hydration-fix (2026-09-04): 이전엔 <button> 안에 <button> (진행시간 · 잠금 pill) →
+          React hydration warning + 유효하지 않은 HTML. div role=button 으로 변경. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v) } }}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer select-none"
       >
         <span className={cn("text-[11px] transition-transform", open ? "rotate-90" : "")}>▶</span>
         <span className="text-[13px] font-extrabold text-[#2D2B26]">
@@ -485,7 +489,7 @@ function LiveRoomCard({
         <span className="text-[10px] font-black text-[#7A746A] ml-1 shrink-0">
           {s.participant_count}/{Math.max(s.participant_count, 3)}
         </span>
-      </button>
+      </div>
 
       {open && (
         <div className="border-t border-[#EDE7DA] px-3 py-2 flex flex-col gap-1.5">
