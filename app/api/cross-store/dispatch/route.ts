@@ -38,6 +38,8 @@ import { parseJsonBody } from "@/lib/session/parseBody"
 import { getBusinessDateForOps } from "@/lib/time/businessDate"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { syncRoomSessionChat } from "@/lib/chat/services/syncRoomSessionChat"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 type Cat = "퍼블릭" | "셔츠" | "하퍼"
 type TimeType = "기본" | "반티" | "차3"
@@ -51,6 +53,9 @@ export async function POST(request: Request) {
     if (auth.role === "hostess") {
       return NextResponse.json({ error: "ROLE_FORBIDDEN", message: "hostess 역할은 배정 불가." }, { status: 403 })
     }
+    // R34 (2026-09-04): staff.manage 권한 게이트 (타매장 배정)
+    const permErr = await ensurePerm(auth, PERMS.STAFF_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{
       target_store_uuid?: string

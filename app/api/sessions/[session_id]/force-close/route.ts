@@ -24,6 +24,8 @@ import { isValidUUID } from "@/lib/validation"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { assertSessionUnlocked } from "@/lib/session/lockGuard"
 import { archiveRoomSessionChat } from "@/lib/chat/services/archiveRoomSessionChat"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 export async function POST(
   request: Request,
@@ -34,6 +36,10 @@ export async function POST(
     if (auth.role === "hostess") {
       return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
     }
+    // R34 (2026-09-04): roster.manage 권한 게이트
+    const permErr = await ensurePerm(auth, PERMS.ROSTER_MANAGE)
+    if (permErr) return permErr
+
     const { session_id } = await params
     if (!session_id || !isValidUUID(session_id)) {
       return NextResponse.json({ error: "BAD_REQUEST", message: "session_id required" }, { status: 400 })

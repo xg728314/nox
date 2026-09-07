@@ -3,6 +3,8 @@ import { resolveAuthContext } from "@/lib/auth/resolveAuthContext"
 import { createServiceClient } from "@/lib/session/createServiceClient"
 import { parseJsonBody } from "@/lib/session/parseBody"
 import { handleRouteError } from "@/lib/session/handleAuthError"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { isValidUUID } from "@/lib/validation"
 
@@ -41,6 +43,9 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    // R34 (2026-09-04): settle.manage 권한 게이트
+    const permErr = await ensurePerm(authContext, PERMS.SETTLE_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{
       session_id?: string

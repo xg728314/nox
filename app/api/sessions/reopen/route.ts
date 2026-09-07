@@ -6,6 +6,8 @@ import { isValidUUID } from "@/lib/validation"
 import { writeSessionAudit } from "@/lib/session/auditWriter"
 import { invalidate as invalidateCache } from "@/lib/cache/inMemoryTtl"
 import { unarchiveRoomSessionChat } from "@/lib/chat/services/unarchiveRoomSessionChat"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * POST /api/sessions/reopen
@@ -34,6 +36,9 @@ export async function POST(request: Request) {
         { status: 403 },
       )
     }
+    // R34 (2026-09-04): roster.manage 권한 게이트
+    const permErr = await ensurePerm(auth, PERMS.ROSTER_MANAGE)
+    if (permErr) return permErr
 
     const parsed = await parseJsonBody<{ session_id?: string; reason?: string }>(request)
     if (parsed.error) return parsed.error
