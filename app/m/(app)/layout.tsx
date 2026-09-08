@@ -65,6 +65,8 @@ function AuthGate({ children }: { children: ReactNode }) {
  * 이 client guard 는 UX 계약 (숨긴 페이지는 안 뜨게).
  */
 const PATH_PERMS: Array<{ prefix: string; perm: string }> = [
+  // R39 (2026-09-09): PermGate 확장 · Agent audit 누락 항목 채움.
+  //   /m 홈은 특별 처리 (아래 else 분기) · /m/chat 은 CHAT_VIEW 게이트
   { prefix: "/m/settle", perm: PERMS.SETTLE_VIEW },
   { prefix: "/m/staff", perm: PERMS.STAFF_VIEW },
   { prefix: "/m/attendance", perm: PERMS.STAFF_VIEW },
@@ -73,10 +75,22 @@ const PATH_PERMS: Array<{ prefix: string; perm: string }> = [
   { prefix: "/m/reports", perm: PERMS.REPORTS_VIEW },
   { prefix: "/m/store/settings", perm: PERMS.STORE_SETTINGS },
   { prefix: "/m/store/managers", perm: PERMS.MANAGERS_MANAGE },
+  { prefix: "/m/store/duplicates", perm: PERMS.STAFF_VIEW },
   { prefix: "/m/hostess-manage", perm: PERMS.STAFF_MANAGE },
   { prefix: "/m/assign", perm: PERMS.ROSTER_MANAGE },
   { prefix: "/m/ops", perm: PERMS.ROSTER_MANAGE },
-  // 아래는 permission 없이 항상 접근: /m, /m/chat, /m/me, /m/store (매장 상세)
+  // R39: 대기·서비스 페이지들 · 이전엔 게이트 밖 → chat-only 실장이 접근 가능했음
+  { prefix: "/m/waiting", perm: PERMS.ROSTER_VIEW },
+  { prefix: "/m/waitlist", perm: PERMS.ROSTER_VIEW },
+  { prefix: "/m/service", perm: PERMS.ROSTER_VIEW },
+  // LUNA 관련 (외부 커뮤니티) · chat.view 만 있어도 통과 (독립 커뮤니티)
+  { prefix: "/m/lounge", perm: PERMS.CHAT_VIEW },
+  { prefix: "/m/talk", perm: PERMS.CHAT_VIEW },
+  { prefix: "/m/place", perm: PERMS.CHAT_VIEW },
+  { prefix: "/m/live", perm: PERMS.CHAT_VIEW },
+  { prefix: "/m/jobs", perm: PERMS.CHAT_VIEW },
+  { prefix: "/m/chat", perm: PERMS.CHAT_VIEW },
+  // 항상 접근: /m/me (전체메뉴 · 로그아웃 필수) · /m/store (매장 상세만)
 ]
 
 function PermGate({ children }: { children: ReactNode }) {
@@ -84,21 +98,34 @@ function PermGate({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
 
-  useEffect(() => {
-    if (!me?.permissions || !pathname) return
-    // owner + super_admin 은 전권 (effectivePermissions 로 이미 모든 키 true)
-    // 매칭되는 접두어 있으면 permission 체크
-    const gated = PATH_PERMS.find(p => pathname.startsWith(p.prefix))
-    if (!gated) return
-    if (me.permissions[gated.perm] !== true) {
-      // 첫 가용 페이지로 redirect (chat.view 우선, 그다음 roster.view)
-      const fallback =
-        me.permissions[PERMS.CHAT_VIEW] ? "/m/chat" :
-        me.permissions[PERMS.ROSTER_VIEW] ? "/m" :
-        "/m/me"
-      router.replace(fallback)
+  // R39-fix (Agent #6): render 전 preemptive block · 데이터 flash 방지
+  //   1프레임 데이터 노출 이슈 해소.
+  const permissions = me?.permissions
+  let blocked = false
+  if (permissions && pathname) {
+    // 홈 /m 은 roster.view 필요 (Agent #8) · chat-only 실장은 못 들어감
+    if (pathname === "/m" && permissions[PERMS.ROSTER_VIEW] !== true) blocked = true
+    else {
+      const gated = PATH_PERMS.find(p => pathname.startsWith(p.prefix))
+      if (gated && permissions[gated.perm] !== true) blocked = true
     }
-  }, [me, pathname, router])
+  }
 
+  useEffect(() => {
+    if (!blocked || !me?.permissions) return
+    const fallback =
+      me.permissions[PERMS.CHAT_VIEW] ? "/m/chat" :
+      me.permissions[PERMS.ROSTER_VIEW] ? "/m" :
+      "/m/me"
+    router.replace(fallback)
+  }, [blocked, me, router])
+
+  if (blocked) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[#7A746A] text-[13px] font-bold">
+        권한 없음 · 이동 중...
+      </div>
+    )
+  }
   return <>{children}</>
 }

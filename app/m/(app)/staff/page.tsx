@@ -785,9 +785,9 @@ function ParticipantRow({
     setBusy("leave")
     setMsg(null)
     try {
-      const res = await fetch(`/api/sessions/participants/${encodeURIComponent(participant.participant_id)}/leave`, {
+      // R40 (2026-09-09): raw fetch → apiFetch (401 자동 refresh) · invalidateApi 로 즉시 UI 반영
+      const res = await apiFetch(`/api/sessions/participants/${encodeURIComponent(participant.participant_id)}/leave`, {
         method: "POST",
-        credentials: "include",
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
@@ -798,6 +798,9 @@ function ParticipantRow({
         }
       } else {
         setMsg("종료 완료")
+        // 캐시 무효화 · 최대 8초 지연 → 즉시 반영
+        invalidateApi("/api/building/rooms")
+        invalidateApi("/api/rooms")
       }
     } catch (e) {
       setMsg(`실패: ${(e as Error).message}`)

@@ -1,14 +1,19 @@
 /**
  * /api/waitlist — 매장 대기 board
  *
- * POST: 대기 요청 등록 (자동 dedup · 같은 매장·같은 스펙 5분 내 중복 시 갱신)
- * GET:  scope=mine|building — 본 매장 or 건물 5-8F 전체 열람
+ * R38 (2026-09-09): twin-table 통합.
+ *   이전엔 `waitlist_requests` (mig 095) 를 참조 · autoProcessMessage 는 `waiting_requests` (mig 140) 에 저장 → 홈 배지 항상 0.
+ *   이제 `waiting_requests` 로 통일. 컬럼 매핑:
+ *     party_size → guest_count · category → categories[0] · seen_policy/is_new_room → tags 에 편입
+ *     author_membership_id → requester_membership_id (+ requester_user_id)
+ *
+ * POST: 대기 요청 등록 (같은 매장·같은 스펙 5분 내 중복 → 갱신)
+ * GET:  scope=mine|building — 본 매장 or 전체 열람
  */
 import { NextResponse } from "next/server"
 import { resolveAuthContext, AuthError } from "@/lib/auth/resolveAuthContext"
 import { getServiceClient } from "@/lib/supabase/serviceClient"
 import { parseJsonBody } from "@/lib/session/parseBody"
-import { isValidUUID } from "@/lib/validation"
 
 type Category = "퍼블릭" | "하퍼" | "셔츠" | "any"
 type SeenPolicy = "unseen_only" | "any"
@@ -40,42 +45,53 @@ export async function POST(request: Request) {
     const roomCount = Math.max(1, Math.min(10, b.room_count ?? 1))
     const isNewRoom = b.is_new_room !== false
     const seenPolicy: SeenPolicy = b.seen_policy === "unseen_only" ? "unseen_only" : "any"
-    const tags = Array.isArray(b.tags) ? b.tags.filter(t => typeof t === "string").slice(0, 8) : []
+    const rawTags = Array.isArray(b.tags) ? b.tags.filter(t => typeof t === "string").slice(0, 8) : []
+    // is_new_room / seen_policy 를 tags 에 편입 (waiting_requests 는 별도 컬럼 없음)
+    const tagSet = new Set(rawTags)
+    if (isNewRoom) tagSet.add("새방")
+    else tagSet.add("체인지")
+    if (seenPolicy === "unseen_only") tagSet.add("안본인원")
+    const tags = [...tagSet]
     const note = typeof b.note === "string" ? b.note.slice(0, 200) : null
 
     const sb = getServiceClient()
 
-    // R-dedup (2026-09-04): 5분 내 같은 매장·같은 스펙 요청 있으면 갱신 (신규 X)
+    // 5분 내 dedup (같은 매장 · categories 첫원소 · guest_count · room_count · active)
     const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
-    const { data: dup } = await sb.from("waitlist_requests")
-      .select("id")
+    const { data: dup } = await sb.from("waiting_requests")
+      .select("id, categories")
       .eq("store_uuid", auth.store_uuid)
-      .eq("category", b.category)
-      .eq("party_size", b.party_size)
+      .eq("guest_count", b.party_size)
       .eq("room_count", roomCount)
       .eq("status", "active")
       .gte("created_at", fiveMinAgo)
-      .limit(1).maybeSingle()
+      .limit(20)
+    // categories 배열 요소로 dedup (JS 필터)
+    const dupRow = ((dup ?? []) as Array<{ id: string; categories: string[] | null }>).find(r =>
+      Array.isArray(r.categories) && r.categories.includes(b.category!),
+    )
 
-    if (dup) {
-      // 기존 갱신 (expires_at 밀기 · updated_at)
-      await sb.from("waitlist_requests").update({
+    if (dupRow) {
+      await sb.from("waiting_requests").update({
         expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
         updated_at: new Date().toISOString(),
-        tags, note, seen_policy: seenPolicy, is_new_room: isNewRoom,
-      }).eq("id", dup.id)
-      return NextResponse.json({ id: dup.id, dedup: true })
+        tags,
+        guest_note: note,
+      }).eq("id", dupRow.id)
+      return NextResponse.json({ id: dupRow.id, dedup: true })
     }
 
-    const { data: created, error } = await sb.from("waitlist_requests").insert({
+    const { data: created, error } = await sb.from("waiting_requests").insert({
       store_uuid: auth.store_uuid,
-      author_membership_id: auth.membership_id,
-      category: b.category,
-      party_size: b.party_size,
+      requester_user_id: auth.user_id,
+      requester_membership_id: auth.membership_id,
+      categories: [b.category],
+      guest_count: b.party_size,
       room_count: roomCount,
-      is_new_room: isNewRoom,
-      seen_policy: seenPolicy,
-      tags, note,
+      tags,
+      guest_note: note,
+      status: "active",
+      expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
     }).select("id").single()
 
     if (error) return NextResponse.json({ error: "CREATE_FAILED", message: error.message }, { status: 500 })
@@ -95,15 +111,14 @@ export async function GET(request: Request) {
     const scope = url.searchParams.get("scope") ?? "building"
     const sb = getServiceClient()
 
-    // expired 자동 정리 (본 요청 계기)
-    await sb.from("waitlist_requests")
+    // expired 자동 정리
+    await sb.from("waiting_requests")
       .update({ status: "expired" })
       .eq("status", "active")
       .lt("expires_at", new Date().toISOString())
 
-    // 건물 5-8F 매장 대상 (auth.role 관계없이 열람 가능 · 담당 실장·사장·아가씨)
-    let query = sb.from("waitlist_requests")
-      .select("id, store_uuid, category, party_size, room_count, is_new_room, seen_policy, tags, note, status, created_at, expires_at, author_membership_id")
+    let query = sb.from("waiting_requests")
+      .select("id, store_uuid, categories, guest_count, room_count, tags, guest_note, status, created_at, expires_at, requester_membership_id, origin_chat_message_id")
       .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(50)
@@ -111,22 +126,43 @@ export async function GET(request: Request) {
     if (scope === "mine") {
       query = query.eq("store_uuid", auth.store_uuid)
     }
-    // building scope = 전 매장 (필터 없음)
 
     const { data: rows, error } = await query
     if (error) return NextResponse.json({ error: "QUERY_FAILED", message: error.message }, { status: 500 })
 
     // 매장 이름 매핑
-    const storeIds = [...new Set((rows ?? []).map(r => r.store_uuid))]
-    const { data: stores } = await sb.from("stores").select("id, store_name, floor").in("id", storeIds)
-    const storeMap = new Map((stores ?? []).map(s => [s.id, s]))
+    const storeIds = [...new Set((rows ?? []).map((r: { store_uuid: string }) => r.store_uuid))]
+    const { data: stores } = storeIds.length > 0
+      ? await sb.from("stores").select("id, store_name, floor").in("id", storeIds)
+      : { data: [] as Array<{ id: string; store_name: string; floor: number | null }> }
+    const storeMap = new Map(((stores ?? []) as Array<{ id: string; store_name: string; floor: number | null }>).map(s => [s.id, s]))
 
-    const items = (rows ?? []).map(r => ({
-      ...r,
-      store_name: storeMap.get(r.store_uuid)?.store_name ?? "?",
-      floor: storeMap.get(r.store_uuid)?.floor,
-      is_mine: r.store_uuid === auth.store_uuid,
-    }))
+    // legacy field 이름 매핑 (client 호환)
+    type Row = { id: string; store_uuid: string; categories: string[] | null; guest_count: number; room_count: number; tags: string[]; guest_note: string | null; status: string; created_at: string; expires_at: string; requester_membership_id: string; origin_chat_message_id: string | null }
+    const items = (rows ?? []).map((r: Row) => {
+      const category = Array.isArray(r.categories) && r.categories.length > 0 ? r.categories[0] : "any"
+      const isNewRoom = !(r.tags ?? []).includes("체인지")
+      const seenPolicy = (r.tags ?? []).includes("안본인원") ? "unseen_only" : "any"
+      return {
+        id: r.id,
+        store_uuid: r.store_uuid,
+        category,
+        party_size: r.guest_count,
+        room_count: r.room_count,
+        is_new_room: isNewRoom,
+        seen_policy: seenPolicy,
+        tags: r.tags ?? [],
+        note: r.guest_note,
+        status: r.status,
+        created_at: r.created_at,
+        expires_at: r.expires_at,
+        author_membership_id: r.requester_membership_id,
+        origin_chat_message_id: r.origin_chat_message_id,
+        store_name: storeMap.get(r.store_uuid)?.store_name ?? "?",
+        floor: storeMap.get(r.store_uuid)?.floor,
+        is_mine: r.store_uuid === auth.store_uuid,
+      }
+    })
 
     return NextResponse.json({ items })
   } catch (error) {

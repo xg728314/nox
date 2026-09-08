@@ -272,11 +272,17 @@ export async function getManagerSettlementSummary(
     origin_store_uuid: string | null
     status: string
   }
+  // R38 (2026-09-09): Agent audit — session_id filter 누락 시 all-time 집계 → 「내 장부」 부풀림.
+  //   오늘 business_day 의 세션들 (sessionIds) 로만 좁힘.
   const participationsP = chunkedFetch<ParticipantAgg>(async (ids) => {
+    if (sessionIds.length === 0) {
+      return { data: [] as ParticipantAgg[], error: null }
+    }
     const { data, error } = await supabase
       .from("session_participants")
       .select("membership_id, session_id, price_amount, manager_payout_amount, hostess_payout_amount, store_uuid, origin_store_uuid, status")
       .in("membership_id", ids)
+      .in("session_id", sessionIds)
       .is("deleted_at", null)
     return { data: data as ParticipantAgg[] | null, error }
   })

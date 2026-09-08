@@ -33,11 +33,19 @@ export async function resolveOwnerVisibility(
         .select("show_profit_to_owner, show_hostess_profit_to_owner")
         .eq("store_uuid", store_uuid)
 
-      let showManager = false
-      let showHostess = false
-      for (const m of (mgrRows ?? []) as { show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }[]) {
-        if (m.show_profit_to_owner) showManager = true
-        if (m.show_hostess_profit_to_owner) showHostess = true
+      // R38 (2026-09-09): 이전 로직 OR 누적 → 한 명이라도 공개면 전체 노출 · CLAUDE.md 잠금 규칙 위반.
+      //   보수적 AND: 모든 실장이 공개해야만 owner 가 볼 수 있음. 한 명이라도 비공개면 전체 마스킹.
+      //   실장이 0명이면 default true (표시할 것 없음).
+      const rows = (mgrRows ?? []) as { show_profit_to_owner: boolean; show_hostess_profit_to_owner: boolean }[]
+      let showManager = rows.length > 0
+      let showHostess = rows.length > 0
+      for (const m of rows) {
+        if (!m.show_profit_to_owner) showManager = false
+        if (!m.show_hostess_profit_to_owner) showHostess = false
+      }
+      if (rows.length === 0) {
+        showManager = false
+        showHostess = false
       }
 
       return { showManager, showHostess }

@@ -14,6 +14,7 @@ import { ServiceCallSheet } from "../../../_components/ServiceCallSheet"
 import { ChatRulesBanner } from "./ChatRulesBanner"
 import { NewbieTutorialBot } from "./NewbieTutorialBot"
 import { BotReplyCard, type BotPayload } from "./BotReplyCard"
+import { invalidateApi } from "../../../_hooks/useApi"
 
 type ChatMessage = {
   id: string
@@ -394,6 +395,8 @@ export default function ChatRoomPage() {
 function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { msg: ChatMessage; myMembershipId: string | null; myStoreUuid: string | null; patternEnabled: boolean }) {
   const isMine = msg.is_mine === true || (myMembershipId != null && msg.sender_membership_id === myMembershipId)
   const type = msg.message_type ?? "text"
+  // R41 (2026-09-09): 봇 답장 콜백에서 toast 사용
+  const toast = useToast()
 
   // R37 (2026-09-09): 봇 답장 · JSON payload → BotReplyCard 렌더
   // R37-fix (Agent #1): onConfirm/onEdit/onSelectCandidate 실제 wire.
@@ -403,27 +406,62 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
     let payload: BotPayload | null = null
     try { payload = JSON.parse(msg.content) as BotPayload } catch { /* fallback */ }
     if (payload) {
+      // R41 (2026-09-09): onConfirm 실 액션 wire.
+      //   waiting_request 경우 → waitlist API POST · 실제 대기 board 등록
+      //   dispatch_id 있으면 → pattern-dispatch/confirm 호출
+      //   그 외 → 그냥 dismiss (기록만)
       return (
         <BotReplyCard
           payload={payload}
           onConfirm={async () => {
-            // dispatch_id 있는 경우 파싱 자동 confirm API 호출
-            const dispatchId = (payload as { dispatch_id?: string }).dispatch_id
-            if (dispatchId) {
+            const p = payload as (BotPayload & { dispatch_id?: string })
+            if (p.dispatch_id) {
               try {
-                await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(dispatchId)}/confirm`, { method: "POST" })
+                await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(p.dispatch_id)}/confirm`, { method: "POST" })
               } catch { /* silent */ }
+              return
             }
-            // TODO(R38): waiting_request 경우 waitlist_requests INSERT wire
+            // waiting_request: title 이 「대기 요청으로 이해했어요」 이면 waitlist INSERT
+            if (p.pattern === "understand_confirm" && p.title?.includes("대기 요청")) {
+              try {
+                // fields 에서 category · 인원 · 방수 · seen_policy 추출
+                const fields = (p as { fields?: Array<{ label: string; value: string }> }).fields ?? []
+                const categoryField = fields.find(f => f.label === "종목")?.value ?? "any"
+                const partyMatch = fields.find(f => /인/.test(f.value))?.value.match(/(\d+)인/)
+                const roomMatch = fields.find(f => /방/.test(f.value))?.value.match(/(\d+)방/)
+                const seenPolicy = fields.some(f => f.value.includes("안본인원")) ? "unseen_only" : "any"
+                await apiFetch("/api/waitlist", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    category: (["퍼블릭","하퍼","셔츠","any"] as const).includes(categoryField as never) ? categoryField : "any",
+                    party_size: partyMatch ? parseInt(partyMatch[1], 10) : 2,
+                    room_count: roomMatch ? parseInt(roomMatch[1], 10) : 1,
+                    is_new_room: true,
+                    seen_policy: seenPolicy,
+                    tags: [],
+                    note: null,
+                  }),
+                })
+                toast("대기 board 에 등록", "success")
+                invalidateApi("/api/waitlist")
+              } catch (e) {
+                toast(`대기 등록 실패: ${(e as Error).message}`, "error")
+              }
+            }
           }}
           onEdit={() => {
-            // TODO(R38): 수정 UI (지금은 dismiss 만)
+            // 원본 메시지를 입력창에 다시 넣기 (부모 setInput 필요 · TODO)
+            toast("수정은 다음 라운드에서 지원", "info")
           }}
-          onSelectCandidate={(_label, _mid, _action) => {
-            // TODO(R38): candidate 선택 시 merge or provisional 생성
+          onSelectCandidate={(label, mid, _action) => {
+            // TODO(R42): merge / provisional 생성 API
+            toast(`선택: ${label}`, "info")
+            void mid
           }}
           onRefillTemplate={(_tmpl) => {
-            // TODO(R38): 부모 상태에 setInput 콜백 전달 필요
+            // TODO(R42): 부모 setInput 콜백
+            toast("입력창 template 채우기는 다음 라운드", "info")
           }}
         />
       )
