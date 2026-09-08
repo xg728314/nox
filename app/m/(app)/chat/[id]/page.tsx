@@ -11,6 +11,8 @@ import { cn } from "../../../_lib/cn"
 import { ChatPatternAction } from "./ChatPatternAction"
 import { ChatAutoActionBadge } from "./ChatAutoActionBadge"
 import { ServiceCallSheet } from "../../../_components/ServiceCallSheet"
+import { ChatRulesBanner } from "./ChatRulesBanner"
+import { NewbieTutorialBot } from "./NewbieTutorialBot"
 
 type ChatMessage = {
   id: string
@@ -44,6 +46,14 @@ export default function ChatRoomPage() {
   // R-svc-call-in-chat (2026-09-04): 룸 채팅방 · 서비스 콜 트리거
   const [roomMeta, setRoomMeta] = useState<{ session_id: string | null; session_active: boolean; room_no: string | null } | null>(null)
   const [svcOpen, setSvcOpen] = useState(false)
+  // R36 (2026-09-09): 매장 규칙 조회 (배너용)
+  const [storeRules, setStoreRules] = useState<{ examples?: string[]; prefix_required?: boolean } | null>(null)
+  useEffect(() => {
+    apiFetch("/api/store/chat-strictness")
+      .then(r => r.ok ? r.json() : null)
+      .then((j) => { if (j?.rules) setStoreRules(j.rules) })
+      .catch(() => { /* silent */ })
+  }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
@@ -270,6 +280,16 @@ export default function ChatRoomPage() {
           </div>
         }
       />
+
+      {/* R36 (2026-09-09): 매장 규칙 배너 (핀 고정 · 접기 가능) */}
+      <ChatRulesBanner
+        storeName={me.data?.store_name ?? undefined}
+        rules={storeRules}
+        isOwner={me.data?.role === "owner" || me.data?.is_super_admin}
+      />
+
+      {/* R36 (2026-09-09): 신입 튜토리얼 봇 (첫 진입 시 · 개인) */}
+      <NewbieTutorialBot />
 
       {/* R-help-modal (2026-08-23): 설명서 모달 · 파서 인식 범위 매뉴얼 */}
       {helpOpen && <ChatHelpModal onClose={() => setHelpOpen(false)} />}
