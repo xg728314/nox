@@ -14,6 +14,10 @@ const VALID_TYPES = ["menu", "drink", "smoke", "temp", "blanket", "ashtray", "mi
 export async function POST(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
+    // R42-fix (Agent #11): role gate · hostess 콜 발생 금지 (실장·사장·waiter 만)
+    if (!["owner", "manager", "waiter", "staff"].includes(auth.role) && !auth.is_super_admin) {
+      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
+    }
     const parsed = await parseJsonBody<{ session_id?: string; request_type?: string; detail?: string }>(request)
     if (parsed.error) return parsed.error
     const b = parsed.body
@@ -59,6 +63,10 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const auth = await resolveAuthContext(request)
+    // R42-fix (Agent #11): role gate · hostess 는 매장 전체 콜 조회 불가
+    if (!["owner", "manager", "waiter", "staff"].includes(auth.role) && !auth.is_super_admin) {
+      return NextResponse.json({ error: "ROLE_FORBIDDEN" }, { status: 403 })
+    }
     const url = new URL(request.url)
     const status = url.searchParams.get("status") ?? "active"
     const sb = getServiceClient()

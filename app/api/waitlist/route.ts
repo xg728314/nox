@@ -112,9 +112,12 @@ export async function GET(request: Request) {
     const sb = getServiceClient()
 
     // expired 자동 정리
+    // R42-fix (Agent #12): store_uuid scope 추가 · 매 GET 마다 전 매장 UPDATE 방지.
+    //   본 매장 것만 만료 처리. 전체 정리는 cron 이 담당.
     await sb.from("waiting_requests")
       .update({ status: "expired" })
       .eq("status", "active")
+      .eq("store_uuid", auth.store_uuid)
       .lt("expires_at", new Date().toISOString())
 
     let query = sb.from("waiting_requests")

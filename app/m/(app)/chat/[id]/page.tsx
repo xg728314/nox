@@ -421,9 +421,12 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
               } catch { /* silent */ }
               return
             }
-            // waiting_request: title 이 「대기 요청으로 이해했어요」 이면 waitlist INSERT
+            // waiting_request OR 초이스 요청 → waitlist INSERT
             // R41-fix (Agent C1): payload._waiting 에 임베드된 실 값 사용 · 하드코딩 제거.
-            if (p.pattern === "understand_confirm" && p.title?.includes("대기 요청")) {
+            // R42-fix (Agent #2): 「초이스 요청」 title 도 통과 · 이전엔 「대기 요청」 only 로 skip 됐음.
+            const isWaitingLike = p.pattern === "understand_confirm" &&
+              (p.title?.includes("대기 요청") || p.title?.includes("초이스 요청"))
+            if (isWaitingLike) {
               try {
                 const w = (p as { _waiting?: {
                   category: string; party_size: number; room_count: number;

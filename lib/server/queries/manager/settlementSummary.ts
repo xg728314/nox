@@ -164,11 +164,28 @@ export async function getManagerSettlementSummary(
         .eq("store_uuid", auth.store_uuid)
         .eq("manager_membership_id", auth.membership_id)
 
-  const sessionsP = supabase
-    .from("room_sessions")
-    .select("id")
-    .eq("store_uuid", auth.store_uuid)
-    .eq("business_day_id", businessDayId)
+  // R42-fix (Agent #6): sessionIds 는 내 매장 세션 + cross-store work records 의 origin=내 매장 세션 union.
+  //   R38 session filter 가 cross-store 참여를 지웠던 문제 fix. hostess 가 타 매장에서 일한 세션도 포함해야
+  //   「내 장부」 매출이 정확.
+  const sessionsP = Promise.all([
+    supabase.from("room_sessions").select("id")
+      .eq("store_uuid", auth.store_uuid).eq("business_day_id", businessDayId),
+    // cross-store: 내 매장 소속 hostess 가 타 매장에서 일한 세션 · business_date 기준
+    supabase.from("cross_store_work_records").select("session_id")
+      .eq("origin_store_uuid", auth.store_uuid)
+      .gte("started_at", `${(await supabase.from("store_operating_days").select("business_date").eq("id", businessDayId).maybeSingle()).data?.business_date ?? "1970-01-01"}T00:00:00`)
+      .then(r => ({ data: r.data as { session_id: string }[] | null, error: r.error })),
+  ]).then(([mine, cross]) => {
+    const mySessions = ((mine.data ?? []) as { id: string }[])
+    const crossSessions = ((cross.data ?? []) as { session_id: string }[]).map(r => ({ id: r.session_id }))
+    // 중복 제거 (같은 세션 이 양쪽에 있을 수 있음)
+    const seen = new Set<string>()
+    const combined: { id: string }[] = []
+    for (const s of [...mySessions, ...crossSessions]) {
+      if (s.id && !seen.has(s.id)) { seen.add(s.id); combined.push(s) }
+    }
+    return { data: combined, error: mine.error ?? cross.error }
+  })
 
   const receiptsP = supabase
     .from("receipts")

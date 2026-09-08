@@ -132,7 +132,7 @@ export default function ManagersPage() {
   if (!canAccess) {
     return (
       <div className="min-h-dvh bg-[#F5F0E5]">
-        <PageHeader title="실장 관리" backHref="/me" />
+        <PageHeader title="실장 관리" backHref="/m/me" />
         <div className="p-6 text-center text-[12px] text-[#7A746A]">
           사장 또는 위임된 실장만 접근 가능합니다.
         </div>
@@ -146,7 +146,7 @@ export default function ManagersPage() {
 
   return (
     <div className="min-h-dvh bg-[#F5F0E5] pb-24">
-      <PageHeader title="실장 관리" backHref="/me" />
+      <PageHeader title="실장 관리" backHref="/m/me" />
       <div className="px-4 pt-4">
         <div className="rounded-2xl bg-[#FAF5EC] border border-[#D8D2C8] px-4 py-3 mb-4">
           <div className="text-[10px] font-extrabold text-[#7A746A] uppercase tracking-widest">

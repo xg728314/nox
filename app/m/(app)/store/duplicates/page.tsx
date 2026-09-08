@@ -20,7 +20,7 @@ export default function DuplicatesPage() {
 
   return (
     <div className="min-h-dvh bg-[#F5F0E5] pb-24">
-      <PageHeader title="동명이인 정리" backHref="/me" />
+      <PageHeader title="동명이인 정리" backHref="/m/me" />
       <div className="px-4 pt-4">
         <div className="rounded-2xl bg-white border border-[#D8D2C8] p-5 text-center">
           <div className="text-[48px] mb-2">👥</div>
