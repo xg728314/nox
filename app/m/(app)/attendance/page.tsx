@@ -7,6 +7,7 @@ import { useToast, haptic } from "../../_components/Toast"
 import { apiFetch } from "@/lib/apiFetch"
 import { invalidateApi } from "../../_hooks/useApi"
 import { cn } from "../../_lib/cn"
+import { DuplicateHostessSheet } from "../../_components/DuplicateHostessSheet"
 
 type Status = "present" | "absent" | "on_break"
 type Manager = { membership_id: string; name: string }
@@ -30,6 +31,9 @@ export default function AttendancePage() {
   // R-attendance-search (2026-08-30): 사용자 요청 "출근자 많으면 이름 선택 힘들어".
   //   실시간 filter · 이름 / 담당 실장 검색 · 매장 hostess 420명 시 필수.
   const [search, setSearch] = useState("")
+
+  // R35-dup (2026-09-09): 동명이인 정리 sheet 트리거
+  const [dupSheetOpen, setDupSheetOpen] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -55,6 +59,23 @@ export default function AttendancePage() {
 
   const allRaw = hostesses.data?.hostesses ?? []
   const map = new Map((attendance.data?.attendance ?? []).map((a) => [a.membership_id, a]))
+
+  // R35-dup (2026-09-09): 동명이인 감지 · 이름 기준 그룹 count >= 2
+  //   detection 은 client-side · hostess_name 정규 exact match.
+  const duplicateCount = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const h of allRaw) {
+      const n = (h.hostess_name ?? "").trim()
+      if (!n) continue
+      counts.set(n, (counts.get(n) ?? 0) + 1)
+    }
+    let groups = 0
+    let people = 0
+    for (const c of counts.values()) {
+      if (c >= 2) { groups++; people += c }
+    }
+    return { groups, people }
+  }, [allRaw])
 
   // 검색 filter: 이름 or 담당실장 이름 부분일치 (한글 정규화 없이 includes).
   const all = useMemo(() => {
@@ -179,6 +200,26 @@ export default function AttendancePage() {
       )}
 
       <div className="px-5 pb-24">
+        {/* R35-dup (2026-09-09): 동명이인 감지 배너 · 있을 때만 표시 */}
+        {duplicateCount.groups > 0 && (
+          <button
+            type="button"
+            onClick={() => setDupSheetOpen(true)}
+            className="w-full mt-2 rounded-2xl bg-gradient-to-r from-[#B22563]/10 to-[#DE3A7B]/10 border-2 border-[#DE3A7B]/30 px-4 py-3 flex items-center gap-3 text-left active:opacity-80"
+          >
+            <span className="text-[24px] shrink-0">👥</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-black text-[#B22563]">
+                동명이인 {duplicateCount.groups}그룹 · {duplicateCount.people}명 발견
+              </div>
+              <div className="text-[10px] font-bold text-[#8C1F4E] mt-0.5">
+                같은 이름 아가씨 병합 or 이름 구분 정리 필요
+              </div>
+            </div>
+            <span className="text-[16px] font-black text-[#DE3A7B]">›</span>
+          </button>
+        )}
+
         {/* R-attendance-search (2026-08-30): 이름 or 담당실장 검색 · 420명 규모 대응 */}
         <div className="sticky top-0 z-10 -mx-5 px-5 pt-2 pb-2 bg-[#FAF5EC]/95 backdrop-blur">
           <div className="relative">
@@ -301,6 +342,14 @@ export default function AttendancePage() {
           })}
         </div>
       </div>
+
+      {/* R35-dup (2026-09-09): 동명이인 정리 sheet · 배너 클릭 시 open */}
+      <DuplicateHostessSheet
+        open={dupSheetOpen}
+        onClose={() => setDupSheetOpen(false)}
+        onChanged={() => { void hostesses.refresh() }}
+      />
+
       <TabBar />
     </div>
   )

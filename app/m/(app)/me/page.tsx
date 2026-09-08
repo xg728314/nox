@@ -108,6 +108,8 @@ export default function MePage() {
           {(data?.role === "owner" || data?.is_super_admin) && (
             <Row href="/m/store/managers" label="실장 관리 (퇴사/재입사)" icon="👔" />
           )}
+          {/* R35-dup (2026-09-09): 동명이인 정리 · 사장 + 실장 (staff.view) 접근 가능 */}
+          <Row href="/m/store/duplicates" label="동명이인 정리 (병합/구분)" icon="👥" />
         </Group>
 
         <Group title="계정 보안">
