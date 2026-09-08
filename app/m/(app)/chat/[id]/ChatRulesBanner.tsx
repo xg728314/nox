@@ -42,7 +42,9 @@ export function ChatRulesBanner({ storeName = "우리 매장", rules, isOwner }:
   const prefixRequired = rules?.prefix_required !== false
 
   return (
-    <div className="sticky top-0 z-30 bg-gradient-to-b from-[#FAF5EC] to-[#FAF5EC]/95 backdrop-blur border-b border-[#EDE7DA] shadow-sm">
+    // R37-fix (Agent #6): ChoiceStateSticky (z-20) 와 겹치지 않도록 규칙 배너를 non-sticky.
+    //   spread 반복 시 규칙 배너는 상단 1회만 · 스크롤과 함께 사라짐.
+    <div className="bg-gradient-to-b from-[#FAF5EC] to-[#FAF5EC]/95 border-b border-[#EDE7DA] shadow-sm">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}

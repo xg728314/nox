@@ -227,14 +227,22 @@ async function sendBotReplyIfAllowed(
   // 압축 모드 (피크시간)
   if (decision.compressed) payload.compressed = true
 
-  // 봇 답장 chat_messages 에 발송 · message_type='bot_reply' · body 는 JSON payload
+  // 봇 답장 chat_messages 에 발송 · message_type='bot_reply' · body 는 JSON payload.
+  // R37-fix (2026-09-09): 실 chat_messages 스키마는
+  //   { id, chat_room_id, store_uuid, sender_membership_id, content, message_type, created_at, deleted_at }
+  //   sender_name/macro_context 컬럼 없음 · store_uuid 필요.
+  //   store_uuid 는 room 에서 조회.
+  const { data: room } = await ctx.supabase.from("chat_rooms")
+    .select("store_uuid").eq("id", ctx.chatRoomId).maybeSingle()
+  const storeUuid = (room as { store_uuid?: string } | null)?.store_uuid ?? ctx.senderStoreUuid
+
+  const payloadJson = JSON.stringify({ ...payload, _parent: ctx.parentMessageId, _pattern: patternKey })
   const { error } = await ctx.supabase.from("chat_messages").insert({
     chat_room_id: ctx.chatRoomId,
-    sender_membership_id: null,          // 봇 · null
-    sender_name: "🤖 NOX",
-    content: JSON.stringify(payload),
+    store_uuid: storeUuid,
+    sender_membership_id: null,          // 봇 · null (컬럼 nullable 이어야)
+    content: payloadJson,
     message_type: "bot_reply",
-    macro_context: { parent_message_id: ctx.parentMessageId, pattern: patternKey },
   })
   if (error) {
     // send 실패해도 log 는 남김

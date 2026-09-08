@@ -9,6 +9,8 @@ import { verifyActiveParticipant, verifyHostessSessionAccess } from "@/lib/chat/
 import { validateMessageInput } from "@/lib/chat/validators/validateMessageInput"
 import { sendMessage } from "@/lib/chat/services/sendMessage"
 import { getMessages } from "@/lib/chat/services/getMessages"
+import { ensurePerm } from "@/lib/auth/requirePerm"
+import { PERMS } from "@/lib/auth/permissions"
 
 /**
  * POST /api/chat/messages — 메시지 전송
@@ -26,6 +28,13 @@ export async function POST(request: Request) {
     // Input validation
     const inputError = validateMessageInput(chat_room_id, content)
     if (inputError) return inputError
+
+    // R37-fix (Agent #10): chat.send 권한 게이트 · 실장이 read-only 위임 받은 경우 차단.
+    //   hostess 는 chat_participants 로만 통과 (permission 없음) — role 별도 처리.
+    if (authContext.role !== "hostess") {
+      const permErr = await ensurePerm(authContext, PERMS.CHAT_SEND)
+      if (permErr) return permErr
+    }
 
     const svc = createServiceClient()
     if (svc.error) return svc.error
@@ -80,9 +89,11 @@ export async function POST(request: Request) {
     })()
 
     // R37 (2026-09-09): 봇 자동 답장 (파싱 결과 → tier → Pattern A/B/C)
-    //   fire-and-forget · 실패해도 무해.
+    //   fire-and-forget · 실패해도 무해. (Agent #12 log 추가)
     void (async () => {
       try {
+        // eslint-disable-next-line no-console
+        console.log("[bot/autoTrigger] entering for room=" + result.message.chat_room_id?.slice(0,8))
         // 매장 봇 엄격도 조회
         const { data: settings } = await supabase.from("store_settings")
           .select("chat_parser_strictness")
@@ -96,7 +107,7 @@ export async function POST(request: Request) {
         const profileId = (profRow as { profile_id?: string } | null)?.profile_id ?? authContext.user_id
 
         const { autoTriggerBotReply } = await import("@/lib/chat/bot/autoTrigger")
-        await autoTriggerBotReply(content!, {
+        const botResult = await autoTriggerBotReply(content!, {
           supabase,
           chatRoomId: result.message.chat_room_id,
           parentMessageId: result.message.id,
@@ -105,8 +116,11 @@ export async function POST(request: Request) {
           senderStoreUuid: authContext.store_uuid,
           strictness,
         })
-      } catch {
-        // best-effort · 로그만
+        // eslint-disable-next-line no-console
+        console.log("[bot/autoTrigger] result:", JSON.stringify(botResult))
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[bot/autoTrigger] failed:", (e as Error).message)
       }
     })()
 

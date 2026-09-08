@@ -66,16 +66,21 @@ const SEEN_KEYWORDS = ["본인원", "본 인원"]
  *   - 여러 종목 (퍼 하퍼 셔츠) 언급 시 첫 종목 사용 · category='any' 로 대체
  */
 export function parseWaitingMessage(text: string): WaitingRequestParsed | WaitingCancelParsed | null {
-  const t = normalize(text)
-  if (!t) return null
+  // R37-fix (2026-09-09): normalize 가 「부탁드립니다·부탁드려요」 등을 제거 →
+  //   대기 keyword 감지 실패했음. 감지는 원문에서, 파싱은 normalize 결과에서.
+  if (!text || !text.trim()) return null
+  const rawLower = text
+  const normalized = normalize(text)
 
-  // 취소 우선 감지
-  if (WAITING_CANCEL_KEYWORDS.some(k => t.includes(k))) {
+  // 취소 감지 (원문 기준)
+  if (WAITING_CANCEL_KEYWORDS.some(k => rawLower.includes(k))) {
     return { kind: "waiting_cancel", raw_text: text }
   }
 
-  const hasWaitingKw = WAITING_REQUEST_KEYWORDS.some(k => t.includes(k))
+  // 대기 keyword 감지 (원문 기준 · normalize 전)
+  const hasWaitingKw = WAITING_REQUEST_KEYWORDS.some(k => rawLower.includes(k))
   if (!hasWaitingKw) return null
+  const t = normalized
 
   // 종목 감지 (여러 개 · any 처리)
   const foundCategories = new Set<WaitingRequestParsed["category"]>()
@@ -95,8 +100,11 @@ export function parseWaitingMessage(text: string): WaitingRequestParsed | Waitin
   const roomCount = roomMatch ? Math.min(10, Math.max(1, parseInt(roomMatch[1], 10))) : 1
 
   // 방 유형
+  // R37-fix (2026-09-09): 이전 로직 `!isChangeRoom && (NEW || !isChangeRoom)` 이 항상 !isChangeRoom
+  //   → 아무 언급 없어도 「새방」으로 오해. 이제 명시 keyword 있을 때만 true.
   const isChangeRoom = CHANGE_ROOM_KEYWORDS.some(k => t.includes(k))
-  const isNewRoom = !isChangeRoom && (NEW_ROOM_KEYWORDS.some(k => t.includes(k)) || !CHANGE_ROOM_KEYWORDS.some(k => t.includes(k)))
+  const hasNewKeyword = NEW_ROOM_KEYWORDS.some(k => t.includes(k))
+  const isNewRoom = !isChangeRoom && hasNewKeyword
 
   // 손님 안내
   const seenPolicy: WaitingRequestParsed["seen_policy"] =

@@ -60,11 +60,14 @@ export function BotReplyCard({
   const [dismissed, setDismissed] = useState(false)
 
   // Pattern A · auto register countdown
+  // R37-fix (Agent #2): deps 에 payload 객체 전체 넣으면 매 렌더마다 새 참조 → 타이머 무한 리셋
+  //   → 3초 도달 못 함. primitive 만 dep 으로.
+  const autoSecs = payload.pattern === "understand_confirm" ? payload.auto_register_after_sec : undefined
+  const patternKind = payload.pattern
   useEffect(() => {
-    if (payload.pattern !== "understand_confirm") return
-    const secs = payload.auto_register_after_sec
-    if (!secs || secs <= 0) return
-    setAutoLeft(secs)
+    if (patternKind !== "understand_confirm") return
+    if (!autoSecs || autoSecs <= 0) return
+    setAutoLeft(autoSecs)
     const timer = setInterval(() => {
       setAutoLeft(v => {
         if (v === null) return null
@@ -77,7 +80,8 @@ export function BotReplyCard({
       })
     }, 1000)
     return () => clearInterval(timer)
-  }, [payload, onConfirm, dismissed])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patternKind, autoSecs])
 
   if (dismissed) return null
 

@@ -396,13 +396,40 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
   const type = msg.message_type ?? "text"
 
   // R37 (2026-09-09): 봇 답장 · JSON payload → BotReplyCard 렌더
+  // R37-fix (Agent #1): onConfirm/onEdit/onSelectCandidate 실제 wire.
+  //   understand_confirm 「✓ 맞음」 → dispatch confirm API 호출 (있으면)
+  //   template_suggest refill → 입력창에 template 삽입 (부모 콜백 전달 필요 시 별도)
   if (type === "bot_reply") {
     let payload: BotPayload | null = null
     try { payload = JSON.parse(msg.content) as BotPayload } catch { /* fallback */ }
     if (payload) {
-      return <BotReplyCard payload={payload} />
+      return (
+        <BotReplyCard
+          payload={payload}
+          onConfirm={async () => {
+            // dispatch_id 있는 경우 파싱 자동 confirm API 호출
+            const dispatchId = (payload as { dispatch_id?: string }).dispatch_id
+            if (dispatchId) {
+              try {
+                await apiFetch(`/api/chat/pattern-dispatch/${encodeURIComponent(dispatchId)}/confirm`, { method: "POST" })
+              } catch { /* silent */ }
+            }
+            // TODO(R38): waiting_request 경우 waitlist_requests INSERT wire
+          }}
+          onEdit={() => {
+            // TODO(R38): 수정 UI (지금은 dismiss 만)
+          }}
+          onSelectCandidate={(_label, _mid, _action) => {
+            // TODO(R38): candidate 선택 시 merge or provisional 생성
+          }}
+          onRefillTemplate={(_tmpl) => {
+            // TODO(R38): 부모 상태에 setInput 콜백 전달 필요
+          }}
+        />
+      )
     }
-    // JSON 파싱 실패 시 fallback: system 메시지처럼 표시
+    // JSON 파싱 실패 → 조용히 무시 (raw JSON 노출 방지 · Agent #15)
+    return null
   }
 
   // 매크로: 우측 카드 (초록/회색/오렌지)
