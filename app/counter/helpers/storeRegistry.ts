@@ -67,6 +67,8 @@ export const STORE_REGISTRY: readonly StoreRegistryEntry[] = [
   // ── 6층 ───────────────────────────────────────────────
   { code: "SHINSEGAE", label: "신세계", floor: 6, aliases: ["신", "신세", "신세계"] },
   { code: "AZIT",      label: "아지트", floor: 6, aliases: ["아지", "아지트"] },
+  // R37 (2026-09-09): 카톡 실사용 확장 — 「아우라」 「🚨아우라🚨」 「🔥아지트🔥」 이모지 감싸기 등장.
+  //   이모지·특수문자는 파서 정규화가 제거. alias 는 순수 텍스트만.
   { code: "AURA",      label: "아우라", floor: 6, aliases: ["아우", "아우라"] },
   { code: "FIRST",     label: "퍼스트", floor: 6, aliases: ["퍼스", "퍼스트"] },
   // ── 7층 ───────────────────────────────────────────────

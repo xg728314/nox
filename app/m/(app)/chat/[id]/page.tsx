@@ -13,6 +13,7 @@ import { ChatAutoActionBadge } from "./ChatAutoActionBadge"
 import { ServiceCallSheet } from "../../../_components/ServiceCallSheet"
 import { ChatRulesBanner } from "./ChatRulesBanner"
 import { NewbieTutorialBot } from "./NewbieTutorialBot"
+import { BotReplyCard, type BotPayload } from "./BotReplyCard"
 
 type ChatMessage = {
   id: string
@@ -393,6 +394,16 @@ export default function ChatRoomPage() {
 function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { msg: ChatMessage; myMembershipId: string | null; myStoreUuid: string | null; patternEnabled: boolean }) {
   const isMine = msg.is_mine === true || (myMembershipId != null && msg.sender_membership_id === myMembershipId)
   const type = msg.message_type ?? "text"
+
+  // R37 (2026-09-09): 봇 답장 · JSON payload → BotReplyCard 렌더
+  if (type === "bot_reply") {
+    let payload: BotPayload | null = null
+    try { payload = JSON.parse(msg.content) as BotPayload } catch { /* fallback */ }
+    if (payload) {
+      return <BotReplyCard payload={payload} />
+    }
+    // JSON 파싱 실패 시 fallback: system 메시지처럼 표시
+  }
 
   // 매크로: 우측 카드 (초록/회색/오렌지)
   if (type === "macro_maid" || type === "macro_extend" || type === "macro_nfc") {

@@ -79,6 +79,37 @@ export async function POST(request: Request) {
       }
     })()
 
+    // R37 (2026-09-09): 봇 자동 답장 (파싱 결과 → tier → Pattern A/B/C)
+    //   fire-and-forget · 실패해도 무해.
+    void (async () => {
+      try {
+        // 매장 봇 엄격도 조회
+        const { data: settings } = await supabase.from("store_settings")
+          .select("chat_parser_strictness")
+          .eq("store_uuid", authContext.store_uuid)
+          .maybeSingle()
+        const strictness = (settings as { chat_parser_strictness?: "friendly" | "standard" | "strict" | "silent" } | null)?.chat_parser_strictness ?? "friendly"
+
+        // profile_id 조회
+        const { data: profRow } = await supabase.from("store_memberships")
+          .select("profile_id").eq("id", authContext.membership_id).maybeSingle()
+        const profileId = (profRow as { profile_id?: string } | null)?.profile_id ?? authContext.user_id
+
+        const { autoTriggerBotReply } = await import("@/lib/chat/bot/autoTrigger")
+        await autoTriggerBotReply(content!, {
+          supabase,
+          chatRoomId: result.message.chat_room_id,
+          parentMessageId: result.message.id,
+          senderMembershipId: authContext.membership_id,
+          senderProfileId: profileId,
+          senderStoreUuid: authContext.store_uuid,
+          strictness,
+        })
+      } catch {
+        // best-effort · 로그만
+      }
+    })()
+
     return NextResponse.json({
       message_id: result.message.id,
       chat_room_id: result.message.chat_room_id,
