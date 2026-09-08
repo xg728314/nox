@@ -223,14 +223,16 @@ export async function POST(request: Request) {
     invalidateCache("session_orders")
 
     // R40 (2026-09-09): checkout 시 채팅방 archive 대칭 회복 (R31 reopen 과 대응).
-    //   기존엔 close_session_atomic RPC 의 chat_closed 만 신뢰 · RPC out-of-sync 환경에서 chat 방 잔존.
-    //   force-close/auto-close-expired 는 이미 명시 호출 · checkout 도 통일.
-    void (async () => {
-      try {
-        const { archiveRoomSessionChat } = await import("@/lib/chat/services/archiveRoomSessionChat")
-        await archiveRoomSessionChat(supabase, result.session_id)
-      } catch { /* fire-and-forget */ }
-    })()
+    //   R40-fix (Agent H5): RPC 가 chat_closed=true 반환한 경우 이미 처리됨 · 이중 호출 skip.
+    //   RPC out-of-sync 환경 (chat_closed=false or undefined) 에만 fallback 실행.
+    if (!result.chat_closed) {
+      void (async () => {
+        try {
+          const { archiveRoomSessionChat } = await import("@/lib/chat/services/archiveRoomSessionChat")
+          await archiveRoomSessionChat(supabase, result.session_id)
+        } catch { /* fire-and-forget */ }
+      })()
+    }
 
     // R-auto-ops (2026-07-08): 손님 프로필 자동 생성/업데이트 (fire-and-forget).
     //   guest_note 있는 세션 → guest_profiles UPSERT + guest_visits INSERT.

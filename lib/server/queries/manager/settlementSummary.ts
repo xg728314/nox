@@ -272,8 +272,10 @@ export async function getManagerSettlementSummary(
     origin_store_uuid: string | null
     status: string
   }
-  // R38 (2026-09-09): Agent audit — session_id filter 누락 시 all-time 집계 → 「내 장부」 부풀림.
-  //   오늘 business_day 의 세션들 (sessionIds) 로만 좁힘.
+  // R38 (2026-09-09): session_id filter 로 오늘 매출만 (all-time 부풀림 fix).
+  // R38-fix (Agent H3 · 2026-09-09): sessionIds 도 IN 초과 방지. chunk 안에서 JS Set 으로 filter.
+  //   → membership × session 이중 chunk 방식 피하고 · membership chunk 만 유지 + client-side set filter.
+  const sessionIdSet = new Set(sessionIds)
   const participationsP = chunkedFetch<ParticipantAgg>(async (ids) => {
     if (sessionIds.length === 0) {
       return { data: [] as ParticipantAgg[], error: null }
@@ -282,9 +284,11 @@ export async function getManagerSettlementSummary(
       .from("session_participants")
       .select("membership_id, session_id, price_amount, manager_payout_amount, hostess_payout_amount, store_uuid, origin_store_uuid, status")
       .in("membership_id", ids)
-      .in("session_id", sessionIds)
       .is("deleted_at", null)
-    return { data: data as ParticipantAgg[] | null, error }
+    if (error || !data) return { data: data as ParticipantAgg[] | null, error }
+    // client-side session filter · URL 길이 초과 없이 안전
+    const filtered = (data as ParticipantAgg[]).filter(p => sessionIdSet.has(p.session_id))
+    return { data: filtered, error: null }
   })
 
   type PayoutStateRowFetch = {

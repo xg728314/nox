@@ -74,6 +74,9 @@ export async function autoTriggerBotReply(
       return await sendBotReplyIfAllowed(payload, "waiting_cancel", "understand_confirm", ctx)
     }
     // waiting_request
+    // R41-fix (Agent C1+C2):
+    //   C1 - waiting 실 값 payload._waiting 에 임베드 · client onConfirm 이 정확한 값 사용
+    //   C2 - auto_register_after_sec undefined · 모든 뷰어에서 3초 후 자동 발화 방지 (사용자 명시 확인 필수)
     const payload = composeUnderstandConfirm({
       eventType: waiting.is_choice ? "choice" : "waiting",
       hostessNames: [],
@@ -85,6 +88,15 @@ export async function autoTriggerBotReply(
         ...(waiting.tags.length > 0 ? [waiting.tags.join(" · ")] : []),
       ],
     })
+    payload.auto_register_after_sec = undefined   // C2: 자동 발화 금지
+    payload._waiting = {                          // C1: 실 파싱 값 임베드
+      category: waiting.category,
+      party_size: waiting.party_size,
+      room_count: waiting.room_count,
+      is_new_room: waiting.is_new_room,
+      seen_policy: waiting.seen_policy,
+      tags: waiting.tags,
+    }
     return await sendBotReplyIfAllowed(payload, "waiting_request", "understand_confirm", ctx)
   }
 

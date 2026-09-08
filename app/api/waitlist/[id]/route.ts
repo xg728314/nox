@@ -37,6 +37,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 })
       }
     }
+    // R38-fix (Agent H4): matched 에도 role guard · hostess/외부인 위조 방지.
+    //   원 요청 매장 or 매칭 매장의 owner/manager 만 · super_admin 예외.
+    if (b.status === "matched") {
+      if (auth.role !== "owner" && auth.role !== "manager" && !auth.is_super_admin) {
+        return NextResponse.json({ error: "ROLE_FORBIDDEN", message: "매칭은 사장/실장만" }, { status: 403 })
+      }
+      const targetStore = (b.matched_target_store_uuid && isValidUUID(b.matched_target_store_uuid))
+        ? b.matched_target_store_uuid : auth.store_uuid
+      // 매칭 매장이 본인 매장이거나 요청 매장 중 하나여야 · super_admin 예외
+      const isMyStore = targetStore === auth.store_uuid
+      const isRequesterStore = wlRow.store_uuid === auth.store_uuid
+      if (!isMyStore && !isRequesterStore && !auth.is_super_admin) {
+        return NextResponse.json({ error: "STORE_FORBIDDEN", message: "타 매장 대기 매칭 불가" }, { status: 403 })
+      }
+    }
 
     const patch: Record<string, unknown> = { status: b.status, updated_at: new Date().toISOString() }
     if (b.status === "matched") {

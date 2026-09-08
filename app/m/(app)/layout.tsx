@@ -99,15 +99,24 @@ function PermGate({ children }: { children: ReactNode }) {
   const router = useRouter()
 
   // R39-fix (Agent #6): render 전 preemptive block · 데이터 flash 방지
-  //   1프레임 데이터 노출 이슈 해소.
+  // R39-fix (Agent H6): permissions undefined 시 fail-closed · 게이트 우회 방지.
+  //   me 아직 로딩중 이면 통과 (isLoading 이 위에서 spinner 처리) · me 있는데 permissions 없으면 fail-closed.
   const permissions = me?.permissions
   let blocked = false
-  if (permissions && pathname) {
-    // 홈 /m 은 roster.view 필요 (Agent #8) · chat-only 실장은 못 들어감
-    if (pathname === "/m" && permissions[PERMS.ROSTER_VIEW] !== true) blocked = true
-    else {
-      const gated = PATH_PERMS.find(p => pathname.startsWith(p.prefix))
-      if (gated && permissions[gated.perm] !== true) blocked = true
+  if (pathname) {
+    // /m/me · /m/store (매장 상세) 는 항상 허용 (로그아웃·프로필 접근 필수)
+    const isAlwaysAllowed = pathname.startsWith("/m/me") || pathname === "/m/store"
+    if (!isAlwaysAllowed) {
+      if (permissions) {
+        if (pathname === "/m" && permissions[PERMS.ROSTER_VIEW] !== true) blocked = true
+        else {
+          const gated = PATH_PERMS.find(p => pathname.startsWith(p.prefix))
+          if (gated && permissions[gated.perm] !== true) blocked = true
+        }
+      } else if (me && !me.is_super_admin && me.role !== "owner") {
+        // me 조회는 됐는데 permissions 필드 없음 · 매니저·hostess 인 경우 → 우회 방지.
+        blocked = true
+      }
     }
   }
 

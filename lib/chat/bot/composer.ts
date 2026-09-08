@@ -32,6 +32,15 @@ export type UnderstandConfirmPayload = {
   auto_register_after_sec?: number       // 3 → N초 후 확인 없으면 자동 등록
   dispatch_id?: string                   // POST /pattern-dispatch/[id]/confirm 대상
   compressed?: boolean                   // 피크 시간대 → 상세 X · pill 만
+  // R41-fix (Agent C1): waiting_request 실 값 임베드 · onConfirm 이 하드코딩 아닌 실 값 사용.
+  _waiting?: {
+    category: "퍼블릭" | "하퍼" | "셔츠" | "any"
+    party_size: number
+    room_count: number
+    is_new_room: boolean
+    seen_policy: "unseen_only" | "any"
+    tags: string[]
+  }
 }
 
 export type PartialMissingPayload = {

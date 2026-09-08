@@ -422,24 +422,29 @@ function MessageBubble({ msg, myMembershipId, myStoreUuid, patternEnabled }: { m
               return
             }
             // waiting_request: title 이 「대기 요청으로 이해했어요」 이면 waitlist INSERT
+            // R41-fix (Agent C1): payload._waiting 에 임베드된 실 값 사용 · 하드코딩 제거.
             if (p.pattern === "understand_confirm" && p.title?.includes("대기 요청")) {
               try {
-                // fields 에서 category · 인원 · 방수 · seen_policy 추출
+                const w = (p as { _waiting?: {
+                  category: string; party_size: number; room_count: number;
+                  is_new_room: boolean; seen_policy: string; tags: string[]
+                } })._waiting
+                // fallback: _waiting 없으면 fields 에서 재추출 (구버전 payload 호환)
                 const fields = (p as { fields?: Array<{ label: string; value: string }> }).fields ?? []
-                const categoryField = fields.find(f => f.label === "종목")?.value ?? "any"
+                const categoryField = w?.category ?? fields.find(f => f.label === "종목")?.value ?? "any"
                 const partyMatch = fields.find(f => /인/.test(f.value))?.value.match(/(\d+)인/)
                 const roomMatch = fields.find(f => /방/.test(f.value))?.value.match(/(\d+)방/)
-                const seenPolicy = fields.some(f => f.value.includes("안본인원")) ? "unseen_only" : "any"
+                const category = (["퍼블릭","하퍼","셔츠","any"] as const).includes(categoryField as never) ? categoryField : "any"
                 await apiFetch("/api/waitlist", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    category: (["퍼블릭","하퍼","셔츠","any"] as const).includes(categoryField as never) ? categoryField : "any",
-                    party_size: partyMatch ? parseInt(partyMatch[1], 10) : 2,
-                    room_count: roomMatch ? parseInt(roomMatch[1], 10) : 1,
-                    is_new_room: true,
-                    seen_policy: seenPolicy,
-                    tags: [],
+                    category,
+                    party_size: w?.party_size ?? (partyMatch ? parseInt(partyMatch[1], 10) : 2),
+                    room_count: w?.room_count ?? (roomMatch ? parseInt(roomMatch[1], 10) : 1),
+                    is_new_room: w?.is_new_room ?? true,
+                    seen_policy: w?.seen_policy ?? "any",
+                    tags: w?.tags ?? [],
                     note: null,
                   }),
                 })
