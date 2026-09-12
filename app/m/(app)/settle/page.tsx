@@ -412,7 +412,8 @@ export default function SettlePage() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-extrabold tracking-tight text-[#2D2B26] flex items-center gap-1.5 flex-wrap">
-                        <span>{h.hostess_name}</span>
+                        {/* R43 (2026-09-12): 이름 fallback · provisional hostess 대응 */}
+                        <span>{h.hostess_name?.trim() || <span className="text-red-600">(이름 없음)</span>}</span>
                         <span className="text-[10px] font-bold text-[#A87D45]">
                           {h.tc_count ?? 0}타임
                         </span>

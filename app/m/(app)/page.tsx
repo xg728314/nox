@@ -467,7 +467,7 @@ export default function DispatchPage() {
         )}
         {/* R-waitlist (2026-09-04): 대기 board 진입 */}
         <Link
-          href="/waitlist"
+          href="/m/waitlist"
           className={cn(
             "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold no-underline inline-flex items-center gap-1.5",
             dark ? "bg-[#3a2e1a] border-[#7a5c30] text-[#F5D9A8]" : "bg-[#C49B61]/15 border-[#A87D45] text-[#8C6A3A]",
@@ -482,7 +482,7 @@ export default function DispatchPage() {
         </Link>
         {/* R-svc-calls (2026-09-04): 서비스 콜 대시보드 진입 */}
         <Link
-          href="/service"
+          href="/m/service"
           className={cn(
             "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold no-underline inline-flex items-center gap-1.5",
             svcCount > 0
@@ -499,6 +499,8 @@ export default function DispatchPage() {
         </Link>
         <Link
           href="/operating-days"
+          target="_blank"
+          rel="noopener noreferrer"
           className={cn(
             "shrink-0 rounded-xl border px-3 py-1.5 text-[11px] font-extrabold no-underline",
             dark ? "bg-[#3d1c1f] border-[#6a2b32] text-[#F5A0A8]" : "bg-red-50 border-red-300 text-red-700",

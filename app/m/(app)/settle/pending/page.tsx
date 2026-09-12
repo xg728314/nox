@@ -148,7 +148,8 @@ export default function SettlePendingPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-[13px] font-extrabold tracking-tight truncate">
-                            {h.hostess_name}
+                            {/* R43 (2026-09-12): 이름 fallback · provisional hostess 는 name 이 비었음 */}
+                            {h.hostess_name?.trim() || <span className="text-red-600">(이름 없음 · 클릭해서 등록)</span>}
                             <span className="ml-1.5 text-[10px] font-bold text-[#A87D45]">
                               {h.tc_count ?? 0}타임
                             </span>
